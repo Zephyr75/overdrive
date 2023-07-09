@@ -18,7 +18,7 @@ import (
 )
 
 const windowWidth = 800
-const windowHeight = 600
+const windowHeight = 800
 
 func init() {
 	// GLFW event handling must run on the main OS thread
@@ -101,6 +101,19 @@ func main() {
     -0.5,  0.5, -0.5,  0.0, 1.0,
   }
 
+  cubePositions := []mgl32.Vec3{
+    mgl32.Vec3{ 0.0,  0.0,  0.0}, 
+    mgl32.Vec3{ 2.0,  5.0, -15.0},
+    mgl32.Vec3{-1.5,  5.0, -2.5},
+    mgl32.Vec3{-3.8,  2.0, -12.3},
+    mgl32.Vec3{ 2.4,  0.4, -3.5},
+    mgl32.Vec3{-1.7,  3.0, -7.5},
+    mgl32.Vec3{ 1.3, -2.0, -2.5},
+    mgl32.Vec3{ 1.5,  2.0, -2.5},
+    mgl32.Vec3{ 1.5,  0.2, -1.5},
+    mgl32.Vec3{-1.3,  1.0, -1.5},
+  }
+
   // indices := []uint32{
   //   0, 1, 3,
   //   1, 2, 3,
@@ -180,7 +193,7 @@ func main() {
     // vertexColorLocation := gl.GetUniformLocation(program, gl.Str("ourColor\x00"))
     // gl.Uniform4f(vertexColorLocation, 0.0, greenValue, 0.0, 1.0)
 
-
+    gl.BindVertexArray(VAO)
 
 
 
@@ -195,20 +208,27 @@ func main() {
     projectionLoc := gl.GetUniformLocation(program, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
-    model := mgl32.HomogRotate3D(float32(glfw.GetTime()) * mgl32.DegToRad(-55.0), mgl32.Vec3{0.5, 1.0, 0.0})
-    modelLoc := gl.GetUniformLocation(program, gl.Str("model\x00"))
-    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
+    for i := 0; i < len(cubePositions); i++ {
+      model := mgl32.Translate3D(cubePositions[i][0], cubePositions[i][1], cubePositions[i][2])
+      model = model.Mul4(mgl32.HomogRotate3D(float32(glfw.GetTime()) * mgl32.DegToRad(float32(i) * 20.0), mgl32.Vec3{1.0, 0.3, 0.5}))
+      modelLoc := gl.GetUniformLocation(program, gl.Str("model\x00"))
+      gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+      gl.DrawArrays(gl.TRIANGLES, 0, 36)
+    }
+
+    // model := mgl32.HomogRotate3D(float32(glfw.GetTime()) * mgl32.DegToRad(-55.0), mgl32.Vec3{0.5, 1.0, 0.0})
+    // modelLoc := gl.GetUniformLocation(program, gl.Str("model\x00"))
+    // gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
 
 
 
 
 
 
-    gl.BindVertexArray(VAO)
 
-    // gl.ActiveTexture(gl.TEXTURE0)
 
-    gl.DrawArrays(gl.TRIANGLES, 0, 36)
+    // gl.DrawArrays(gl.TRIANGLES, 0, 36)
     // gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_INT, gl.PtrOffset(0))
 
 
