@@ -13,7 +13,7 @@ import (
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
-	// "github.com/go-gl/mathgl/mgl32"
+	"github.com/go-gl/mathgl/mgl32"
   // "math"
 )
 
@@ -46,19 +46,65 @@ func main() {
 
 
 
+  // vertices := []float32{
+  //   // positions       // colors        // texture coords
+  //    0.5,  0.5, 0.0,   1.0, 0.0, 0.0,   1.0, 1.0,   // top right
+  //    0.5, -0.5, 0.0,   0.0, 1.0, 0.0,   1.0, 0.0,   // bottom right
+  //   -0.5, -0.5, 0.0,   0.0, 0.0, 1.0,   0.0, 0.0,   // bottom left
+  //   -0.5,  0.5, 0.0,   1.0, 1.0, 0.0,   0.0, 1.0,    // top left 
+
+  // }
+
+  gl.Enable(gl.DEPTH_TEST)
+
   vertices := []float32{
-    // positions       // colors        // texture coords
-     0.5,  0.5, 0.0,   1.0, 0.0, 0.0,   1.0, 1.0,   // top right
-     0.5, -0.5, 0.0,   0.0, 1.0, 0.0,   1.0, 0.0,   // bottom right
-    -0.5, -0.5, 0.0,   0.0, 0.0, 1.0,   0.0, 0.0,   // bottom left
-    -0.5,  0.5, 0.0,   1.0, 1.0, 0.0,   0.0, 1.0,    // top left 
+    -0.5, -0.5, -0.5,  0.0, 0.0,
+     0.5, -0.5, -0.5,  1.0, 0.0,
+     0.5,  0.5, -0.5,  1.0, 1.0,
+     0.5,  0.5, -0.5,  1.0, 1.0,
+    -0.5,  0.5, -0.5,  0.0, 1.0,
+    -0.5, -0.5, -0.5,  0.0, 0.0,
 
+    -0.5, -0.5,  0.5,  0.0, 0.0,
+     0.5, -0.5,  0.5,  1.0, 0.0,
+     0.5,  0.5,  0.5,  1.0, 1.0,
+     0.5,  0.5,  0.5,  1.0, 1.0,
+    -0.5,  0.5,  0.5,  0.0, 1.0,
+    -0.5, -0.5,  0.5,  0.0, 0.0,
+
+    -0.5,  0.5,  0.5,  1.0, 0.0,
+    -0.5,  0.5, -0.5,  1.0, 1.0,
+    -0.5, -0.5, -0.5,  0.0, 1.0,
+    -0.5, -0.5, -0.5,  0.0, 1.0,
+    -0.5, -0.5,  0.5,  0.0, 0.0,
+    -0.5,  0.5,  0.5,  1.0, 0.0,
+
+     0.5,  0.5,  0.5,  1.0, 0.0,
+     0.5,  0.5, -0.5,  1.0, 1.0,
+     0.5, -0.5, -0.5,  0.0, 1.0,
+     0.5, -0.5, -0.5,  0.0, 1.0,
+     0.5, -0.5,  0.5,  0.0, 0.0,
+     0.5,  0.5,  0.5,  1.0, 0.0,
+
+    -0.5, -0.5, -0.5,  0.0, 1.0,
+     0.5, -0.5, -0.5,  1.0, 1.0,
+     0.5, -0.5,  0.5,  1.0, 0.0,
+     0.5, -0.5,  0.5,  1.0, 0.0,
+    -0.5, -0.5,  0.5,  0.0, 0.0,
+    -0.5, -0.5, -0.5,  0.0, 1.0,
+
+    -0.5,  0.5, -0.5,  0.0, 1.0,
+     0.5,  0.5, -0.5,  1.0, 1.0,
+     0.5,  0.5,  0.5,  1.0, 0.0,
+     0.5,  0.5,  0.5,  1.0, 0.0,
+    -0.5,  0.5,  0.5,  0.0, 0.0,
+    -0.5,  0.5, -0.5,  0.0, 1.0,
   }
 
-  indices := []uint32{
-    0, 1, 3,
-    1, 2, 3,
-  }
+  // indices := []uint32{
+  //   0, 1, 3,
+  //   1, 2, 3,
+  // }
 
 
   vertexShaderFile, err := os.ReadFile("shaders/vert.glsl")
@@ -82,32 +128,32 @@ func main() {
 
   var VAO uint32
   var VBO uint32
-  var EBO uint32
+  // var EBO uint32
   gl.GenVertexArrays(1, &VAO)
   gl.GenBuffers(1, &VBO)
-  gl.GenBuffers(1, &EBO)
+  // gl.GenBuffers(1, &EBO)
 
   gl.BindVertexArray(VAO)
 
   gl.BindBuffer(gl.ARRAY_BUFFER, VBO)
   gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)
 
-  gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)
-  gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
+  // gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)
+  // gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
   
-  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
+  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 5*4, gl.PtrOffset(0))
   gl.EnableVertexAttribArray(0)
 
-  gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(3*4))
+  gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 5*4, gl.PtrOffset(3*4))
   gl.EnableVertexAttribArray(1)
 
-  gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, gl.PtrOffset(6*4))
-  gl.EnableVertexAttribArray(2)
+  // gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 6*4, gl.PtrOffset(6*4))
+  // gl.EnableVertexAttribArray(2)
   
 
 
-  
+  // 
   gl.BindBuffer(gl.ARRAY_BUFFER, 0)
   gl.BindVertexArray(0)
 
@@ -122,7 +168,7 @@ func main() {
     processInput(window)
 
     gl.ClearColor(0.2, 0.3, 0.3, 1.0)
-    gl.Clear(gl.COLOR_BUFFER_BIT)
+    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
     
     gl.BindTexture(gl.TEXTURE_2D, texture)
 
@@ -134,12 +180,36 @@ func main() {
     // vertexColorLocation := gl.GetUniformLocation(program, gl.Str("ourColor\x00"))
     // gl.Uniform4f(vertexColorLocation, 0.0, greenValue, 0.0, 1.0)
 
+
+
+
+
+
+
+    view := mgl32.Translate3D(0.0, 0.0, -3.0)
+    viewLoc := gl.GetUniformLocation(program, gl.Str("view\x00"))
+    gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
+
+
+    projection := mgl32.Perspective(mgl32.DegToRad(45.0), float32(windowWidth)/float32(windowHeight), 0.1, 100.0)
+    projectionLoc := gl.GetUniformLocation(program, gl.Str("projection\x00"))
+    gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
+
+    model := mgl32.HomogRotate3D(float32(glfw.GetTime()) * mgl32.DegToRad(-55.0), mgl32.Vec3{0.5, 1.0, 0.0})
+    modelLoc := gl.GetUniformLocation(program, gl.Str("model\x00"))
+    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
+
+
+
+
+
     gl.BindVertexArray(VAO)
 
     // gl.ActiveTexture(gl.TEXTURE0)
 
-    // gl.DrawArrays(gl.TRIANGLES, 0, 3)
-    gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_INT, gl.PtrOffset(0))
+    gl.DrawArrays(gl.TRIANGLES, 0, 36)
+    // gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_INT, gl.PtrOffset(0))
 
 
     window.SwapBuffers()
