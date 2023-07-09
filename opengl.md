@@ -75,7 +75,7 @@ if window.GetKey(glfw.KeyEscape) == glfw.Press {
 
 `gl.GenBuffers(1, &VBO)` set alias for buffer
 
-`gl.BindBuffer(gl.ARRAY_BUFFER, VBO)` set buffer type
+`gl.BindBuffer(gl.ARRAY_BUFFER, VBO)` link buffer to ARRAY_BUFFER commands
 
 `gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)` set buffer structure
 
@@ -113,18 +113,15 @@ if window.GetKey(glfw.KeyEscape) == glfw.Press {
 
 ## Interpret buffer data
 
-`gl.GetAttribLocation(program, gl.Str("vert\x00"))` get matching part of program
+gl.EnableVertexAttribArray(0)
 
-`gl.EnableVertexAttribArray(vertAttrib)` enable vertex attribute
-
+gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))
 TODO: describe parameters
 
-`gl.VertexAttribPointerWithOffset(vertAttrib, 3, gl.FLOAT, false, 5*4, 0)` 
 
 ```go
-vertAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vert\x00")))
-gl.EnableVertexAttribArray(vertAttrib)
-gl.VertexAttribPointerWithOffset(vertAttrib, 3, gl.FLOAT, false, 5*4, 0)
+gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))
+gl.EnableVertexAttribArray(0)
 ```
 
 ## Store buffer config : VAO
@@ -134,6 +131,21 @@ gl.GenVertexArrays(1, &VAO)
 gl.BindVertexArray(VAO)
 
 ## Storing triangles : EBO
+
+gl.GenBuffers(1, &EBO)
+gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)
+gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
+
+## Load texture
+
+`gl.GenTextures(1, &texture)` set alias for texture
+
+gl.BindTexture(gl.TEXTURE_2D, texture) 
+
+gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+
+gl.TexImage2D()
+
 
 
 

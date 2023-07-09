@@ -3,17 +3,18 @@ package main
 import (
 	"fmt"
 	// "go/build"
-	// "image"
-	// "image/draw"
+	"image"
+	"image/draw"
 	_ "image/png"
 	// "log"
-	// "os"
+	"os"
 	"runtime"
 	"strings"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	// "github.com/go-gl/mathgl/mgl32"
+  // "math"
 )
 
 const windowWidth = 800
@@ -46,10 +47,12 @@ func main() {
 
 
   vertices := []float32{
-    0.5, 0.5, 0.0, // top right
-    0.5, -0.5, 0.0, // bottom right
-    -0.5, -0.5, 0.0, // bottom left
-    -0.5, 0.5, 0.0, //top left
+    // positions       // colors       // texture coords
+     0.5,  0.5, 0.0,   1.0, 0.0, 0.0,//   1.0, 1.0,   // top right
+     0.5, -0.5, 0.0,   0.0, 1.0, 0.0,//   1.0, 0.0,   // bottom right
+    -0.5, -0.5, 0.0,   0.0, 0.0, 1.0,//   0.0, 0.0,   // bottom left
+    -0.5,  0.5, 0.0,   1.0, 1.0, 0.0,//   0.0, 1.0,    // top left 
+
   }
 
   indices := []uint32{
@@ -58,26 +61,17 @@ func main() {
   }
 
 
-  var vertexShaderSource = `
-    #version 330 core
-    layout (location = 0) in vec3 aPos;
-    void main()
-    {
-      gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
-    }
-  ` + "\x00"
+  vertexShaderFile, err := os.ReadFile("shaders/vert.glsl")
+  if err != nil {
+    panic(err)
+  }
+  vertexShaderSource := string(vertexShaderFile) + "\x00"
 
-  var fragmentShaderSource = `
-    #version 330 core
-    out vec4 FragColor;
-
-    void main()
-    {
-        FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);
-    } 
-
-  ` + "\x00"
-
+  fragmentShaderFile, err := os.ReadFile("shaders/frag.glsl")
+  if err != nil {
+    panic(err)
+  }
+  fragmentShaderSource := string(fragmentShaderFile) + "\x00"
   program, err := createProgram(vertexShaderSource, fragmentShaderSource)
   if err != nil {
     panic(err)
@@ -101,8 +95,17 @@ func main() {
   gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)
   gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
-  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))
+  
+  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 6*4, gl.PtrOffset(0))
   gl.EnableVertexAttribArray(0)
+
+  gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 6*4, gl.PtrOffset(3*4))
+  gl.EnableVertexAttribArray(1)
+
+  // gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, gl.PtrOffset(6*4))
+  // gl.EnableVertexAttribArray(2)
+  
+
 
   
   gl.BindBuffer(gl.ARRAY_BUFFER, 0)
@@ -110,6 +113,7 @@ func main() {
 
 
 
+  texture, err := newTexture("textures/cube.png")
 
 
  
@@ -120,11 +124,20 @@ func main() {
     gl.ClearColor(0.2, 0.3, 0.3, 1.0)
     gl.Clear(gl.COLOR_BUFFER_BIT)
     
+    gl.BindTexture(gl.TEXTURE_2D, texture)
 
-
-
+    
     gl.UseProgram(program)
+    
+    // timeValue := glfw.GetTime()
+    // var greenValue float32 = float32((math.Sin(timeValue) / 2.0) + 0.5)
+    // vertexColorLocation := gl.GetUniformLocation(program, gl.Str("ourColor\x00"))
+    // gl.Uniform4f(vertexColorLocation, 0.0, greenValue, 0.0, 1.0)
+
     gl.BindVertexArray(VAO)
+
+    // gl.ActiveTexture(gl.TEXTURE0)
+
     // gl.DrawArrays(gl.TRIANGLES, 0, 3)
     gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_INT, gl.PtrOffset(0))
 
@@ -197,4 +210,45 @@ func createProgram(vertexShaderSource, fragmentShaderSource string) (uint32, err
 	gl.DeleteShader(fragmentShader)
 
 	return program, nil
+}
+
+func newTexture(file string) (uint32, error) {
+	imgFile, err := os.Open(file)
+	if err != nil {
+		return 0, fmt.Errorf("texture %q not found on disk: %v", file, err)
+	}
+	img, _, err := image.Decode(imgFile)
+	if err != nil {
+		return 0, err
+	}
+
+	rgba := image.NewRGBA(img.Bounds())
+	if rgba.Stride != rgba.Rect.Size().X*4 {
+		return 0, fmt.Errorf("unsupported stride")
+	}
+	draw.Draw(rgba, rgba.Bounds(), img, image.Point{0, 0}, draw.Src)
+
+	var texture uint32
+	gl.GenTextures(1, &texture)
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, texture)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TexImage2D(
+		gl.TEXTURE_2D,
+		0,
+		gl.RGBA,
+		int32(rgba.Rect.Size().X),
+		int32(rgba.Rect.Size().Y),
+		0,
+		gl.RGBA,
+		gl.UNSIGNED_BYTE,
+		gl.Ptr(rgba.Pix),
+  )
+
+  // gl.GenerateMipmap(gl.TEXTURE_2D)
+
+	return texture, nil
 }
