@@ -46,9 +46,15 @@ func main() {
 
 
   vertices := []float32{
-    -0.5, -0.5, 0.0, // left
-    0.5, -0.5, 0.0, // right
-    0.0,  0.5, 0.0,  // top
+    0.5, 0.5, 0.0, // top right
+    0.5, -0.5, 0.0, // bottom right
+    -0.5, -0.5, 0.0, // bottom left
+    -0.5, 0.5, 0.0, //top left
+  }
+
+  indices := []uint32{
+    0, 1, 3,
+    1, 2, 3,
   }
 
 
@@ -82,11 +88,18 @@ func main() {
 
   var VAO uint32
   var VBO uint32
+  var EBO uint32
   gl.GenVertexArrays(1, &VAO)
   gl.GenBuffers(1, &VBO)
+  gl.GenBuffers(1, &EBO)
+
   gl.BindVertexArray(VAO)
+
   gl.BindBuffer(gl.ARRAY_BUFFER, VBO)
   gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)
+
+  gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)
+  gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
   gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))
   gl.EnableVertexAttribArray(0)
@@ -112,7 +125,8 @@ func main() {
 
     gl.UseProgram(program)
     gl.BindVertexArray(VAO)
-    gl.DrawArrays(gl.TRIANGLES, 0, 3)
+    // gl.DrawArrays(gl.TRIANGLES, 0, 3)
+    gl.DrawElements(gl.TRIANGLES, 6, gl.UNSIGNED_INT, gl.PtrOffset(0))
 
 
     window.SwapBuffers()

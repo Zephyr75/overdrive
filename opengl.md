@@ -67,7 +67,7 @@ if window.GetKey(glfw.KeyEscape) == glfw.Press {
 
 `gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)` clear buffer
 
-## Storing vertices
+## Storing vertices : VBO
 
 > Vertex Buffer Object stores vertices
 
@@ -127,11 +127,13 @@ gl.EnableVertexAttribArray(vertAttrib)
 gl.VertexAttribPointerWithOffset(vertAttrib, 3, gl.FLOAT, false, 5*4, 0)
 ```
 
-## Store buffer config
+## Store buffer config : VAO
 
 gl.GenVertexArrays(1, &VAO)
 
 gl.BindVertexArray(VAO)
+
+## Storing triangles : EBO
 
 
 
