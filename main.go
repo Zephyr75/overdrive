@@ -47,11 +47,11 @@ func main() {
 
 
   vertices := []float32{
-    // positions       // colors       // texture coords
-     0.5,  0.5, 0.0,   1.0, 0.0, 0.0,//   1.0, 1.0,   // top right
-     0.5, -0.5, 0.0,   0.0, 1.0, 0.0,//   1.0, 0.0,   // bottom right
-    -0.5, -0.5, 0.0,   0.0, 0.0, 1.0,//   0.0, 0.0,   // bottom left
-    -0.5,  0.5, 0.0,   1.0, 1.0, 0.0,//   0.0, 1.0,    // top left 
+    // positions       // colors        // texture coords
+     0.5,  0.5, 0.0,   1.0, 0.0, 0.0,   1.0, 1.0,   // top right
+     0.5, -0.5, 0.0,   0.0, 1.0, 0.0,   1.0, 0.0,   // bottom right
+    -0.5, -0.5, 0.0,   0.0, 0.0, 1.0,   0.0, 0.0,   // bottom left
+    -0.5,  0.5, 0.0,   1.0, 1.0, 0.0,   0.0, 1.0,    // top left 
 
   }
 
@@ -96,14 +96,14 @@ func main() {
   gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
   
-  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 6*4, gl.PtrOffset(0))
+  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
   gl.EnableVertexAttribArray(0)
 
-  gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 6*4, gl.PtrOffset(3*4))
+  gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(3*4))
   gl.EnableVertexAttribArray(1)
 
-  // gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, gl.PtrOffset(6*4))
-  // gl.EnableVertexAttribArray(2)
+  gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, gl.PtrOffset(6*4))
+  gl.EnableVertexAttribArray(2)
   
 
 
@@ -113,7 +113,7 @@ func main() {
 
 
 
-  texture, err := newTexture("textures/cube.png")
+  texture, err := newTexture("textures/square.png")
 
 
  
