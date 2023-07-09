@@ -64,8 +64,74 @@ if window.GetKey(glfw.KeyEscape) == glfw.Press {
 ## Generic
 
 `gl.ClearColor(0.2, 0.3, 0.3, 1.0)` set background color
+
 `gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)` clear buffer
 
+## Storing vertices
+
+> Vertex Buffer Object stores vertices
+
+`var VBO uint32` declare buffer
+
+`gl.GenBuffers(1, &VBO)` set alias for buffer
+
+`gl.BindBuffer(gl.ARRAY_BUFFER, VBO)` set buffer type
+
+`gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)` set buffer structure
+
+## Shader
+
+ var vertexShaderSource = `
+    #version 410 core
+    layout (location = 0) in vec3 aPos;
+    void main()
+    {
+      gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
+    }
+`
+`gl.CreateShader(shaderType)` create shader
+
+`gl.ShaderSource(shader, 1, csources, nil)` set shader source code
+
+`gl.CompileShader(shader)` compile shader
+
+`gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)` get shader information
+
+## Program
+
+`gl.CreateProgram()` create program
+
+`gl.AttachShader(program, vertexShader)` assign shader to program
+
+`gl.LinkProgram(program)` link program shaders together
+
+`gl.UseProgram()` use program
+
+`gl.GetProgramiv(program, gl.LINK_STATUS, &status)` get program information
+
+`gl.DeleteShader(vertexShader)` delete shader once linked
+
+## Interpret buffer data
+
+`gl.GetAttribLocation(program, gl.Str("vert\x00"))` get matching part of program
+
+`gl.EnableVertexAttribArray(vertAttrib)` enable vertex attribute
+
+TODO: describe parameters
+
+`gl.VertexAttribPointerWithOffset(vertAttrib, 3, gl.FLOAT, false, 5*4, 0)` 
+
+```go
+vertAttrib := uint32(gl.GetAttribLocation(program, gl.Str("vert\x00")))
+gl.EnableVertexAttribArray(vertAttrib)
+gl.VertexAttribPointerWithOffset(vertAttrib, 3, gl.FLOAT, false, 5*4, 0)
+```
+
+## Store buffer config
+
+gl.GenVertexArrays(1, &VAO)
+
+gl.BindVertexArray(VAO)
 
 
 
