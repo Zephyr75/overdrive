@@ -20,6 +20,16 @@ import (
 const windowWidth = 800
 const windowHeight = 800
 
+
+var (
+  cameraPos mgl32.Vec3 = mgl32.Vec3{0.0, 0.0, 3.0}
+  cameraFront mgl32.Vec3 = mgl32.Vec3{0.0, 0.0, -1.0}
+  cameraUp mgl32.Vec3 = mgl32.Vec3{0.0, 1.0, 0.0}
+)
+
+
+
+
 func init() {
 	// GLFW event handling must run on the main OS thread
 	runtime.LockOSThread()
@@ -118,6 +128,9 @@ func main() {
   //   0, 1, 3,
   //   1, 2, 3,
   // }
+
+
+
 
 
   vertexShaderFile, err := os.ReadFile("shaders/vert.glsl")
@@ -242,6 +255,20 @@ func processInput(window *glfw.Window) {
   if window.GetKey(glfw.KeyEscape) == glfw.Press {
     window.SetShouldClose(true)
   }
+  const cameraSpeed = 0.05
+  if window.GetKey(glfw.KeyW) == glfw.Press {
+    cameraPos = cameraPos.Add(cameraFront.Mul(cameraSpeed))
+  }
+  if window.GetKey(glfw.KeyS) == glfw.Press {
+    cameraPos = cameraPos.Sub(cameraFront.Mul(cameraSpeed))
+  }
+  if window.GetKey(glfw.KeyA) == glfw.Press {
+    cameraPos = cameraPos.Sub((cameraFront.Cross(cameraUp).Normalize()).Mul(cameraSpeed))
+  }
+  if window.GetKey(glfw.KeyD) == glfw.Press {
+    cameraPos = cameraPos.Add((cameraFront.Cross(cameraUp).Normalize()).Mul(cameraSpeed))
+  }
+
 }
 
 func createShader(source string, shaderType uint32) (uint32, error) {
@@ -342,3 +369,4 @@ func newTexture(file string) (uint32, error) {
 
 	return texture, nil
 }
+
