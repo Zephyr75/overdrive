@@ -15,13 +15,15 @@ import (
 
 var (
   firstMouse bool = true
-  lastX float64 = settings.WindowWidth / 2.0
-  lastY float64 = settings.WindowHeight / 2.0
+  lastX float64 = float64(settings.WindowWidth) / 2.0
+  lastY float64 = float64(settings.WindowHeight) / 2.0
 )
 
 
 func FramebufferSizeCallback(window *glfw.Window, width int, height int) {
   gl.Viewport(0, 0, int32(width), int32(height))
+  settings.WindowWidth = width
+  settings.WindowHeight = height
 }
 
 func MouseCallback(window *glfw.Window, xPos, yPos float64) {

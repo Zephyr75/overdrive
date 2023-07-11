@@ -1,5 +1,6 @@
 package settings
 
-
-const WindowWidth = 800
-const WindowHeight = 800
+var (
+  WindowWidth int = 800
+  WindowHeight int = 800
+)
