@@ -1,10 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"image"
-	"image/draw"
-	_ "image/png"
 	"os"
 	"runtime"
 
@@ -12,10 +8,11 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 
-  "overdrive/callback"
+  "overdrive/input"
 
   "overdrive/settings"
   "overdrive/opengl"
+  "overdrive/scene"
 )
 
 
@@ -53,9 +50,9 @@ func main() {
   window.MakeContextCurrent()
 
   // CALLBACKS
-  window.SetFramebufferSizeCallback(callback.FramebufferSizeCallback)
-  window.SetCursorPosCallback(callback.MouseCallback)
-  window.SetScrollCallback(callback.ScrollCallback)
+  window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
+  window.SetCursorPosCallback(input.MouseCallback)
+  window.SetScrollCallback(input.ScrollCallback)
 
   // CAPTURE MOUSE
   window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
@@ -157,13 +154,13 @@ func main() {
 
 
   // DECLARE TEXTURES
-  texture, err := createTexture("textures/square.png")
+  texture, err := opengl.CreateTexture("textures/square.png")
 
  
   // FULL WINDOW LIFECYCLE
   lastFrame := 0.0
   for !window.ShouldClose() {
-    callback.ProcessInput(window, deltaTime)
+    input.ProcessInput(window, deltaTime)
 
     gl.ClearColor(0.2, 0.3, 0.3, 1.0)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
@@ -181,12 +178,12 @@ func main() {
 
 
 
-    view := mgl32.LookAtV(opengl.CameraPos, opengl.CameraPos.Add(opengl.CameraFront), opengl.CameraUp)
+    view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
     viewLoc := gl.GetUniformLocation(program, gl.Str("view\x00"))
     gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
 
 
-    projection := mgl32.Perspective(mgl32.DegToRad(opengl.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+    projection := mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
     projectionLoc := gl.GetUniformLocation(program, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
@@ -206,45 +203,4 @@ func main() {
     glfw.PollEvents()
   }
 
-}
-
-func createTexture(file string) (uint32, error) {
-	imgFile, err := os.Open(file)
-	if err != nil {
-		return 0, fmt.Errorf("texture %q not found on disk: %v", file, err)
-	}
-	img, _, err := image.Decode(imgFile)
-	if err != nil {
-		return 0, err
-	}
-
-	rgba := image.NewRGBA(img.Bounds())
-	if rgba.Stride != rgba.Rect.Size().X*4 {
-		return 0, fmt.Errorf("unsupported stride")
-	}
-	draw.Draw(rgba, rgba.Bounds(), img, image.Point{0, 0}, draw.Src)
-
-	var texture uint32
-	gl.GenTextures(1, &texture)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, texture)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.TexImage2D(
-		gl.TEXTURE_2D,
-		0,
-		gl.RGBA,
-		int32(rgba.Rect.Size().X),
-		int32(rgba.Rect.Size().Y),
-		0,
-		gl.RGBA,
-		gl.UNSIGNED_BYTE,
-		gl.Ptr(rgba.Pix),
-  )
-
-  // gl.GenerateMipmap(gl.TEXTURE_2D)
-
-	return texture, nil
 }

@@ -1,4 +1,4 @@
-package callback
+package input
 
 import (
 	_ "image/png"
@@ -10,7 +10,7 @@ import (
 
   "overdrive/settings"
 
-  "overdrive/opengl"
+  "overdrive/scene"
 )
 
 var (
@@ -37,29 +37,29 @@ func MouseCallback(window *glfw.Window, xPos, yPos float64) {
   sensitivity := 0.1
   xOffset *= sensitivity
   yOffset *= sensitivity
-  opengl.Yaw += float32(xOffset)
-  opengl.Pitch += float32(yOffset)
-  if opengl.Pitch > 89.0 {
-    opengl.Pitch = 89.0
+  scene.Cam.Yaw += float32(xOffset)
+  scene.Cam.Pitch += float32(yOffset)
+  if scene.Cam.Pitch > 89.0 {
+    scene.Cam.Pitch = 89.0
   }
-  if opengl.Pitch < -89.0 {
-    opengl.Pitch = -89.0
+  if scene.Cam.Pitch < -89.0 {
+    scene.Cam.Pitch = -89.0
   }
   var direction mgl32.Vec3
-  direction[0] = float32(math.Cos(float64(mgl32.DegToRad(opengl.Pitch))) * math.Cos(float64(mgl32.DegToRad(opengl.Yaw))))
-  direction[1] = float32(math.Sin(float64(mgl32.DegToRad(opengl.Pitch))))
-  direction[2] = float32(math.Cos(float64(mgl32.DegToRad(opengl.Pitch))) * math.Sin(float64(mgl32.DegToRad(opengl.Yaw))))
-  opengl.CameraFront = direction.Normalize()
+  direction[0] = float32(math.Cos(float64(mgl32.DegToRad(scene.Cam.Pitch))) * math.Cos(float64(mgl32.DegToRad(scene.Cam.Yaw))))
+  direction[1] = float32(math.Sin(float64(mgl32.DegToRad(scene.Cam.Pitch))))
+  direction[2] = float32(math.Cos(float64(mgl32.DegToRad(scene.Cam.Pitch))) * math.Sin(float64(mgl32.DegToRad(scene.Cam.Yaw))))
+  scene.Cam.Front = direction.Normalize()
 
 }
 
 func ScrollCallback(window *glfw.Window, xOffset, yOffset float64) {
-  opengl.Fov -= float32(yOffset) 
-  if opengl.Fov < 1.0 {
-    opengl.Fov = 1.0
+  scene.Cam.Fov -= float32(yOffset) 
+  if scene.Cam.Fov < 1.0 {
+    scene.Cam.Fov = 1.0
   }
-  if opengl.Fov > 90.0 {
-    opengl.Fov = 90.0
+  if scene.Cam.Fov > 90.0 {
+    scene.Cam.Fov = 90.0
   }
 
 }
