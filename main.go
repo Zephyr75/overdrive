@@ -16,18 +16,6 @@ import (
 )
 
 
-
-var (
-
-  deltaTime float32 = 0.0
-
-
-
-)
-
-
-
-
 func init() {
 	// GLFW event handling must run on the main OS thread
 	runtime.LockOSThread()
@@ -159,6 +147,7 @@ func main() {
  
   // FULL WINDOW LIFECYCLE
   lastFrame := 0.0
+  var deltaTime float32 = 0.0
   for !window.ShouldClose() {
     input.ProcessInput(window, deltaTime)
 
