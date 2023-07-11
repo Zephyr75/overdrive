@@ -14,7 +14,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
-  // "math"
+  "math"
 )
 
 const windowWidth = 800
@@ -25,6 +25,17 @@ var (
   cameraPos mgl32.Vec3 = mgl32.Vec3{0.0, 0.0, 3.0}
   cameraFront mgl32.Vec3 = mgl32.Vec3{0.0, 0.0, -1.0}
   cameraUp mgl32.Vec3 = mgl32.Vec3{0.0, 1.0, 0.0}
+
+  deltaTime float32 = 0.0
+
+  yaw float32 = -90.0
+  pitch float32 = 0.0
+  fov float32 = 45.0
+
+
+  firstMouse bool = true
+  lastX float64 = windowWidth / 2.0
+  lastY float64 = windowHeight / 2.0
 )
 
 
@@ -50,6 +61,16 @@ func main() {
       glfw.Terminate()
   }
   window.MakeContextCurrent()
+
+  // CALLBACKS
+  window.SetFramebufferSizeCallback(framebufferSizeCallback)
+  window.SetCursorPosCallback(mouseCallback)
+  window.SetScrollCallback(scrollCallback)
+
+
+
+
+  window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
   // OPENGL SETUP
   gl.Init()
@@ -188,6 +209,11 @@ func main() {
   texture, err := newTexture("textures/square.png")
 
 
+  lastFrame := 0.0
+
+
+
+
  
   // FULL WINDOW LIFECYCLE
   for !window.ShouldClose() {
@@ -208,16 +234,19 @@ func main() {
 
     gl.BindVertexArray(VAO)
 
+    currentFrame := glfw.GetTime()
+    deltaTime = float32(currentFrame - lastFrame)
+    lastFrame = currentFrame
 
 
 
-
-    view := mgl32.Translate3D(0.0, 0.0, -3.0)
+    view := mgl32.LookAtV(cameraPos, cameraPos.Add(cameraFront), cameraUp)
+    // view := mgl32.Translate3D(0.0, 0.0, -3.0)
     viewLoc := gl.GetUniformLocation(program, gl.Str("view\x00"))
     gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
 
 
-    projection := mgl32.Perspective(mgl32.DegToRad(45.0), float32(windowWidth)/float32(windowHeight), 0.1, 100.0)
+    projection := mgl32.Perspective(mgl32.DegToRad(fov), float32(windowWidth)/float32(windowHeight), 0.1, 100.0)
     projectionLoc := gl.GetUniformLocation(program, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
@@ -255,7 +284,7 @@ func processInput(window *glfw.Window) {
   if window.GetKey(glfw.KeyEscape) == glfw.Press {
     window.SetShouldClose(true)
   }
-  const cameraSpeed = 0.05
+  var cameraSpeed float32 = 2.5 * deltaTime
   if window.GetKey(glfw.KeyW) == glfw.Press {
     cameraPos = cameraPos.Add(cameraFront.Mul(cameraSpeed))
   }
@@ -370,3 +399,46 @@ func newTexture(file string) (uint32, error) {
 	return texture, nil
 }
 
+func framebufferSizeCallback(window *glfw.Window, width int, height int) {
+  gl.Viewport(0, 0, int32(width), int32(height))
+}
+
+func mouseCallback(window *glfw.Window, xPos, yPos float64) {
+  if firstMouse {
+    lastX = xPos
+    lastY = yPos
+    firstMouse = false
+  }
+  xOffset := xPos - lastX
+  yOffset := lastY - yPos
+  lastX = xPos
+  lastY = yPos
+  sensitivity := 0.1
+  xOffset *= sensitivity
+  yOffset *= sensitivity
+  yaw += float32(xOffset)
+  pitch += float32(yOffset)
+  if pitch > 89.0 {
+    pitch = 89.0
+  }
+  if pitch < -89.0 {
+    pitch = -89.0
+  }
+  var direction mgl32.Vec3
+  direction[0] = float32(math.Cos(float64(mgl32.DegToRad(pitch))) * math.Cos(float64(mgl32.DegToRad(yaw))))
+  direction[1] = float32(math.Sin(float64(mgl32.DegToRad(pitch))))
+  direction[2] = float32(math.Cos(float64(mgl32.DegToRad(pitch))) * math.Sin(float64(mgl32.DegToRad(yaw))))
+  cameraFront = direction.Normalize()
+
+}
+
+func scrollCallback(window *glfw.Window, xOffset, yOffset float64) {
+  fov -= float32(yOffset) 
+  if fov < 1.0 {
+    fov = 1.0
+  }
+  if fov > 90.0 {
+    fov = 90.0
+  }
+
+}
