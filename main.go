@@ -49,35 +49,33 @@ func main() {
   gl.Init()
   gl.Enable(gl.DEPTH_TEST)
 
-
   vertices := []float32{
-    // positions        // texture coords
-     0.5,  0.5,  0.5,   1.0, 1.0, 
-     0.5, -0.5,  0.5,   1.0, 0.0,
-    -0.5, -0.5,  0.5,   0.0, 0.0,
-    -0.5,  0.5,  0.5,   0.0, 1.0, 
-     0.5,  0.5, -0.5,   0.0, 0.0, 
-     0.5, -0.5, -0.5,   0.0, 1.0,
-    -0.5, -0.5, -0.5,   1.0, 1.0,
-    -0.5,  0.5, -0.5,   1.0, 0.0, 
-
+    // positions         // normal          // texture coords
+     0.5,  0.5,  0.5,    1.0,  1.0,  1.0,   1.0, 1.0,
+     0.5, -0.5,  0.5,    1.0, -1.0,  1.0,   1.0, 0.0,
+    -0.5, -0.5,  0.5,   -1.0, -1.0,  1.0,   0.0, 0.0,
+    -0.5,  0.5,  0.5,   -1.0,  1.0,  1.0,   0.0, 1.0,
+     0.5,  0.5, -0.5,    1.0,  1.0, -1.0,   0.0, 0.0,
+     0.5, -0.5, -0.5,    1.0, -1.0, -1.0,   0.0, 1.0,
+    -0.5, -0.5, -0.5,   -1.0, -1.0, -1.0,   1.0, 1.0,
+    -0.5,  0.5, -0.5,   -1.0,  1.0, -1.0,   1.0, 0.0,
   }
 
-  cubePositions := []mgl32.Vec3{
-    { 0.0,  0.0,  0.0}, 
-    { 2.0,  5.0, -15.0},
-    {-1.5,  5.0, -2.5},
-    {-3.8,  2.0, -12.3},
-    { 2.4,  0.4, -3.5},
-  }
+  // cubePositions := []mgl32.Vec3{
+  //   { 0.0,  0.0,  0.0}, 
+  //   { 2.0,  5.0, -15.0},
+  //   {-1.5,  5.0, -2.5},
+  //   {-3.8,  2.0, -12.3},
+  //   { 2.4,  0.4, -3.5},
+  // }
 
-  lightPositions := []mgl32.Vec3{
-    {-1.7,  3.0, -7.5},
-    { 1.3, -2.0, -2.5},
-    { 1.5,  2.0, -2.5},
-    { 1.5,  0.2, -1.5},
-    {-1.3,  1.0, -1.5},
-  }
+  // lightPositions := []mgl32.Vec3{
+  //   {-1.7,  3.0, -7.5},
+  //   { 1.3, -2.0, -2.5},
+  //   { 1.5,  2.0, -2.5},
+  //   { 1.5,  0.2, -1.5},
+  //   {-1.3,  1.0, -1.5},
+  // }
 
   indices := []uint32{
     0, 1, 3,
@@ -149,10 +147,12 @@ func main() {
   gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
   // Define Vertex Attrib to be used by the shader
-  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 5*4, gl.PtrOffset(0))
+  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
   gl.EnableVertexAttribArray(0)
-  gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 5*4, gl.PtrOffset(3*4))
+  gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(3*4))
   gl.EnableVertexAttribArray(1)
+  gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, gl.PtrOffset(6*4))
+  gl.EnableVertexAttribArray(2)
   
   // Declare lights VAO
   var lightsVAO uint32
@@ -167,11 +167,11 @@ func main() {
   gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)
 
   // Define Vertex Attrib to be used by the shader
-  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 5*4, gl.PtrOffset(0))
+  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
   gl.EnableVertexAttribArray(0)
 
   
-  // RESET BUFFERS
+  // Reset OpenGL buffers
   gl.BindBuffer(gl.ARRAY_BUFFER, 0)
   gl.BindVertexArray(0)
 
@@ -211,46 +211,44 @@ func main() {
     projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
+    model := mgl32.Ident4()
+    modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
+    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
 
-    for i := 0; i < len(cubePositions); i++ {
-      model := mgl32.Translate3D(cubePositions[i][0], cubePositions[i][1], cubePositions[i][2])
-      model = model.Mul4(mgl32.HomogRotate3D(float32(glfw.GetTime()) * mgl32.DegToRad(float32(i) * 20.0), mgl32.Vec3{1.0, 0.3, 0.5}))
-      modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
-      gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+    lightColorLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightColor\x00"))
+    gl.Uniform3f(lightColorLoc, 1.0, 0.0, 1.0)
 
-      lightColorLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightColor\x00"))
-      gl.Uniform3f(lightColorLoc, 1.0, 0.0, 1.0)
+    lightPosLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightPos\x00"))
+    gl.Uniform3f(lightPosLoc, 1.2, float32(glfw.GetTime()) - 5.0, 1.0)
 
-      // gl.DrawArrays(gl.TRIANGLES, 0, 36)
-      gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, gl.PtrOffset(0))
-    }
+    viewPosLoc := gl.GetUniformLocation(cubesProgram, gl.Str("viewPos\x00"))
+    gl.Uniform3f(viewPosLoc, scene.Cam.Pos.X(), scene.Cam.Pos.Y(), scene.Cam.Pos.Z())
 
+    gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, gl.PtrOffset(0))
+
+    // Draw lights
 
     gl.UseProgram(lightsProgram)
 
     gl.BindVertexArray(lightsVAO)
 
 
-    view2 := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
-    viewLoc2 := gl.GetUniformLocation(lightsProgram, gl.Str("view\x00"))
-    gl.UniformMatrix4fv(viewLoc2, 1, false, &view2[0])
+    view = mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
+    viewLoc = gl.GetUniformLocation(lightsProgram, gl.Str("view\x00"))
+    gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
 
 
-    projection2 := mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-    projectionLoc2 := gl.GetUniformLocation(lightsProgram, gl.Str("projection\x00"))
-    gl.UniformMatrix4fv(projectionLoc2, 1, false, &projection2[0])
+    projection = mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+    projectionLoc = gl.GetUniformLocation(lightsProgram, gl.Str("projection\x00"))
+    gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
+    model = mgl32.Translate3D(1.2, float32(glfw.GetTime()) - 5.0, 1.0)
+    modelLoc = gl.GetUniformLocation(lightsProgram, gl.Str("model\x00"))
+    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
 
+    // gl.DrawArrays(gl.TRIANGLES, 0, 36)
+    gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, gl.PtrOffset(0))
 
-    for i := 0; i < len(lightPositions); i++ {
-      model := mgl32.Translate3D(lightPositions[i][0], lightPositions[i][1], lightPositions[i][2])
-      model = model.Mul4(mgl32.HomogRotate3D(float32(glfw.GetTime()) * mgl32.DegToRad(float32(i) * 20.0), mgl32.Vec3{1.0, 0.3, 0.5}))
-      modelLoc := gl.GetUniformLocation(lightsProgram, gl.Str("model\x00"))
-      gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
-
-      // gl.DrawArrays(gl.TRIANGLES, 0, 36)
-      gl.DrawElements(gl.TRIANGLES, 36, gl.UNSIGNED_INT, gl.PtrOffset(0))
-    }
 
 
     window.SwapBuffers()
