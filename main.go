@@ -211,7 +211,7 @@ func main() {
     projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
-    model := mgl32.Ident4()
+    model := mgl32.Scale3D(5.0, 1.0, 1.0)
     modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
     gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
 

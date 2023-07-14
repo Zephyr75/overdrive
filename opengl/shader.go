@@ -67,4 +67,3 @@ func CreateProgram(vertexShaderSource, fragmentShaderSource string) (uint32, err
 	return program, nil
 }
 
-
