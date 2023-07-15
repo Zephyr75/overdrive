@@ -162,10 +162,8 @@ func main() {
   gl.BindVertexArray(lightsVAO)
   // Copy VBO to an OpenGL buffer
   gl.BindBuffer(gl.ARRAY_BUFFER, VBO)
-
-
+  // Copy EBO to an OpenGL buffer
   gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)
-
   // Define Vertex Attrib to be used by the shader
   gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
   gl.EnableVertexAttribArray(0)

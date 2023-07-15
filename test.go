@@ -5,5 +5,5 @@ import(
 )
 
 func main() {
-  scene.LoadScene("untitled.xml")
+  scene.LoadScene("assets/untitled.xml")
 }

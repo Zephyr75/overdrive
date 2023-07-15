@@ -2,6 +2,7 @@ package scene
 
 import (
 	"github.com/go-gl/mathgl/mgl32"
+  "overdrive/utils"
 )
 
 type Camera struct {
@@ -22,6 +23,21 @@ type CameraXml struct {
   Yaw float32 `xml:"yaw"`
   Pitch float32 `xml:"pitch"`
   Fov float32 `xml:"fov"`
+}
+
+func (c CameraXml) ToCamera() Camera {
+  pos := utils.ParseVec3(c.Pos)
+  front := utils.ParseVec3(c.Front)
+  up := utils.ParseVec3(c.Up)
+  return Camera{
+    Type: c.Type,
+    Pos: pos,
+    Front: front,
+    Up: up,
+    Yaw: c.Yaw,
+    Pitch: c.Pitch,
+    Fov: c.Fov,
+  }
 }
 
 func NewCamera() Camera {

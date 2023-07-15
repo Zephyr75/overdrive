@@ -1,4 +1,3 @@
-
 <?xml version="1.0" ?>
 <scene>
 	<camera type="persp">
@@ -10,10 +9,12 @@
 		<fov>39.597755335771296</fov>
 	</camera>
 	<mesh>
-		<filename>Cube.obj</filename>
+		<obj>Cube.obj</obj>
+		<mtl>Cube.mtl</mtl>
 	</mesh>
 	<mesh>
-		<filename>Cube.001.obj</filename>
+		<obj>Cube.001.obj</obj>
+		<mtl>Cube.001.mtl</mtl>
 	</mesh>
 	<light type="point">
 		<position>4.076245307922363,1.0054539442062378,5.903861999511719</position>

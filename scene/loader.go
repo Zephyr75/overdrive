@@ -12,37 +12,35 @@ func LoadScene(path string) Scene {
   xmlFile, err := os.Open(path)
   if err != nil {
     fmt.Println("Error opening file:", err)
-    return
+    return Scene{}
   }
   defer xmlFile.Close()
 
   xmlData, err := ioutil.ReadAll(xmlFile)
   if err != nil {
     fmt.Println("Error reading file:", err)
-    return
+    return Scene{}
   }
 
-  var scene SceneXml
+  var sceneXml SceneXml
 
-  xml.Unmarshal(xmlData, &scene)
+  xml.Unmarshal(xmlData, &sceneXml)
 
-  for _, mesh := range scene.Meshes {
-    fmt.Println(mesh.Filename)
+  var scene Scene
+
+  scene.Meshes = make([]Mesh, len(sceneXml.MeshesXml))
+  scene.Lights = make([]Light, len(sceneXml.LightsXml))
+  scene.Cam = sceneXml.CamXml.ToCamera()
+
+  for i, meshXml := range sceneXml.MeshesXml {
+    scene.Meshes[i] = meshXml.ToMesh()
   }
 
-  fmt.Println("------------------")
-
-  for _, light := range scene.Lights {
-    fmt.Println(light.Type)
-    fmt.Println(light.Pos)
-    fmt.Println(light.Color)
-    fmt.Println(light.Intensity)
+  for i, lightXml := range sceneXml.LightsXml {
+    scene.Lights[i] = lightXml.ToLight()
   }
 
-  
-  fmt.Println("------------------")
+  fmt.Println(scene.Meshes[0].Vertices)
 
-  fmt.Println(scene.Cam.Pos)
-
-
+  return scene
 }

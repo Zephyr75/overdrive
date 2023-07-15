@@ -1,6 +1,9 @@
 package scene
 
-import "github.com/go-gl/mathgl/mgl32"
+import (
+  "github.com/go-gl/mathgl/mgl32"
+  "overdrive/utils"
+)
 
 type LightXml struct {
   Type string `xml:"type,attr"`
@@ -14,4 +17,15 @@ type Light struct {
   Pos mgl32.Vec3 
   Color mgl32.Vec3
   Intensity float32
+}
+
+func (l LightXml) ToLight() Light {
+  pos := utils.ParseVec3(l.Pos)
+  color := utils.ParseVec3(l.Color)
+  return Light{
+    Type: l.Type,
+    Pos: pos,
+    Color: color,
+    Intensity: l.Intensity,
+  }
 }

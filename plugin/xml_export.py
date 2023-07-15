@@ -156,6 +156,7 @@ class OverdriveWriter:
         bpy.ops.object.select_all(action='DESELECT')
 
         obj_name = mesh.name + ".obj"
+        mtl_name = mesh.name + ".mtl"
         obj_path = os.path.join(self.working_dir, 'meshes', obj_name)
         mesh.select_set(True)
         bpy.ops.export_scene.obj(filepath=obj_path, check_existing=False,
@@ -165,9 +166,12 @@ class OverdriveWriter:
 
         # Add the corresponding entry to the xml
         mesh_element = self.create_xml_element("mesh", {})
-        filename_element = self.create_xml_element("filename", {})
-        filename_element.appendChild(self.doc.createTextNode(obj_name))
-        mesh_element.appendChild(filename_element)
+        obj_element = self.create_xml_element("obj", {})
+        obj_element.appendChild(self.doc.createTextNode(obj_name))
+        mesh_element.appendChild(obj_element)
+        mtl_element = self.create_xml_element("mtl", {})
+        mtl_element.appendChild(self.doc.createTextNode(mtl_name))
+        mesh_element.appendChild(mtl_element)
         self.scene.appendChild(mesh_element)
 
 

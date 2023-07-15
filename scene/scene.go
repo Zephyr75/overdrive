@@ -5,9 +5,9 @@ var (
 )
 
 type SceneXml struct {
-  Cam CameraXml `xml:"camera"`
-  Meshes []MeshXml `xml:"mesh"`
-  Lights []LightXml `xml:"light"`
+  CamXml CameraXml `xml:"camera"`
+  MeshesXml []MeshXml `xml:"mesh"`
+  LightsXml []LightXml `xml:"light"`
 }
 
 type Scene struct {
