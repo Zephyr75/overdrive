@@ -40,7 +40,7 @@ func LoadScene(path string) Scene {
     scene.Lights[i] = lightXml.ToLight()
   }
 
-  fmt.Println(scene.Meshes[0].Vertices)
+  // fmt.Println(scene.Meshes[0].Vertices)
 
   return scene
 }

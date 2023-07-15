@@ -24,7 +24,7 @@ type Mesh struct {
   NormalCoords []mgl32.Vec3
   TextureCoords []mgl32.Vec2
 
-  Vertices [][]float32
+  Vertices []float32
   Faces [][]uint32
 
   vbo uint32
@@ -32,16 +32,13 @@ type Mesh struct {
   ebo uint32
 }
 
-func (m MeshXml) ToMesh() Mesh {
-  return mesh.loadData(m.Obj, m.Mtl)
-}
 
 
-func (m Mesh) loadData(obj, mtl string) Mesh {
-  objFile, err := os.Open("assets/meshes/" + obj)
+func (mXml MeshXml) ToMesh() Mesh {
+  objFile, err := os.Open("assets/meshes/" + mXml.Obj)
   if err != nil {
     fmt.Println("Error opening file:", err)
-    return m
+    return Mesh{}
   }
   defer objFile.Close()
 
@@ -87,8 +84,10 @@ func (m Mesh) loadData(obj, mtl string) Mesh {
         // normals = append(normals, float32(third))
       }
     case 'u':
-      faces = append(faces, face)
-      face = nil
+      if len(face) > 0 {
+        faces = append(faces, face)
+        face = nil
+      }
     case 'f':
       for i := 0; i < 3; i++ {
         split_face := strings.Split(split_line[i], "/")
@@ -120,6 +119,7 @@ func (m Mesh) loadData(obj, mtl string) Mesh {
   // }
 
   // m.Vertices = append(m.Vertices, vertices)
+  var m Mesh
   m.Faces = faces
   m.Positions = positions
   m.NormalCoords = normalCoords
@@ -136,16 +136,14 @@ func (m *Mesh) fillVertices() {
       posIndex := m.Faces[i][j] - 1
       texIndex := m.Faces[i][j+1] - 1
       normIndex := m.Faces[i][j+2] - 1
-      m.Vertices = append(m.Vertices, []float32{
-        m.Positions[posIndex][0], 
-        m.Positions[posIndex][1], 
-        m.Positions[posIndex][2], 
-        m.NormalCoords[normIndex][0], 
-        m.NormalCoords[normIndex][1], 
-        m.NormalCoords[normIndex][2], 
-        m.TextureCoords[texIndex][0], 
-        m.TextureCoords[texIndex][1],
-      })
+      m.Vertices = append(m.Vertices, m.Positions[posIndex][0])
+      m.Vertices = append(m.Vertices, m.Positions[posIndex][1])
+      m.Vertices = append(m.Vertices, m.Positions[posIndex][2])
+      m.Vertices = append(m.Vertices, m.NormalCoords[normIndex][0])
+      m.Vertices = append(m.Vertices, m.NormalCoords[normIndex][1])
+      m.Vertices = append(m.Vertices, m.NormalCoords[normIndex][2])
+      m.Vertices = append(m.Vertices, m.TextureCoords[texIndex][0])
+      m.Vertices = append(m.Vertices, m.TextureCoords[texIndex][1])
     }
   }
 }
@@ -157,6 +155,10 @@ func (m *Mesh) Setup() {
   gl.GenBuffers(1, &m.vbo)
   gl.GenVertexArrays(1, &m.vao)
 
+  faces := m.Faces[0]
+
+  fmt.Println("faces: ", m.Faces)
+
   // Bind VAO to VBO and gl.VertexAttribPointer, gl.EnableVertexAttribArray calls
   gl.BindVertexArray(m.vao)
   // Copy VBO to an OpenGL buffer
@@ -166,7 +168,7 @@ func (m *Mesh) Setup() {
   // Copy EBO to an OpenGL buffer
   gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ebo)
   // Define OpenGL buffer structure
-  gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(m.Faces)*4, gl.Ptr(m.Faces), gl.STATIC_DRAW)
+  gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(faces)*4, gl.Ptr(faces), gl.STATIC_DRAW)
 
   // Define Vertex Attrib to be used by the shader
   gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
@@ -193,6 +195,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 
 
   // assign specular, diffuse and whatever
+  // assign lights vector
 
   texture, err := opengl.CreateTexture("textures/square.png")
   if err != nil {

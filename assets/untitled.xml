@@ -12,10 +12,10 @@
 		<obj>Cube.obj</obj>
 		<mtl>Cube.mtl</mtl>
 	</mesh>
-	<mesh>
-		<obj>Cube.001.obj</obj>
-		<mtl>Cube.001.mtl</mtl>
-	</mesh>
+	<!-- <mesh> -->
+	<!-- 	<obj>Cube.001.obj</obj> -->
+	<!-- 	<mtl>Cube.001.mtl</mtl> -->
+	<!-- </mesh> -->
 	<light type="point">
 		<position>4.076245307922363,1.0054539442062378,5.903861999511719</position>
 		<color>1.0,1.0,1.0</color>

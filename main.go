@@ -1,6 +1,7 @@
 package main
 
 import (
+	// "fmt"
 	"os"
 	"runtime"
 
@@ -8,11 +9,11 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 
-  "overdrive/input"
+	"overdrive/input"
 
-  "overdrive/settings"
-  "overdrive/opengl"
-  "overdrive/scene"
+	"overdrive/opengl"
+	"overdrive/scene"
+	"overdrive/settings"
 )
 
 
@@ -98,6 +99,7 @@ func main() {
     panic(err)
   }
   fragmentShaderSource := string(fragmentShaderFile) + "\x00"
+
   cubesProgram, err := opengl.CreateProgram(vertexShaderSource, fragmentShaderSource)
   if err != nil {
     panic(err)
@@ -170,6 +172,14 @@ func main() {
   // DECLARE TEXTURES
   // texture, err := opengl.CreateTexture("textures/square.png")
 
+  var s scene.Scene = scene.LoadScene("assets/untitled.xml")
+
+  // fmt.Println(s.Meshes[0].Vertices)
+
+  for i := 0; i < len(s.Meshes); i++ {
+    s.Meshes[i].Setup()
+  }
+
  
   // FULL WINDOW LIFECYCLE
   lastFrame := 0.0
@@ -182,7 +192,6 @@ func main() {
     
     // gl.BindTexture(gl.TEXTURE_2D, texture)
 
-    
     gl.UseProgram(cubesProgram)
    
     // gl.BindVertexArray(cubesVAO)
@@ -205,6 +214,8 @@ func main() {
     model := mgl32.Scale3D(5.0, 1.0, 1.0)
     modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
     gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
+    s.Meshes[0].Draw(cubesProgram, &s)
 
     // lightColorLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightColor\x00"))
     // gl.Uniform3f(lightColorLoc, 1.0, 0.0, 1.0)
