@@ -1,0 +1,28 @@
+
+<?xml version="1.0" ?>
+<scene>
+	<camera type="persp">
+		<position>27.777713775634766,0.6471380591392517,2.238020896911621</position>
+		<front>-1.0,0.0,0.0</front>
+		<up>0.0,0.0,1.0</up>
+		<yaw>1.5707963705062866</yaw>
+		<pitch>0.0</pitch>
+		<fov>39.597755335771296</fov>
+	</camera>
+	<mesh>
+		<filename>Cube.obj</filename>
+	</mesh>
+	<mesh>
+		<filename>Cube.001.obj</filename>
+	</mesh>
+	<light type="point">
+		<position>4.076245307922363,1.0054539442062378,5.903861999511719</position>
+		<color>1.0,1.0,1.0</color>
+		<intensity>1000.0</intensity>
+	</light>
+	<light type="sun">
+		<position>-6.668605804443359,1.0054539442062378,5.903861999511719</position>
+		<color>0.005036966409534216,1.0,0.0</color>
+		<intensity>2.0</intensity>
+	</light>
+</scene>
