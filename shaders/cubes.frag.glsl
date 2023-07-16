@@ -44,7 +44,9 @@ void main()
   float spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess+0.01);
   vec3 specular = light.specular * (spec * material.specular);
           
-  vec4 result = vec4(ambient/3 + diffuse + specular, 1.0) * texture(ourTexture, TexCoord);
+  vec2 flipped_tex = vec2(TexCoord.x, 1.0 - TexCoord.y);
+
+  vec4 result = vec4(ambient/3 + diffuse + specular, 1.0) * texture(ourTexture, flipped_tex);
 
   // only multiply texture if it is provided
   // if (ourTexture != 0) {
