@@ -211,11 +211,15 @@ func main() {
     projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
-    model := mgl32.Scale3D(5.0, 1.0, 1.0)
+    model := mgl32.Scale3D(1.0, 1.0, 1.0)
     modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
     gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
 
-    s.Meshes[0].Draw(cubesProgram, &s)
+    for i := 0; i < len(s.Meshes); i++ {
+      s.Meshes[i].Draw(cubesProgram, &s)
+    }
+
+    // s.Meshes[0].Draw(cubesProgram, &s)
 
     // lightColorLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightColor\x00"))
     // gl.Uniform3f(lightColorLoc, 1.0, 0.0, 1.0)

@@ -43,10 +43,6 @@ func (mXml MeshXml) ToMesh() Mesh {
   }
   defer objFile.Close()
 
-  // var positions []float32
-  // var normals []float32
-  // var textures []float32
-  // var vertices []float32
   var faces [][]uint32
   var face []uint32
 
@@ -70,19 +66,11 @@ func (mXml MeshXml) ToMesh() Mesh {
       case ' ': 
         third, _ := strconv.ParseFloat(split_line[2], 32)
         positions = append(positions, mgl32.Vec3{float32(first), float32(second), float32(third)})
-        // positions = append(positions, float32(first))
-        // positions = append(positions, float32(second))
-        // positions = append(positions, float32(third))
       case 't':
         textureCoords = append(textureCoords, mgl32.Vec2{float32(first), float32(second)})
-        // textures = append(textures, float32(first))
-        // textures = append(textures, float32(second))
       case 'n':
         third, _ := strconv.ParseFloat(split_line[2], 32)
         normalCoords = append(normalCoords, mgl32.Vec3{float32(first), float32(second), float32(third)})
-        // normals = append(normals, float32(first))
-        // normals = append(normals, float32(second))
-        // normals = append(normals, float32(third))
       }
     case 'u':
       if len(face) > 0 {
@@ -103,23 +91,6 @@ func (mXml MeshXml) ToMesh() Mesh {
   }
   faces = append(faces, face)
 
-  // for i := 0; i < len(faces); i++ {
-  //   for j := 0; j < len(faces[i]); j+=3 {
-  //     posIndex := faces[i][j] - 1
-  //     texIndex := faces[i][j+1] - 1
-  //     normIndex := faces[i][j+2] - 1
-  //     vertices = append(vertices, positions[posIndex*3])
-  //     vertices = append(vertices, positions[posIndex*3+1])
-  //     vertices = append(vertices, positions[posIndex*3+2])
-  //     vertices = append(vertices, normals[normIndex*3])
-  //     vertices = append(vertices, normals[normIndex*3+1])
-  //     vertices = append(vertices, normals[normIndex*3+2])
-  //     vertices = append(vertices, textures[texIndex*2])
-  //     vertices = append(vertices, textures[texIndex*2+1])
-  //   }
-  // }
-
-  // m.Vertices = append(m.Vertices, vertices)
   var m Mesh
   m.Faces = faces
   m.Positions = positions
@@ -133,19 +104,27 @@ func (mXml MeshXml) ToMesh() Mesh {
 }
 
 func (m *Mesh) fillVertices() {
+  mapVertices := make(map[int][]float32)
   for i := 0; i < len(m.Faces); i++ {
     for j := 0; j < len(m.Faces[i]); j+=3 {
       posIndex := m.Faces[i][j] - 1
       texIndex := m.Faces[i][j+1] - 1
       normIndex := m.Faces[i][j+2] - 1
-      m.OpenGLVertices = append(m.OpenGLVertices, m.Positions[posIndex][0])
-      m.OpenGLVertices = append(m.OpenGLVertices, m.Positions[posIndex][1])
-      m.OpenGLVertices = append(m.OpenGLVertices, m.Positions[posIndex][2])
-      m.OpenGLVertices = append(m.OpenGLVertices, m.NormalCoords[normIndex][0])
-      m.OpenGLVertices = append(m.OpenGLVertices, m.NormalCoords[normIndex][1])
-      m.OpenGLVertices = append(m.OpenGLVertices, m.NormalCoords[normIndex][2])
-      m.OpenGLVertices = append(m.OpenGLVertices, m.TextureCoords[texIndex][0])
-      m.OpenGLVertices = append(m.OpenGLVertices, m.TextureCoords[texIndex][1])
+      var value []float32
+      value = append(value, m.Positions[posIndex][0])
+      value = append(value, m.Positions[posIndex][1])
+      value = append(value, m.Positions[posIndex][2])
+      value = append(value, m.NormalCoords[normIndex][0])
+      value = append(value, m.NormalCoords[normIndex][1])
+      value = append(value, m.NormalCoords[normIndex][2])
+      value = append(value, m.TextureCoords[texIndex][0])
+      value = append(value, m.TextureCoords[texIndex][1])
+      mapVertices[int(posIndex)] = value
+    }
+  }
+  for i := 0; i < len(mapVertices); i++ {
+    for j := 0; j < len(mapVertices[i]); j++ {
+      m.OpenGLVertices = append(m.OpenGLVertices, mapVertices[i][j])
     }
   }
 }
@@ -163,9 +142,7 @@ func (m *Mesh) fillFaces() {
 
 func (m *Mesh) Setup() {
   // Select submesh faces
-
   faces := m.OpenGLFaces[0]
-
 
   // Declare VBO, EBO and VAO
   gl.GenBuffers(1, &m.ebo)
@@ -218,8 +195,8 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 
   faces := m.OpenGLFaces[0]
 
-  fmt.Println("vertices: ", m.OpenGLVertices)
-  fmt.Println("faces: ", m.OpenGLFaces)
+  // fmt.Println("vertices: ", m.OpenGLVertices)
+  // fmt.Println("faces: ", m.OpenGLFaces)
 
   gl.BindVertexArray(m.vao)
   gl.DrawElements(gl.TRIANGLES, int32(len(faces)), gl.UNSIGNED_INT, gl.PtrOffset(0))
