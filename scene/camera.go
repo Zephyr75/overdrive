@@ -42,7 +42,7 @@ func (c CameraXml) ToCamera() Camera {
 
 func NewCamera() Camera {
   return Camera{
-    Pos: mgl32.Vec3{0.0, 0.0, 3.0},
+    Pos: mgl32.Vec3{0.0, 0.0, 5.0},
     Front: mgl32.Vec3{0.0, 0.0, -1.0},
     Up: mgl32.Vec3{0.0, 1.0, 0.0},
     Yaw: -90.0,

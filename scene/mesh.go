@@ -24,8 +24,9 @@ type Mesh struct {
   NormalCoords []mgl32.Vec3
   TextureCoords []mgl32.Vec2
 
-  Vertices []float32
+  OpenGLVertices []float32
   Faces [][]uint32
+  OpenGLFaces [][]uint32
 
   vbo uint32
   vao uint32
@@ -126,6 +127,7 @@ func (mXml MeshXml) ToMesh() Mesh {
   m.TextureCoords = textureCoords
 
   m.fillVertices()
+  m.fillFaces()
 
   return m
 }
@@ -136,35 +138,46 @@ func (m *Mesh) fillVertices() {
       posIndex := m.Faces[i][j] - 1
       texIndex := m.Faces[i][j+1] - 1
       normIndex := m.Faces[i][j+2] - 1
-      m.Vertices = append(m.Vertices, m.Positions[posIndex][0])
-      m.Vertices = append(m.Vertices, m.Positions[posIndex][1])
-      m.Vertices = append(m.Vertices, m.Positions[posIndex][2])
-      m.Vertices = append(m.Vertices, m.NormalCoords[normIndex][0])
-      m.Vertices = append(m.Vertices, m.NormalCoords[normIndex][1])
-      m.Vertices = append(m.Vertices, m.NormalCoords[normIndex][2])
-      m.Vertices = append(m.Vertices, m.TextureCoords[texIndex][0])
-      m.Vertices = append(m.Vertices, m.TextureCoords[texIndex][1])
+      m.OpenGLVertices = append(m.OpenGLVertices, m.Positions[posIndex][0])
+      m.OpenGLVertices = append(m.OpenGLVertices, m.Positions[posIndex][1])
+      m.OpenGLVertices = append(m.OpenGLVertices, m.Positions[posIndex][2])
+      m.OpenGLVertices = append(m.OpenGLVertices, m.NormalCoords[normIndex][0])
+      m.OpenGLVertices = append(m.OpenGLVertices, m.NormalCoords[normIndex][1])
+      m.OpenGLVertices = append(m.OpenGLVertices, m.NormalCoords[normIndex][2])
+      m.OpenGLVertices = append(m.OpenGLVertices, m.TextureCoords[texIndex][0])
+      m.OpenGLVertices = append(m.OpenGLVertices, m.TextureCoords[texIndex][1])
     }
+  }
+}
+
+func (m *Mesh) fillFaces() {
+  for i := 0; i < len(m.Faces); i++ {
+    var faces []uint32
+    for j := 0; j < len(m.Faces[i]); j+=3 {
+      faces = append(faces, m.Faces[i][j]-1)
+    }
+    m.OpenGLFaces = append(m.OpenGLFaces, faces)
   }
 }
 
 
 func (m *Mesh) Setup() {
+  // Select submesh faces
+
+  faces := m.OpenGLFaces[0]
+
+
   // Declare VBO, EBO and VAO
   gl.GenBuffers(1, &m.ebo)
   gl.GenBuffers(1, &m.vbo)
   gl.GenVertexArrays(1, &m.vao)
-
-  faces := m.Faces[0]
-
-  fmt.Println("faces: ", m.Faces)
 
   // Bind VAO to VBO and gl.VertexAttribPointer, gl.EnableVertexAttribArray calls
   gl.BindVertexArray(m.vao)
   // Copy VBO to an OpenGL buffer
   gl.BindBuffer(gl.ARRAY_BUFFER, m.vbo)
   // Define OpenGL buffer structure
-  gl.BufferData(gl.ARRAY_BUFFER, len(m.Vertices)*4, gl.Ptr(m.Vertices), gl.STATIC_DRAW)
+  gl.BufferData(gl.ARRAY_BUFFER, len(m.OpenGLVertices)*4, gl.Ptr(m.OpenGLVertices), gl.STATIC_DRAW)
   // Copy EBO to an OpenGL buffer
   gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ebo)
   // Define OpenGL buffer structure
@@ -184,14 +197,14 @@ func (m *Mesh) Setup() {
 
 func (m *Mesh) Draw(program uint32, scene *Scene) {
 
-   lightColorLoc := gl.GetUniformLocation(program, gl.Str("lightColor\x00"))
-   gl.Uniform3f(lightColorLoc, 1.0, 0.0, 1.0)
+  lightColorLoc := gl.GetUniformLocation(program, gl.Str("lightColor\x00"))
+  gl.Uniform3f(lightColorLoc, 1.0, 0.0, 1.0)
 
-   lightPosLoc := gl.GetUniformLocation(program, gl.Str("lightPos\x00"))
-   gl.Uniform3f(lightPosLoc, 1.2, float32(glfw.GetTime()) - 5.0, 1.0)
+  lightPosLoc := gl.GetUniformLocation(program, gl.Str("lightPos\x00"))
+  gl.Uniform3f(lightPosLoc, 1.2, float32(glfw.GetTime()) - 5.0, 1.0)
 
-   viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
-   gl.Uniform3f(viewPosLoc, scene.Cam.Pos.X(), scene.Cam.Pos.Y(), scene.Cam.Pos.Z())
+  viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
+  gl.Uniform3f(viewPosLoc, scene.Cam.Pos.X(), scene.Cam.Pos.Y(), scene.Cam.Pos.Z())
 
 
   // assign specular, diffuse and whatever
@@ -203,8 +216,13 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
   }
   gl.BindTexture(gl.TEXTURE_2D, texture)
 
+  faces := m.OpenGLFaces[0]
+
+  fmt.Println("vertices: ", m.OpenGLVertices)
+  fmt.Println("faces: ", m.OpenGLFaces)
+
   gl.BindVertexArray(m.vao)
-  gl.DrawElements(gl.TRIANGLES, int32(len(m.Faces)), gl.UNSIGNED_INT, gl.PtrOffset(0))
+  gl.DrawElements(gl.TRIANGLES, int32(len(faces)), gl.UNSIGNED_INT, gl.PtrOffset(0))
   gl.BindVertexArray(0)
 
 }
