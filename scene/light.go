@@ -22,6 +22,9 @@ type Light struct {
 func (l LightXml) ToLight() Light {
   pos := utils.ParseVec3(l.Pos)
   color := utils.ParseVec3(l.Color)
+
+
+  pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
   return Light{
     Type: l.Type,
     Pos: pos,

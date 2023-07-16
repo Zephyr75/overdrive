@@ -1,7 +1,6 @@
 package main
 
 import (
-	// "fmt"
 	"fmt"
 	"os"
 	"runtime"
@@ -15,6 +14,7 @@ import (
 	"overdrive/opengl"
 	"overdrive/scene"
 	"overdrive/settings"
+  "math"
 )
 
 
@@ -92,7 +92,11 @@ func main() {
     deltaTime = float32(currentFrame - lastFrame)
     lastFrame = currentFrame
     // fmt.Println("fps:", 1/deltaTime)
-    fmt.Println("front:", scene.Cam.Front)
+    // fmt.Println("front:", scene.Cam.Front)
+    fmt.Println("light0:", s.Lights[0].Pos)
+
+    // oscillate light position up and down
+    s.Lights[0].Pos[2] = 2.0 + 20 * float32(math.Sin(float64(glfw.GetTime())))
 
     view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
     viewLoc := gl.GetUniformLocation(cubesProgram, gl.Str("view\x00"))

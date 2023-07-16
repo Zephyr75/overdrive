@@ -285,8 +285,10 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     lightSpecularLoc := gl.GetUniformLocation(program, gl.Str("light.specular\x00"))
     gl.Uniform3f(lightSpecularLoc, 0.3, 0.3, 0.3)
 
+    light := scene.Lights[0]
+
     lightPosLoc := gl.GetUniformLocation(program, gl.Str("light.position\x00"))
-    gl.Uniform3f(lightPosLoc, 0.0, 0.0, 0.0)
+    gl.Uniform3f(lightPosLoc, light.Pos.X(), light.Pos.Y(), light.Pos.Z())
 
     viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
     gl.Uniform3f(viewPosLoc, 0.0, 0.0, 0.0)

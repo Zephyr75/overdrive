@@ -33,7 +33,7 @@
 		<mtl>Suzanne.002.mtl</mtl>
 	</mesh>
 	<light type="point">
-		<position>0.0,1.076157569885254,2.0035955905914307</position>
+		<position>19.33137321472168,6.5255584716796875,16.200332641601562</position>
 		<color>1.0,1.0,1.0</color>
 		<intensity>1000.0</intensity>
 	</light>
