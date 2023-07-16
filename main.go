@@ -42,7 +42,6 @@ func main() {
   window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
   window.SetCursorPosCallback(input.MouseCallback)
   window.SetScrollCallback(input.ScrollCallback)
-  // Capture mouse
   window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
   // OpenGL setup
