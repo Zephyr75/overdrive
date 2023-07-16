@@ -100,8 +100,8 @@ class OverdriveWriter:
         position = cam.location
         front = cam.matrix_world.to_quaternion() @ Vector((0, 0, -1))
         up = cam.matrix_world.to_quaternion() @ Vector((0, 1, 0))
-        yaw = cam.rotation_euler[2]
-        pitch = cam.rotation_euler[1]
+        yaw = cam.rotation_euler[2] * 180 / math.pi
+        pitch = cam.rotation_euler[0] * 180 / math.pi
         fov = cam.data.angle * 180 / math.pi
 
         position_element = self.create_xml_element("position", {})

@@ -1,6 +1,7 @@
 package main
 
 import (
+	// "fmt"
 	"fmt"
 	"os"
 	"runtime"
@@ -90,7 +91,8 @@ func main() {
     currentFrame := glfw.GetTime()
     deltaTime = float32(currentFrame - lastFrame)
     lastFrame = currentFrame
-    fmt.Println("fps:", 1/deltaTime)
+    // fmt.Println("fps:", 1/deltaTime)
+    fmt.Println("front:", scene.Cam.Front)
 
     view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
     viewLoc := gl.GetUniformLocation(cubesProgram, gl.Str("view\x00"))

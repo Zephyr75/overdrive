@@ -11,7 +11,11 @@ func ProcessInput(window *glfw.Window, deltaTime float32) {
   if window.GetKey(glfw.KeyEscape) == glfw.Press {
     window.SetShouldClose(true)
   }
-  var cameraSpeed float32 = 2.5 * deltaTime
+  var cameraSpeed float32 = 10 * deltaTime
+  if window.GetKey(glfw.KeyLeftShift) == glfw.Press {
+    cameraSpeed *= 4
+  }
+
   if window.GetKey(glfw.KeyW) == glfw.Press {
     scene.Cam.Pos = scene.Cam.Pos.Add(scene.Cam.Front.Mul(cameraSpeed))
   }
@@ -24,10 +28,10 @@ func ProcessInput(window *glfw.Window, deltaTime float32) {
   if window.GetKey(glfw.KeyD) == glfw.Press {
     scene.Cam.Pos = scene.Cam.Pos.Add((scene.Cam.Front.Cross(scene.Cam.Up).Normalize()).Mul(cameraSpeed))
   }
-  if window.GetKey(glfw.KeyE) == glfw.Press {
+  if window.GetKey(glfw.KeyQ) == glfw.Press {
     scene.Cam.Pos = scene.Cam.Pos.Add(scene.Cam.Up.Mul(cameraSpeed))
   }
-  if window.GetKey(glfw.KeyQ) == glfw.Press {
+  if window.GetKey(glfw.KeyE) == glfw.Press {
     scene.Cam.Pos = scene.Cam.Pos.Sub(scene.Cam.Up.Mul(cameraSpeed))
   }
 }

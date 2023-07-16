@@ -39,8 +39,8 @@ func MouseCallback(window *glfw.Window, xPos, yPos float64) {
   sensitivity := 0.1
   xOffset *= sensitivity
   yOffset *= sensitivity
-  scene.Cam.Yaw += float32(xOffset)
-  scene.Cam.Pitch += float32(yOffset)
+  scene.Cam.Yaw -= float32(xOffset)
+  scene.Cam.Pitch -= float32(yOffset)
   if scene.Cam.Pitch > 89.0 {
     scene.Cam.Pitch = 89.0
   }
@@ -48,9 +48,9 @@ func MouseCallback(window *glfw.Window, xPos, yPos float64) {
     scene.Cam.Pitch = -89.0
   }
   var direction mgl32.Vec3
-  direction[0] = float32(math.Cos(float64(mgl32.DegToRad(scene.Cam.Pitch))) * math.Cos(float64(mgl32.DegToRad(scene.Cam.Yaw))))
-  direction[1] = float32(math.Sin(float64(mgl32.DegToRad(scene.Cam.Pitch))))
-  direction[2] = float32(math.Cos(float64(mgl32.DegToRad(scene.Cam.Pitch))) * math.Sin(float64(mgl32.DegToRad(scene.Cam.Yaw))))
+  direction[2] = -float32(math.Cos(float64(mgl32.DegToRad(scene.Cam.Pitch))) * math.Cos(float64(mgl32.DegToRad(scene.Cam.Yaw))))
+  direction[1] = -float32(math.Sin(float64(mgl32.DegToRad(scene.Cam.Pitch))))
+  direction[0] = -float32(math.Cos(float64(mgl32.DegToRad(scene.Cam.Pitch))) * math.Sin(float64(mgl32.DegToRad(scene.Cam.Yaw))))
   scene.Cam.Front = direction.Normalize()
 
 }
