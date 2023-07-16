@@ -26,22 +26,23 @@ func LoadScene(path string) Scene {
 
   xml.Unmarshal(xmlData, &sceneXml)
 
-  var scene Scene
+  var s Scene
 
-  scene.Meshes = make([]Mesh, len(sceneXml.MeshesXml))
-  scene.Lights = make([]Light, len(sceneXml.LightsXml))
-  scene.Cam = sceneXml.CamXml.ToCamera()
+  s.Meshes = make([]Mesh, len(sceneXml.MeshesXml))
+  s.Lights = make([]Light, len(sceneXml.LightsXml))
+  s.Cam = sceneXml.CamXml.ToCamera()
+
 
   for i, meshXml := range sceneXml.MeshesXml {
-    scene.Meshes[i] = meshXml.ToMesh()
+    s.Meshes[i] = meshXml.ToMesh()
   }
 
   for i, lightXml := range sceneXml.LightsXml {
-    scene.Lights[i] = lightXml.ToLight()
-    fmt.Println(scene.Lights[i].Pos)
+    s.Lights[i] = lightXml.ToLight()
+    fmt.Println(s.Lights[i].Pos)
   }
 
   // fmt.Println(scene.Meshes[0].Vertices)
 
-  return scene
+  return s
 }

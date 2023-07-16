@@ -182,6 +182,7 @@ class OverdriveWriter:
         light_element = self.create_xml_element("light", {"type": light.data.type.lower()})
         pos = light.location
         color = light.data.color
+        intensity = light.data.energy
 
         pos_element = self.create_xml_element("position", {})
         pos_element.appendChild(self.doc.createTextNode(self.write_vector(pos)))
@@ -192,7 +193,7 @@ class OverdriveWriter:
         light_element.appendChild(color_element)
 
         intensity_element = self.create_xml_element("intensity", {})
-        intensity_element.appendChild(self.doc.createTextNode(str(light.data.energy)))
+        intensity_element.appendChild(self.doc.createTextNode(str(intensity)))
         light_element.appendChild(intensity_element)
         self.scene.appendChild(light_element)
 
