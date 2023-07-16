@@ -36,7 +36,7 @@ type Mesh struct {
   Materials []Material
 
   vbo uint32
-  vao uint32
+  vao []uint32
   ebo uint32
 }
 
@@ -237,46 +237,42 @@ func (m *Mesh) fillFaces() {
 
 
 func (m *Mesh) Setup() {
-  // Select submesh faces
-  faces := m.OpenGLFaces[0]
+  m.vao = make([]uint32, len(m.Faces))
+  for i := range m.Faces {
+    // Select submesh faces
+    faces := m.OpenGLFaces[i]
 
-  // if len(m.OpenGLFaces) > 1 {
-  //   faces = append(faces, m.OpenGLFaces[1]...)
-  // }
+    // Declare VBO, EBO and VAO
+    gl.GenBuffers(1, &m.ebo)
+    gl.GenBuffers(1, &m.vbo)
+    gl.GenVertexArrays(1, &m.vao[i])
 
-  // Declare VBO, EBO and VAO
-  gl.GenBuffers(1, &m.ebo)
-  gl.GenBuffers(1, &m.vbo)
-  gl.GenVertexArrays(1, &m.vao)
+    // Bind VAO to VBO and gl.VertexAttribPointer, gl.EnableVertexAttribArray calls
+    gl.BindVertexArray(m.vao[i])
+    // Copy VBO to an OpenGL buffer
+    gl.BindBuffer(gl.ARRAY_BUFFER, m.vbo)
+    // Define OpenGL buffer structure
+    gl.BufferData(gl.ARRAY_BUFFER, len(m.OpenGLVertices)*4, gl.Ptr(m.OpenGLVertices), gl.STATIC_DRAW)
+    // Copy EBO to an OpenGL buffer
+    gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ebo)
+    // Define OpenGL buffer structure
+    gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(faces)*4, gl.Ptr(faces), gl.STATIC_DRAW)
 
-  // Bind VAO to VBO and gl.VertexAttribPointer, gl.EnableVertexAttribArray calls
-  gl.BindVertexArray(m.vao)
-  // Copy VBO to an OpenGL buffer
-  gl.BindBuffer(gl.ARRAY_BUFFER, m.vbo)
-  // Define OpenGL buffer structure
-  gl.BufferData(gl.ARRAY_BUFFER, len(m.OpenGLVertices)*4, gl.Ptr(m.OpenGLVertices), gl.STATIC_DRAW)
-  // Copy EBO to an OpenGL buffer
-  gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ebo)
-  // Define OpenGL buffer structure
-  gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(faces)*4, gl.Ptr(faces), gl.STATIC_DRAW)
+    // Define Vertex Attrib to be used by the shader
+    gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
+    gl.EnableVertexAttribArray(0)
+    gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(3*4))
+    gl.EnableVertexAttribArray(1)
+    gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, gl.PtrOffset(6*4))
+    gl.EnableVertexAttribArray(2)
 
-  // Define Vertex Attrib to be used by the shader
-  gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
-  gl.EnableVertexAttribArray(0)
-  gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(3*4))
-  gl.EnableVertexAttribArray(1)
-  gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, gl.PtrOffset(6*4))
-  gl.EnableVertexAttribArray(2)
-
-  // Clear VAO binding
-  gl.BindVertexArray(0)
+    // Clear VAO binding
+    gl.BindVertexArray(0)
+  }
 }
 
 func (m *Mesh) Draw(program uint32, scene *Scene) {
   for i := range m.Faces {
-
-
-
     mat := m.Materials[i]
 
     // Define light properties
@@ -325,7 +321,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     // fmt.Println("vertices: ", m.OpenGLVertices)
     // fmt.Println("faces: ", m.OpenGLFaces)
 
-    gl.BindVertexArray(m.vao)
+    gl.BindVertexArray(m.vao[i])
     gl.DrawElements(gl.TRIANGLES, int32(len(faces)), gl.UNSIGNED_INT, gl.PtrOffset(0))
     gl.BindVertexArray(0)
 
