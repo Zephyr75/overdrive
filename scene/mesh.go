@@ -14,6 +14,11 @@ import (
   "overdrive/opengl"
 )
 
+var (
+  white uint32
+  // white = opengl.CreateTexture("/home/zeph/Pictures/black_on_white.png")//"textures/white.png")
+)
+
 type MeshXml struct {
   Obj string `xml:"obj"`
   Mtl string `xml:"mtl"`
@@ -27,6 +32,8 @@ type Mesh struct {
   OpenGLVertices []float32
   Faces [][]uint32
   OpenGLFaces [][]uint32
+
+  Materials []Material
 
   vbo uint32
   vao uint32
@@ -53,23 +60,23 @@ func (mXml MeshXml) ToMesh() Mesh {
   objScanner := bufio.NewScanner(objFile) 
   for objScanner.Scan() {
     line := objScanner.Text()
-    split_line := strings.Split(line[2:], " ")
-    // remove leading space
-    if split_line[0] == "" {
-      split_line = split_line[1:]
-    }
+    split_line := strings.Split(line, " ")
+    // // remove leading space
+    // if split_line[0] == "" {
+    //   split_line = split_line[1:]
+    // }
     switch line[0] {
     case 'v':
-      first, _ := strconv.ParseFloat(split_line[0], 32)
-      second, _ := strconv.ParseFloat(split_line[1], 32)
+      first, _ := strconv.ParseFloat(split_line[1], 32)
+      second, _ := strconv.ParseFloat(split_line[2], 32)
       switch line[1] {
       case ' ': 
-        third, _ := strconv.ParseFloat(split_line[2], 32)
+        third, _ := strconv.ParseFloat(split_line[3], 32)
         positions = append(positions, mgl32.Vec3{float32(first), float32(second), float32(third)})
       case 't':
         textureCoords = append(textureCoords, mgl32.Vec2{float32(first), float32(second)})
       case 'n':
-        third, _ := strconv.ParseFloat(split_line[2], 32)
+        third, _ := strconv.ParseFloat(split_line[3], 32)
         normalCoords = append(normalCoords, mgl32.Vec3{float32(first), float32(second), float32(third)})
       }
     case 'u':
@@ -79,7 +86,7 @@ func (mXml MeshXml) ToMesh() Mesh {
       }
     case 'f':
       for i := 0; i < 3; i++ {
-        split_face := strings.Split(split_line[i], "/")
+        split_face := strings.Split(split_line[i+1], "/")
         first, _ := strconv.ParseUint(split_face[0], 10, 32)
         second, _ := strconv.ParseUint(split_face[1], 10, 32)
         third, _ := strconv.ParseUint(split_face[2], 10, 32)
@@ -98,19 +105,109 @@ func (mXml MeshXml) ToMesh() Mesh {
   m.TextureCoords = textureCoords
 
   m.fillVertices()
-  m.fillFaces()
+  // m.fillFaces()
+
+  // fmt.Println(m.OpenGLVertices)
+  // fmt.Println(m.OpenGLFaces)
+
+  
+  mtlFile, err := os.Open("assets/meshes/" + mXml.Mtl)
+  if err != nil {
+    fmt.Println("Error opening file:", err)
+    return Mesh{}
+  }
+  defer mtlFile.Close()
+
+  var materials []Material
+  var material Material
+
+  mtlScanner := bufio.NewScanner(mtlFile)
+  for mtlScanner.Scan() {
+    line := mtlScanner.Text()
+    split_line := strings.Split(line, " ")
+    switch split_line[0] {
+    case "newmtl":
+      materials = append(materials, material)
+      material = Material{}
+    case "Ns":
+      first, _ := strconv.ParseFloat(split_line[1], 32)
+      material.Shininess = float32(first)
+    case "Ka":
+      first, _ := strconv.ParseFloat(split_line[1], 32)
+      second, _ := strconv.ParseFloat(split_line[2], 32)
+      third, _ := strconv.ParseFloat(split_line[3], 32)
+      material.Ambient = mgl32.Vec3{float32(first), float32(second), float32(third)}
+    case "Kd":
+      first, _ := strconv.ParseFloat(split_line[1], 32)
+      second, _ := strconv.ParseFloat(split_line[2], 32)
+      third, _ := strconv.ParseFloat(split_line[3], 32)
+      material.Diffuse = mgl32.Vec3{float32(first), float32(second), float32(third)}
+    case "Ks":
+      first, _ := strconv.ParseFloat(split_line[1], 32)
+      second, _ := strconv.ParseFloat(split_line[2], 32)
+      third, _ := strconv.ParseFloat(split_line[3], 32)
+      material.Specular = mgl32.Vec3{float32(first), float32(second), float32(third)}
+    case "d":
+      first, _ := strconv.ParseFloat(split_line[1], 32)
+      material.Alpha = float32(first)
+    case "map_Kd":
+      texture := opengl.CreateTexture(split_line[1])
+      material.Texture = texture
+    }
+  }
+  materials = append(materials, material)
+  materials = materials[1:]
+
+  m.Materials = materials
+      
+
+  // for i := 0; i < len(m.Materials); i++ {
+  //   fmt.Println(m.Materials[i])
+  // }
+
+  //TODO find better place for this
+  white = opengl.CreateTexture("textures/white.png")
+
 
   return m
 }
 
 func (m *Mesh) fillVertices() {
-  mapVertices := make(map[int][]float32)
+  // mapVertices := make(map[int][]float32)
+  // for i := 0; i < len(m.Faces); i++ {
+  //   for j := 0; j < len(m.Faces[i]); j+=3 {
+  //     posIndex := m.Faces[i][j] - 1
+  //     texIndex := m.Faces[i][j+1] - 1
+  //     normIndex := m.Faces[i][j+2] - 1
+  //     var value []float32
+  //     value = append(value, m.Positions[posIndex][0])
+  //     value = append(value, m.Positions[posIndex][1])
+  //     value = append(value, m.Positions[posIndex][2])
+  //     value = append(value, m.NormalCoords[normIndex][0])
+  //     value = append(value, m.NormalCoords[normIndex][1])
+  //     value = append(value, m.NormalCoords[normIndex][2])
+  //     value = append(value, m.TextureCoords[texIndex][0])
+  //     value = append(value, m.TextureCoords[texIndex][1])
+  //     mapVertices[int(posIndex)] = value
+  //   }
+  // }
+  // for i := 0; i < len(mapVertices); i++ {
+  //   for j := 0; j < len(mapVertices[i]); j++ {
+  //     m.OpenGLVertices = append(m.OpenGLVertices, mapVertices[i][j])
+  //   }
+  // }
+  // m.fillFaces()
+
+
+  var value []float32
+  var index uint32
+  index = 0
   for i := 0; i < len(m.Faces); i++ {
+    var face []uint32
     for j := 0; j < len(m.Faces[i]); j+=3 {
       posIndex := m.Faces[i][j] - 1
       texIndex := m.Faces[i][j+1] - 1
       normIndex := m.Faces[i][j+2] - 1
-      var value []float32
       value = append(value, m.Positions[posIndex][0])
       value = append(value, m.Positions[posIndex][1])
       value = append(value, m.Positions[posIndex][2])
@@ -119,14 +216,13 @@ func (m *Mesh) fillVertices() {
       value = append(value, m.NormalCoords[normIndex][2])
       value = append(value, m.TextureCoords[texIndex][0])
       value = append(value, m.TextureCoords[texIndex][1])
-      mapVertices[int(posIndex)] = value
+      // mapVertices[int(posIndex)] = value
+      face = append(face, index)
+      index++
     }
+    m.OpenGLFaces = append(m.OpenGLFaces, face)
   }
-  for i := 0; i < len(mapVertices); i++ {
-    for j := 0; j < len(mapVertices[i]); j++ {
-      m.OpenGLVertices = append(m.OpenGLVertices, mapVertices[i][j])
-    }
-  }
+  m.OpenGLVertices = value
 }
 
 func (m *Mesh) fillFaces() {
@@ -143,6 +239,10 @@ func (m *Mesh) fillFaces() {
 func (m *Mesh) Setup() {
   // Select submesh faces
   faces := m.OpenGLFaces[0]
+
+  // if len(m.OpenGLFaces) > 1 {
+  //   faces = append(faces, m.OpenGLFaces[1]...)
+  // }
 
   // Declare VBO, EBO and VAO
   gl.GenBuffers(1, &m.ebo)
@@ -173,33 +273,62 @@ func (m *Mesh) Setup() {
 }
 
 func (m *Mesh) Draw(program uint32, scene *Scene) {
-
-  lightColorLoc := gl.GetUniformLocation(program, gl.Str("lightColor\x00"))
-  gl.Uniform3f(lightColorLoc, 1.0, 0.0, 1.0)
-
-  lightPosLoc := gl.GetUniformLocation(program, gl.Str("lightPos\x00"))
-  gl.Uniform3f(lightPosLoc, 1.2, float32(glfw.GetTime()) - 5.0, 1.0)
-
-  viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
-  gl.Uniform3f(viewPosLoc, scene.Cam.Pos.X(), scene.Cam.Pos.Y(), scene.Cam.Pos.Z())
+  for i := range m.Faces {
 
 
-  // assign specular, diffuse and whatever
-  // assign lights vector
 
-  texture, err := opengl.CreateTexture("textures/square.png")
-  if err != nil {
-    panic(err)
+    mat := m.Materials[i]
+
+    // Define light properties
+    lightAmbientLoc := gl.GetUniformLocation(program, gl.Str("light.ambient\x00"))
+    gl.Uniform3f(lightAmbientLoc, 1.0, 1.0, 1.0)
+
+    lightDiffuseLoc := gl.GetUniformLocation(program, gl.Str("light.diffuse\x00"))
+    gl.Uniform3f(lightDiffuseLoc , 1.0, 1.0, 1.0)
+
+    lightSpecularLoc := gl.GetUniformLocation(program, gl.Str("light.specular\x00"))
+    gl.Uniform3f(lightSpecularLoc , 1.0, 1.0, 1.0)
+
+    lightPosLoc := gl.GetUniformLocation(program, gl.Str("light.position\x00"))
+    gl.Uniform3f(lightPosLoc, 1.2, float32(glfw.GetTime()) - 5.0, 1.0)
+
+    viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
+    gl.Uniform3f(viewPosLoc, scene.Cam.Pos.X(), scene.Cam.Pos.Y(), scene.Cam.Pos.Z())
+
+    // Define material properties
+    matAmbientLoc := gl.GetUniformLocation(program, gl.Str("material.ambient\x00"))
+    gl.Uniform3f(matAmbientLoc, mat.Ambient.X(), mat.Ambient.Y(), mat.Ambient.Z())
+
+    matDiffuseLoc := gl.GetUniformLocation(program, gl.Str("material.diffuse\x00"))
+    gl.Uniform3f(matDiffuseLoc, mat.Diffuse.X(), mat.Diffuse.Y(), mat.Diffuse.Z())
+
+    matSpecularLoc := gl.GetUniformLocation(program, gl.Str("material.specular\x00"))
+    gl.Uniform3f(matSpecularLoc, mat.Specular.X(), mat.Specular.Y(), mat.Specular.Z())
+
+    matShineLoc := gl.GetUniformLocation(program, gl.Str("material.shininess\x00"))
+    gl.Uniform1f(matShineLoc, mat.Shininess)
+
+    // assign specular, diffuse and whatever
+    // assign lights vector
+
+    gl.BindTexture(gl.TEXTURE_2D, white)
+
+    if mat.Texture != 0 {
+      gl.BindTexture(gl.TEXTURE_2D, mat.Texture)
+    }
+
+    faces := m.OpenGLFaces[i]
+    // if len(m.OpenGLFaces) > 1 {
+    //   faces = append(faces, m.OpenGLFaces[1]...)
+    // }
+
+    // fmt.Println("vertices: ", m.OpenGLVertices)
+    // fmt.Println("faces: ", m.OpenGLFaces)
+
+    gl.BindVertexArray(m.vao)
+    gl.DrawElements(gl.TRIANGLES, int32(len(faces)), gl.UNSIGNED_INT, gl.PtrOffset(0))
+    gl.BindVertexArray(0)
+
   }
-  gl.BindTexture(gl.TEXTURE_2D, texture)
-
-  faces := m.OpenGLFaces[0]
-
-  // fmt.Println("vertices: ", m.OpenGLVertices)
-  // fmt.Println("faces: ", m.OpenGLFaces)
-
-  gl.BindVertexArray(m.vao)
-  gl.DrawElements(gl.TRIANGLES, int32(len(faces)), gl.UNSIGNED_INT, gl.PtrOffset(0))
-  gl.BindVertexArray(0)
 
 }

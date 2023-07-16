@@ -20,6 +20,10 @@
 		<obj>Suzanne.obj</obj>
 		<mtl>Suzanne.mtl</mtl>
 	</mesh>
+	<mesh>
+		<obj>Cube.002.obj</obj>
+		<mtl>Cube.002.mtl</mtl>
+	</mesh>
 	<light type="point">
 		<position>4.076245307922363,1.0054539442062378,5.903861999511719</position>
 		<color>1.0,1.0,1.0</color>
@@ -27,7 +31,7 @@
 	</light>
 	<light type="sun">
 		<position>-6.668605804443359,1.0054539442062378,5.903861999511719</position>
-		<color>0.005036966409534216,1.0,0.0</color>
+		<color>0.9816115498542786,1.0,0.9067515730857849</color>
 		<intensity>2.0</intensity>
 	</light>
 </scene>

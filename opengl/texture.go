@@ -1,7 +1,7 @@
 package opengl
 
 import (
-	"fmt"
+	// "fmt"
 	"image"
 	"image/draw"
 	_ "image/png"
@@ -12,19 +12,19 @@ import (
 
 
 
-func CreateTexture(file string) (uint32, error) {
+func CreateTexture(file string) uint32 {
 	imgFile, err := os.Open(file)
 	if err != nil {
-		return 0, fmt.Errorf("texture %q not found on disk: %v", file, err)
+		return 0
 	}
 	img, _, err := image.Decode(imgFile)
 	if err != nil {
-		return 0, err
+		return 0
 	}
 
 	rgba := image.NewRGBA(img.Bounds())
 	if rgba.Stride != rgba.Rect.Size().X*4 {
-		return 0, fmt.Errorf("unsupported stride")
+		return 0
 	}
 	draw.Draw(rgba, rgba.Bounds(), img, image.Point{0, 0}, draw.Src)
 
@@ -50,5 +50,5 @@ func CreateTexture(file string) (uint32, error) {
 
   // gl.GenerateMipmap(gl.TEXTURE_2D)
 
-	return texture, nil
+	return texture
 }
