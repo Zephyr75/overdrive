@@ -38,6 +38,7 @@ func LoadScene(path string) Scene {
 
   for i, lightXml := range sceneXml.LightsXml {
     scene.Lights[i] = lightXml.ToLight()
+    fmt.Println(scene.Lights[i].Pos)
   }
 
   // fmt.Println(scene.Meshes[0].Vertices)

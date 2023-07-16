@@ -41,7 +41,7 @@ void main()
   // specular
   vec3 viewDir = normalize(viewPos - FragPos);
   vec3 reflectDir = reflect(-lightDir, norm);  
-  float spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess+0.01);
+  float spec = pow(max(dot(viewDir, reflectDir), 0.0), material.shininess/1000 + 0.001);
   vec3 specular = light.specular * (spec * material.specular);
           
   vec2 flipped_tex = vec2(TexCoord.x, 1.0 - TexCoord.y);

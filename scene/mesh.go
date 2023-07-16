@@ -10,7 +10,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/go-gl/glfw/v3.3/glfw"
+	// "github.com/go-gl/glfw/v3.3/glfw"
   "overdrive/opengl"
 )
 
@@ -277,19 +277,19 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 
     // Define light properties
     lightAmbientLoc := gl.GetUniformLocation(program, gl.Str("light.ambient\x00"))
-    gl.Uniform3f(lightAmbientLoc, 1.0, 1.0, 1.0)
+    gl.Uniform3f(lightAmbientLoc, 0.2, 0.2, 0.2)
 
     lightDiffuseLoc := gl.GetUniformLocation(program, gl.Str("light.diffuse\x00"))
-    gl.Uniform3f(lightDiffuseLoc , 1.0, 1.0, 1.0)
+    gl.Uniform3f(lightDiffuseLoc, 1.0, 1.0, 1.0)
 
     lightSpecularLoc := gl.GetUniformLocation(program, gl.Str("light.specular\x00"))
-    gl.Uniform3f(lightSpecularLoc , 1.0, 1.0, 1.0)
+    gl.Uniform3f(lightSpecularLoc, 0.3, 0.3, 0.3)
 
     lightPosLoc := gl.GetUniformLocation(program, gl.Str("light.position\x00"))
-    gl.Uniform3f(lightPosLoc, 1.2, float32(glfw.GetTime()) - 5.0, 1.0)
+    gl.Uniform3f(lightPosLoc, 0.0, 0.0, 0.0)
 
     viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
-    gl.Uniform3f(viewPosLoc, scene.Cam.Pos.X(), scene.Cam.Pos.Y(), scene.Cam.Pos.Z())
+    gl.Uniform3f(viewPosLoc, 0.0, 0.0, 0.0)
 
     // Define material properties
     matAmbientLoc := gl.GetUniformLocation(program, gl.Str("material.ambient\x00"))
