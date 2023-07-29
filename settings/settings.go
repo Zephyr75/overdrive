@@ -1,6 +1,6 @@
 package settings
 
 var (
-  WindowWidth int = 800
-  WindowHeight int = 800
+  WindowWidth int = 1920
+  WindowHeight int = 1080
 )

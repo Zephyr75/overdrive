@@ -153,6 +153,9 @@ func (mXml MeshXml) ToMesh() Mesh {
     case "map_Kd":
       texture := opengl.CreateTexture(split_line[1])
       material.Texture = texture
+    case "map_Bump":
+      texture := opengl.CreateTexture(split_line[1])
+      material.NormalMap = texture
     }
   }
   materials = append(materials, material)
@@ -276,22 +279,28 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     mat := m.Materials[i]
 
     // Define light properties
-    lightAmbientLoc := gl.GetUniformLocation(program, gl.Str("light.ambient\x00"))
-    gl.Uniform3f(lightAmbientLoc, 0.2, 0.2, 0.2)
+		light := scene.Lights[0]
+
+		lightTypeLoc := gl.GetUniformLocation(program, gl.Str("light.type\x00"))
+		gl.Uniform1i(lightTypeLoc, int32(light.Type))
+
+    lightColorLoc := gl.GetUniformLocation(program, gl.Str("light.color\x00"))
+    gl.Uniform3f(lightColorLoc, light.Color.X(), light.Color.Y(), light.Color.Z())
 
     lightDiffuseLoc := gl.GetUniformLocation(program, gl.Str("light.diffuse\x00"))
-    gl.Uniform3f(lightDiffuseLoc, 1.0, 1.0, 1.0)
+    gl.Uniform1f(lightDiffuseLoc, light.Diffuse)
 
     lightSpecularLoc := gl.GetUniformLocation(program, gl.Str("light.specular\x00"))
-    gl.Uniform3f(lightSpecularLoc, 0.3, 0.3, 0.3)
-
-    light := scene.Lights[0]
+    gl.Uniform1f(lightSpecularLoc, light.Specular)
 
     lightPosLoc := gl.GetUniformLocation(program, gl.Str("light.position\x00"))
     gl.Uniform3f(lightPosLoc, light.Pos.X(), light.Pos.Y(), light.Pos.Z())
 
+    lightDirLoc := gl.GetUniformLocation(program, gl.Str("light.direction\x00"))
+    gl.Uniform3f(lightDirLoc, light.Dir.X(), light.Dir.Y(), light.Dir.Z())
+
     viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
-    gl.Uniform3f(viewPosLoc, 0.0, 0.0, 0.0)
+    gl.Uniform3f(viewPosLoc, Cam.Pos.X(), Cam.Pos.Y(), Cam.Pos.Z())
 
     // Define material properties
     matAmbientLoc := gl.GetUniformLocation(program, gl.Str("material.ambient\x00"))
@@ -314,6 +323,9 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     if mat.Texture != 0 {
       gl.BindTexture(gl.TEXTURE_2D, mat.Texture)
     }
+    // if mat.NormalMap != 0 {
+    //   gl.BindTexture(gl.TEXTURE_2D, mat.NormalMap)
+    // }
 
     faces := m.OpenGLFaces[i]
     // if len(m.OpenGLFaces) > 1 {
@@ -330,3 +342,4 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
   }
 
 }
+

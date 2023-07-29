@@ -32,9 +32,24 @@
 		<obj>Suzanne.002.obj</obj>
 		<mtl>Suzanne.002.mtl</mtl>
 	</mesh>
+	<mesh>
+		<obj>Text.obj</obj>
+		<mtl>Text.mtl</mtl>
+	</mesh>
 	<light type="point">
-		<position>19.33137321472168,6.5255584716796875,16.200332641601562</position>
+		<position>2.6226577758789062,-9.281068801879883,7.971427917480469</position>
+		<direction>0.6503279805183411,0.055217113345861435,1.8663908243179321</direction>
 		<color>1.0,1.0,1.0</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
 		<intensity>1000.0</intensity>
+	</light>
+	<light type="sun">
+		<position>10.79636001586914,19.379072189331055,14.251354217529297</position>
+		<direction>0.6503280401229858,0.055217113345861435,2.7752625942230225</direction>
+		<color>1.0,0.0,0.005764487199485302</color>
+		<diffuse>0.25</diffuse>
+		<specular>0.5</specular>
+		<intensity>500.0</intensity>
 	</light>
 </scene>

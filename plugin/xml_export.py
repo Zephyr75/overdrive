@@ -181,16 +181,31 @@ class OverdriveWriter:
     def write_light(self, light):
         light_element = self.create_xml_element("light", {"type": light.data.type.lower()})
         pos = light.location
+        dir = light.rotation_euler
         color = light.data.color
+        specular = light.data.specular_factor
+        diffuse = light.data.diffuse_factor
         intensity = light.data.energy
 
         pos_element = self.create_xml_element("position", {})
         pos_element.appendChild(self.doc.createTextNode(self.write_vector(pos)))
         light_element.appendChild(pos_element)
 
-        color_element = self.create_xml_element("color", {})
-        color_element.appendChild(self.doc.createTextNode(self.write_vector(color)))
-        light_element.appendChild(color_element)
+        dir_element = self.create_xml_element("direction", {})
+        dir_element.appendChild(self.doc.createTextNode(self.write_vector(dir)))
+        light_element.appendChild(dir_element)
+
+        ambient_element = self.create_xml_element("color", {})
+        ambient_element.appendChild(self.doc.createTextNode(self.write_vector(color)))
+        light_element.appendChild(ambient_element)
+
+        diffuse_element = self.create_xml_element("diffuse", {})
+        diffuse_element.appendChild(self.doc.createTextNode(str(diffuse)))
+        light_element.appendChild(diffuse_element)
+
+        specular_element = self.create_xml_element("specular", {})
+        specular_element.appendChild(self.doc.createTextNode(str(specular)))
+        light_element.appendChild(specular_element)
 
         intensity_element = self.create_xml_element("intensity", {})
         intensity_element.appendChild(self.doc.createTextNode(str(intensity)))
