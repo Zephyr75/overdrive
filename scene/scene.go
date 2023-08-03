@@ -22,7 +22,6 @@ type Scene struct {
   Lights []Light
 }
 
-
 func LoadScene(path string) Scene {
   xmlFile, err := os.Open(path)
   if err != nil {

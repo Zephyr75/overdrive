@@ -12,6 +12,8 @@ import (
 
 	// "github.com/go-gl/glfw/v3.3/glfw"
   "overdrive/opengl"
+
+	"math"
 )
 
 var (
@@ -279,25 +281,58 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     mat := m.Materials[i]
 
     // Define light properties
-		light := scene.Lights[0]
+		for i, light := range scene.Lights {
+			fmt.Println(light.Dir)
 
-		lightTypeLoc := gl.GetUniformLocation(program, gl.Str("light.type\x00"))
-		gl.Uniform1i(lightTypeLoc, int32(light.Type))
 
-    lightColorLoc := gl.GetUniformLocation(program, gl.Str("light.color\x00"))
-    gl.Uniform3f(lightColorLoc, light.Color.X(), light.Color.Y(), light.Color.Z())
+			lightTypeLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].type\x00", i)))
+			gl.Uniform1i(lightTypeLoc, int32(light.Type))
 
-    lightDiffuseLoc := gl.GetUniformLocation(program, gl.Str("light.diffuse\x00"))
-    gl.Uniform1f(lightDiffuseLoc, light.Diffuse)
+			lightConstantLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].constant\x00", i)))
+			gl.Uniform1f(lightConstantLoc, 1.0)
 
-    lightSpecularLoc := gl.GetUniformLocation(program, gl.Str("light.specular\x00"))
-    gl.Uniform1f(lightSpecularLoc, light.Specular)
+			lightLinearLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].linear\x00", i)))
+			gl.Uniform1f(lightLinearLoc, 0.09)
 
-    lightPosLoc := gl.GetUniformLocation(program, gl.Str("light.position\x00"))
-    gl.Uniform3f(lightPosLoc, light.Pos.X(), light.Pos.Y(), light.Pos.Z())
+			lightQuadraticLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].quadratic\x00", i)))
+			gl.Uniform1f(lightQuadraticLoc, 0.032)
 
-    lightDirLoc := gl.GetUniformLocation(program, gl.Str("light.direction\x00"))
-    gl.Uniform3f(lightDirLoc, light.Dir.X(), light.Dir.Y(), light.Dir.Z())
+			lightCutoffLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].cutoff\x00", i)))
+			gl.Uniform1f(lightCutoffLoc, float32(math.Cos(math.Pi/4)))
+
+			lightColorLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].color\x00", i)))
+			gl.Uniform3f(lightColorLoc, light.Color.X(), light.Color.Y(), light.Color.Z())
+
+			lightIntensityLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].intensity\x00", i)))
+			gl.Uniform1f(lightIntensityLoc, light.Intensity)
+
+			lightDiffuseLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].diffuse\x00", i)))
+			gl.Uniform1f(lightDiffuseLoc, light.Diffuse)
+
+			lightSpecularLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].specular\x00", i)))
+			gl.Uniform1f(lightSpecularLoc, light.Specular)
+
+			lightPosLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].position\x00", i)))
+			gl.Uniform3f(lightPosLoc, light.Pos.X(), light.Pos.Y(), light.Pos.Z())
+			// gl.Uniform3f(lightPosLoc, Cam.Pos.X(), Cam.Pos.Y(), Cam.Pos.Z())
+
+			lightDirLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].direction\x00", i)))
+			down := mgl32.Vec3{0, 1, 0}
+			// rotVec := mgl32.Vec3{math.Pi/4, 0, -math.Pi/4}
+			rotVec := mgl32.Vec3{math.Pi/4, 0, math.Pi/4}
+			// rotVec := light.Dir
+			// lightDir is the down vector rotated by the light's rotation
+			rotMat := mgl32.Rotate3DX(rotVec.X())
+			rotMat = rotMat.Mul3(mgl32.Rotate3DY(rotVec.Y()))
+			rotMat = rotMat.Mul3(mgl32.Rotate3DZ(rotVec.Z()))
+			lightDir := rotMat.Mul3x1(down)
+			fmt.Println(rotVec, light.Dir)
+			gl.Uniform3f(lightDirLoc, lightDir.X(), lightDir.Y(), lightDir.Z())
+			// gl.Uniform3f(lightDirLoc, light.Dir.X(), light.Dir.Y(), light.Dir.Z())
+			// gl.Uniform3f(lightDirLoc, Cam.Front.X(), Cam.Front.Y(), Cam.Front.Z())
+
+			// fmt.Println(lightDir)
+		}
 
     viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
     gl.Uniform3f(viewPosLoc, Cam.Pos.X(), Cam.Pos.Y(), Cam.Pos.Z())
