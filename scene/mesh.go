@@ -40,6 +40,7 @@ type Mesh struct {
   vbo uint32
   vao []uint32
   ebo uint32
+	// depthMapFBO uint32
 }
 
 
@@ -273,6 +274,10 @@ func (m *Mesh) Setup() {
 
     // Clear VAO binding
     gl.BindVertexArray(0)
+
+
+		// gl.GenFramebuffers(1, &m.fbo)
+
   }
 }
 
@@ -282,7 +287,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 
     // Define light properties
 		for i, light := range scene.Lights {
-			fmt.Println(light.Dir)
+			// fmt.Println(light.Dir)
 
 
 			lightTypeLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].type\x00", i)))
@@ -326,7 +331,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 			rotMat = rotMat.Mul3(mgl32.Rotate3DY(rotVec.Y()))
 			rotMat = rotMat.Mul3(mgl32.Rotate3DZ(rotVec.Z()))
 			lightDir := rotMat.Mul3x1(down)
-			fmt.Println(rotVec, light.Dir)
+			// fmt.Println(rotVec, light.Dir)
 			gl.Uniform3f(lightDirLoc, lightDir.X(), lightDir.Y(), lightDir.Z())
 			// gl.Uniform3f(lightDirLoc, light.Dir.X(), light.Dir.Y(), light.Dir.Z())
 			// gl.Uniform3f(lightDirLoc, Cam.Front.X(), Cam.Front.Y(), Cam.Front.Z())

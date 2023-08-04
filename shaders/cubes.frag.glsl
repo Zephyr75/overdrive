@@ -31,7 +31,7 @@ uniform Light lights[NR_LIGHTS];
 uniform Material material;
   
 in vec3 FragPos; 
-in vec2 TexCoords;
+in vec2 TexCoord;
 in vec3 Normal;
 
 uniform sampler2D ourTexture;
@@ -118,9 +118,11 @@ void main()
     
   }
 
-  // vec2 flipped_tex = vec2(TexCoords.x, 1.0 - TexCoords.y);
+  vec2 flipped_tex = vec2(TexCoord.x, 1.0 - TexCoord.y);
 
-  FragColor = vec4(result, 1.0); // * texture(ourTexture, flipped_tex);
+  // FragColor = texture(ourTexture, TexCoord);
+  FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);
+  // FragColor = vec4(result, 1.0);
 
   // FragColor = vec4(Normal, 1.0);
   // FragColor = texture(ourTexture, TexCoord); // * vec4(lightColor, 1.0);
@@ -147,7 +149,7 @@ vec3 CalcDirLight(Light light, vec3 normal, vec3 viewDir)
     vec3 diffuse  = light.color * light.diffuse  * diff * material.diffuse;
     vec3 specular = light.color * light.specular * spec * material.specular;
     // return (ambient + diffuse + specular); // * light.intensity / 1000;
-    return diffuse * light.intensity / 100;
+    return diffuse * light.intensity / 10;
 }
 
 // calculates the color when using a point light.

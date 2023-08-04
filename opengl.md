@@ -148,4 +148,7 @@ gl.TexImage2D()
 
 
 
+`Stencil buffer` define which pixels to render for example to draw outlines
+
+
 

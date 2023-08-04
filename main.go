@@ -47,6 +47,7 @@ func main() {
   // OpenGL setup
   gl.Init()
   gl.Enable(gl.DEPTH_TEST)
+	gl.Enable(gl.CULL_FACE)
 
   // Declare shader programs
   vertexShaderFile, err := os.ReadFile("shaders/cubes.vert.glsl")

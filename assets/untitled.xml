@@ -36,20 +36,24 @@
 		<obj>Text.obj</obj>
 		<mtl>Text.mtl</mtl>
 	</mesh>
+	<mesh>
+		<obj>Cube.003.obj</obj>
+		<mtl>Cube.003.mtl</mtl>
+	</mesh>
 	<light type="point">
-		<position>-10.841798782348633,4.2313032150268555,7.971427917480469</position>
+		<position>-5.293702125549316,3.6738734245300293,8.481884956359863</position>
 		<direction>0.6503279805183411,0.055217113345861435,1.8663908243179321</direction>
-		<color>0.0,0.03926902636885643,1.0</color>
+		<color>1.0,1.0,1.0</color>
 		<diffuse>1.0</diffuse>
 		<specular>1.0</specular>
 		<intensity>10000.0</intensity>
 	</light>
 	<light type="sun">
 		<position>10.940108299255371,-5.441526412963867,14.251354217529297</position>
-		<direction>0.7853981852531433,0.7853981852531433,0.0</direction>
+		<direction>0.7853981852531433,-0.7853981852531433,0.0</direction>
 		<color>1.0,0.0,0.005764487199485302</color>
 		<diffuse>0.25</diffuse>
 		<specular>0.5</specular>
-		<intensity>100.0</intensity>
+		<intensity>0.0</intensity>
 	</light>
 </scene>
