@@ -197,6 +197,15 @@ glBindVertexArray(0)
 
 `gl.GetProgramiv(program, gl.LINK_STATUS, &status)` get program information and errors
 
+## Framebuffer
+
+`var FBO uint32` declare ID
+
+`gl.GenFramebuffers(1, &FBO)` create buffer and store its ID
+
+`gl.BindFramebuffer(gl.ARRAY_BUFFER, FBO)` bind buffer to OpenGL buffer
+
+
 # GLSL
 
 Vertex shader takes inputs from program and feeds outputs to fragment shader
