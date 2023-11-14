@@ -171,7 +171,7 @@ func (mXml MeshXml) ToMesh() Mesh {
   //   fmt.Println(m.Materials[i])
   // }
 
-  //TODO find better place for this
+  // TODO: find better place for this
   white = opengl.CreateTexture("textures/white.png")
 
 

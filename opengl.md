@@ -31,13 +31,14 @@ window.MakeContextCurrent()
 
 `window.ShouldClose()` detects close request
 
-`window.SwapBuffers()` swap current and next buffers
+`window.SwapBuffers()` swap current and next color buffers
 
 `glfw.PollEvents()` get inputs
 
 ```go
 // FULL WINDOW LIFECYCLE
 for !window.ShouldClose() {
+    ...
     window.SwapBuffers()
     glfw.PollEvents()
 }
@@ -63,78 +64,68 @@ if window.GetKey(glfw.KeyEscape) == glfw.Press {
 
 ## Generic
 
+`gl.Viewport(0, 0, 800, 600)` set resolution
+
 `gl.ClearColor(0.2, 0.3, 0.3, 1.0)` set background color
 
 `gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)` clear buffer
+
+```go
+// MAP CALLBACK METHODS TO EVENTS
+window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
+window.SetCursorPosCallback(input.MouseCallback)
+window.SetScrollCallback(input.ScrollCallback)
+window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
+```
 
 ## Storing vertices : VBO
 
 > Vertex Buffer Object stores vertices
 
-`var VBO uint32` declare buffer
+`var VBO uint32` declare ID
 
-`gl.GenBuffers(1, &VBO)` set alias for buffer
+`gl.GenBuffers(1, &VBO)` create buffer and store its ID
 
-`gl.BindBuffer(gl.ARRAY_BUFFER, VBO)` link buffer to ARRAY_BUFFER commands
+`gl.BindBuffer(gl.ARRAY_BUFFER, VBO)` set buffer type
 
-`gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)` set buffer structure
-
-## Shader
-
- var vertexShaderSource = `
-    #version 410 core
-    layout (location = 0) in vec3 aPos;
-    void main()
-    {
-      gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);
-    }
-`
-`gl.CreateShader(shaderType)` create shader
-
-`gl.ShaderSource(shader, 1, csources, nil)` set shader source code
-
-`gl.CompileShader(shader)` compile shader
-
-`gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)` get shader information
-
-## Program
-
-`gl.CreateProgram()` create program
-
-`gl.AttachShader(program, vertexShader)` assign shader to program
-
-`gl.LinkProgram(program)` link program shaders together
-
-`gl.UseProgram()` use program
-
-`gl.GetProgramiv(program, gl.LINK_STATUS, &status)` get program information
-
-`gl.DeleteShader(vertexShader)` delete shader once linked
+`gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)` set buffer structure and data
 
 ## Interpret buffer data
 
-gl.EnableVertexAttribArray(0)
+`gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))` specify how to interpret the data
 
-gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))
-TODO: describe parameters
+Parameters :
+- 1st : location of the vertex attribute in the shader
+- 2nd : size of the vertex attribute
+- 3rd : type of the data
+- 4th : whether the data should be normalized
+- 5th : stride (space between consecutive vertex attributes)
+- 6th : offset of the position where the data starts
 
-
-```go
-gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))
-gl.EnableVertexAttribArray(0)
-```
+`gl.EnableVertexAttribArray(0)` enable the vertex attribute with given location
 
 ## Store buffer config : VAO
 
-gl.GenVertexArrays(1, &VAO)
+Vertex Array Object stores calls to:
+- `glEnableVertexAttribArray`
+- `glDisableVertexAttribArray`
+- `glVertexAttribPointer`
 
-gl.BindVertexArray(VAO)
+`var VAO uint32` declare ID
+
+`gl.GenVertexArrays(1, &VAO)` create buffer and store its ID
+
+`gl.BindVertexArray(VAO)` set buffer type | use VAO
 
 ## Storing triangles : EBO
 
 gl.GenBuffers(1, &EBO)
 gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)
 gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
+
+## Drawing
+
+`glDrawArrays(GL_TRIANGLES, 0, 3)` draw primitive
 
 ## Load texture
 
@@ -146,9 +137,101 @@ gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 
 gl.TexImage2D()
 
-
-
 `Stencil buffer` define which pixels to render for example to draw outlines
 
+## Shader
+
+`gl.CreateShader(shaderType)` create shader
+
+`gl.ShaderSource(shader, 1, csources, nil)` set shader code
+
+`gl.CompileShader(shader)` compile shader
+
+`gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)` get shader information and errors
+
+## Program
+
+`gl.CreateProgram()` create program
+
+`gl.AttachShader(program, vertexShader)` assign shader to program
+
+`gl.LinkProgram(program)` link program shaders together
+
+`gl.UseProgram()` use program
+
+`gl.DeleteShader(vertexShader)` delete shader once linked
+
+`gl.GetProgramiv(program, gl.LINK_STATUS, &status)` get program information and errors
+
+# GLSL
+
+Vertex shader takes inputs from program and feeds outputs to fragment shader
+
+## Vertex shader
+
+```glsl
+#version 330 core
+// VERTEX DEPENDENT INPUT VARIABLES
+layout (location = 0) in vec3 aPos;
+layout (location = 1) in vec3 aNormal;
+
+// OUTPUT VARIABLES TO FRAGMENT SHADER
+out vec3 FragPos;
+out vec3 Normal;
+
+// UNIFORM INPUT VARIABLES
+uniform mat4 model;
+uniform mat4 view;
+uniform mat4 projection;
+
+void main()
+{
+    FragPos = vec3(model * vec4(aPos, 1.0));
+    Normal = mat3(transpose(inverse(model))) * aNormal; 
+    // MAIN 2D POSITION OUTPUT 
+    gl_Position = projection * view * vec4(FragPos, 1.0);
+}
+```
+
+## Fragment shader
+
+```glsl
+#version 330 core
+// MAIN COLOR OUTPUT
+out vec4 FragColor;
+
+// INPUT VARIABLES FROM VERTEX SHADER
+in vec3 Normal;  
+in vec3 FragPos;  
+
+// UNIFORM INPUT VARIABLES
+uniform vec3 lightPos; 
+uniform vec3 viewPos; 
+uniform vec3 lightColor;
+uniform vec3 objectColor;
+
+void main()
+{
+    // ambient
+    float ambientStrength = 0.1;
+    vec3 ambient = ambientStrength * lightColor;
+  	
+    // diffuse 
+    vec3 norm = normalize(Normal);
+    vec3 lightDir = normalize(lightPos - FragPos);
+    float diff = max(dot(norm, lightDir), 0.0);
+    vec3 diffuse = diff * lightColor;
+    
+    // specular
+    float specularStrength = 0.5;
+    vec3 viewDir = normalize(viewPos - FragPos);
+    vec3 reflectDir = reflect(-lightDir, norm);  
+    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32);
+    vec3 specular = specularStrength * spec * lightColor;  
+        
+    vec3 result = (ambient + diffuse + specular) * objectColor;
+    FragColor = vec4(result, 1.0);
+} 
 
 
+```
