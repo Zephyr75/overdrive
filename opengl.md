@@ -55,14 +55,11 @@ if window.GetKey(glfw.KeyEscape) == glfw.Press {
 }
 ```
 
-
 # OpenGL
 
-## Setup
+## Generic
 
 `gl.Init()` setup OpenGL
-
-## Generic
 
 `gl.Viewport(0, 0, 800, 600)` set resolution
 
@@ -86,9 +83,19 @@ window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
 `gl.GenBuffers(1, &VBO)` create buffer and store its ID
 
-`gl.BindBuffer(gl.ARRAY_BUFFER, VBO)` set buffer type
+`gl.BindBuffer(gl.ARRAY_BUFFER, VBO)` bind buffer to OpenGL buffer
 
 `gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)` set buffer structure and data
+
+## Storing triangles : EBO
+
+`var EBO uint32` declare ID
+
+`gl.GenBuffers(1, &EBO)` create buffer and store its ID
+
+`gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)` bind buffer to OpenGL buffer
+
+`gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)` set buffer structure and data
 
 ## Interpret buffer data
 
@@ -111,33 +118,60 @@ Vertex Array Object stores calls to:
 - `glDisableVertexAttribArray`
 - `glVertexAttribPointer`
 
+Vertex Array Object stores bindings to:
+- VBO
+- EBO
+
 `var VAO uint32` declare ID
 
 `gl.GenVertexArrays(1, &VAO)` create buffer and store its ID
 
-`gl.BindVertexArray(VAO)` set buffer type | use VAO
-
-## Storing triangles : EBO
-
-gl.GenBuffers(1, &EBO)
-gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)
-gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
+`gl.BindVertexArray(VAO)` bind buffer to OpenGL buffer
 
 ## Drawing
 
-`glDrawArrays(GL_TRIANGLES, 0, 3)` draw primitive
+`glDrawArrays(GL_TRIANGLES, 0, 3)` draw triangles
+
+`glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0)` draw elements from EBO
+
+```go
+// INITIALIZATION CODE
+// 1. bind Vertex Array Object
+glBindVertexArray(VAO)
+// 2. copy our vertices array in a vertex buffer for OpenGL to use
+glBindBuffer(GL_ARRAY_BUFFER, VBO)
+glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW)
+// 3. copy our index array in a element buffer for OpenGL to use
+glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO)
+glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW)
+// 4. then set the vertex attributes pointers
+glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0)
+glEnableVertexAttribArray(0)
+
+...
+
+// DRAWING CODE (IN RENDER LOOP)
+glUseProgram(shaderProgram)
+glBindVertexArray(VAO)
+glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0)
+glBindVertexArray(0)
+```
 
 ## Load texture
 
-`gl.GenTextures(1, &texture)` set alias for texture
+`var texture uint32` declare ID
 
-gl.BindTexture(gl.TEXTURE_2D, texture) 
+`gl.GenTextures(1, &texture)` create texture and store its ID
 
-gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+`gl.BindTexture(gl.TEXTURE_2D, texture)` bind texture to OpenGL texture
 
-gl.TexImage2D()
+`gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)` set option
 
-`Stencil buffer` define which pixels to render for example to draw outlines
+`gl.TexImage2D()` load image data to texture
+
+`gl.GenerateMipmap(gl.TEXTURE_2D)` generate MipMap (multi-resolution images for faster loading)
+
+> The `stencil buffer` define which pixels to render for example to draw outlines
 
 ## Shader
 
@@ -232,6 +266,4 @@ void main()
     vec3 result = (ambient + diffuse + specular) * objectColor;
     FragColor = vec4(result, 1.0);
 } 
-
-
 ```
