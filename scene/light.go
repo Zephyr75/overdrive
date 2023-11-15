@@ -3,6 +3,7 @@ package scene
 import (
   "github.com/go-gl/mathgl/mgl32"
   "overdrive/utils"
+	"github.com/go-gl/gl/v4.1-core/gl"
 )
 
 type LightXml struct {
@@ -24,6 +25,8 @@ type Light struct {
   Diffuse float32
   Specular float32
   Intensity float32
+	DepthMapFBO uint32
+  DepthMap uint32
 }
 
 func (l LightXml) ToLight() Light {
@@ -52,4 +55,21 @@ func (l LightXml) ToLight() Light {
 		Specular: l.Specular,
     Intensity: l.Intensity,
   }
+}
+
+func (l *Light) Setup() {
+  gl.GenFramebuffers(1, &l.DepthMapFBO)
+  gl.GenTextures(1, &l.DepthMap)
+  gl.BindTexture(gl.TEXTURE_2D, l.DepthMap)
+  gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, 1024, 1024, 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+  gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+  gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+  gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)
+  gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT)
+
+  gl.BindFramebuffer(gl.FRAMEBUFFER, l.DepthMapFBO)
+  gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, l.DepthMap, 0)
+  gl.DrawBuffer(gl.NONE)
+  gl.ReadBuffer(gl.NONE)
+  gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }

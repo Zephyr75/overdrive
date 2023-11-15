@@ -358,6 +358,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     // assign specular, diffuse and whatever
     // assign lights vector
 
+    gl.ActiveTexture(gl.TEXTURE0)
     gl.BindTexture(gl.TEXTURE_2D, white)
 
     if mat.Texture != 0 {

@@ -8,6 +8,7 @@ import (
 )
 
 var (
+  // TODO: move this to a better place
   Cam Camera = NewCamera()
 )
 

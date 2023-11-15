@@ -67,13 +67,33 @@ func main() {
     panic(err)
   }
 
+  // depthVertexShaderFile, err := os.ReadFile("shaders/depth.vert.glsl")
+  // if err != nil {
+  //   panic(err)
+  // }
+  // depthVertexShaderSource := string(depthVertexShaderFile) + "\x00"
 
+  // depthFragmentShaderFile, err := os.ReadFile("shaders/depth.frag.glsl")
+  // if err != nil {
+  //   panic(err)
+  // }
+  // depthFragmentShaderSource := string(depthFragmentShaderFile) + "\x00"
+
+  // depthProgram, err := opengl.CreateProgram(depthVertexShaderSource, depthFragmentShaderSource)
+  // if err != nil {
+  //   panic(err)
+  // }
+
+  // Load scene
   var s scene.Scene = scene.LoadScene("assets/untitled.xml")
 
   // fmt.Println(s.Meshes[0].Vertices)
 
   for i := 0; i < len(s.Meshes); i++ {
     s.Meshes[i].Setup()
+  }
+  for i := 0; i < len(s.Lights); i++ {
+    s.Lights[i].Setup()
   }
 
  
@@ -83,6 +103,31 @@ func main() {
   for !window.ShouldClose() {
     input.ProcessInput(window, deltaTime)
 
+    // Render scene from light's perspective
+    // nearPlane := float32(1.0)
+    // farPlane := float32(7.5)
+    // lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
+    // lightView := mgl32.LookAtV(s.Lights[0].Pos, mgl32.Vec3{0.0, 0.0, 0.0}, mgl32.Vec3{0.0, 1.0, 0.0})
+    // lightSpaceMatrix := lightProjection.Mul4(lightView)
+
+    // gl.UseProgram(depthProgram)
+    // lightSpaceMatrixLoc := gl.GetUniformLocation(depthProgram, gl.Str("lightSpaceMatrix\x00"))
+    // gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
+
+    // gl.Viewport(0, 0, int32(settings.ShadowWidth), int32(settings.ShadowHeight))
+    // gl.BindFramebuffer(gl.FRAMEBUFFER, s.Lights[0].DepthMapFBO)
+    // gl.Clear(gl.DEPTH_BUFFER_BIT)
+    // for i := 0; i < len(s.Meshes); i++ {
+    //   s.Meshes[i].Draw(depthProgram, &s)
+    // }
+    // gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+
+
+
+
+
+    // Render scene as normal
+    gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
     gl.ClearColor(0.1, 0.1, 0.1, 1.0)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
     
@@ -109,6 +154,12 @@ func main() {
     model := mgl32.Scale3D(1.0, 1.0, 1.0)
     modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
     gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
+    // lightSpaceMatrixLoc = gl.GetUniformLocation(depthProgram, gl.Str("lightSpaceMatrix\x00"))
+    // gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
+
+    gl.ActiveTexture(gl.TEXTURE1)
+    gl.BindTexture(gl.TEXTURE_2D, s.Lights[0].DepthMap)
 
     for i := 0; i < len(s.Meshes); i++ {
       s.Meshes[i].Draw(cubesProgram, &s)
