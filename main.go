@@ -107,12 +107,30 @@ func main() {
 
     // Render scene from light's perspective
     nearPlane := float32(1.0)
-    farPlane := float32(7.5)
-    lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
-    lightView := mgl32.LookAtV(s.Lights[0].Pos, mgl32.Vec3{0.0, 0.0, 0.0}, mgl32.Vec3{0.0, 0.0, 1.0})
+    farPlane := float32(50.0)
+    lightProjection := mgl32.Ortho(-20.0, 20.0, -20.0, 20.0, nearPlane, farPlane)
+
+    // lightView := mgl32.LookAtV(mgl32.Vec3{50.0, 50.0, 50.0}, mgl32.Vec3{0.0, 0.0, 0.0}, mgl32.Vec3{0.0, 0.0, 1.0})
+    // lightView := mgl32.LookAtV(s.Lights[0].Pos, mgl32.Vec3{0.0, 0.0, 0.0}, mgl32.Vec3{0.0, 0.0, 1.0})
+
+    lightView := mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(s.Lights[0].Dir), mgl32.Vec3{0.0, 0.0, 1.0})
     lightSpaceMatrix := lightProjection.Mul4(lightView)
 
-    print(lightSpaceMatrix.At(0, 0))
+    // print lightView
+    println(s.Lights[0].Pos.Add(s.Lights[0].Dir).X())
+    println(s.Lights[0].Pos.Add(s.Lights[0].Dir).Y())
+    println(s.Lights[0].Pos.Add(s.Lights[0].Dir).Z())
+    println("")
+
+    // -6.344780e-001 +7.729409e-001 +0.000000e+000 +0.000000e+000
+    // -3.138117e-001 -2.575962e-001 +9.138744e-001 +0.000000e+000
+    // +7.063709e-001 +5.798333e-001 +4.059970e-001 -1.340287e+001
+    // +0.000000e+000 +0.000000e+000 +0.000000e+000 +1.000000e+000
+
+    // +8.524761e-001 -5.227662e-001 +0.000000e+000 -4.008089e+000
+    // -2.421877e-001 -3.949361e-001 +8.862115e-001 +5.397630e-001
+    // -4.632814e-001 -7.554741e-001 -4.632811e-001 +1.277814e+001
+    // +0.000000e+000 +0.000000e+000 +0.000000e+000 +1.000000e+000
 
     gl.UseProgram(depthProgram)
     lightSpaceMatrixLoc := gl.GetUniformLocation(depthProgram, gl.Str("lightSpaceMatrix\x00"))

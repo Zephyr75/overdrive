@@ -4,6 +4,8 @@ import (
   "github.com/go-gl/mathgl/mgl32"
   "overdrive/utils"
 	"github.com/go-gl/gl/v4.1-core/gl"
+
+	"overdrive/settings"
 )
 
 type LightXml struct {
@@ -36,7 +38,7 @@ func (l LightXml) ToLight() Light {
   color := utils.ParseVec3(l.Color)
 
   pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
-	dir = mgl32.Vec3{dir[0], dir[2], -dir[1]}
+	// dir = mgl32.Vec3{dir[0], dir[2], -dir[1]}
 	// dir = dir.Add(mgl32.Vec3{0, 1, 0})
 	// dir = mgl32.Vec3{0, 1, 0}
 	// dir = dir.Mul(180.0 / 3.14)
@@ -61,7 +63,7 @@ func (l *Light) Setup() {
   gl.GenFramebuffers(1, &l.DepthMapFBO)
   gl.GenTextures(1, &l.DepthMap)
   gl.BindTexture(gl.TEXTURE_2D, l.DepthMap)
-  gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, 1024, 1024, 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+  gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, int32(settings.ShadowWidth), int32(settings.ShadowHeight), 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
   gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
   gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
   gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT)

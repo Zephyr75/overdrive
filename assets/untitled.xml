@@ -1,11 +1,11 @@
 <?xml version="1.0" ?>
 <scene>
 	<camera type="persp">
-		<position>15.43220043182373,1.5728416442871094,20.0</position>
-		<front>-0.7071068286895752,-2.9802322387695312e-08,-0.70710688829422</front>
-		<up>-0.70710688829422,2.9802322387695312e-08,0.7071068286895752</up>
-		<yaw>90.00000250447816</yaw>
-		<pitch>45.00000125223908</pitch>
+		<position>10.59134292602539,-9.949763298034668,9.909199714660645</position>
+		<front>-0.6470975875854492,0.6149832606315613,-0.45062217116355896</front>
+		<up>-0.32664012908935547,0.31042957305908203,0.89271479845047</up>
+		<yaw>46.457611432444</yaw>
+		<pitch>63.216392391324476</pitch>
 		<fov>39.597755335771296</fov>
 	</camera>
 	<mesh>
@@ -13,16 +13,8 @@
 		<mtl>Cube.mtl</mtl>
 	</mesh>
 	<mesh>
-		<obj>Cube.001.obj</obj>
-		<mtl>Cube.001.mtl</mtl>
-	</mesh>
-	<mesh>
 		<obj>Suzanne.obj</obj>
 		<mtl>Suzanne.mtl</mtl>
-	</mesh>
-	<mesh>
-		<obj>Cube.002.obj</obj>
-		<mtl>Cube.002.mtl</mtl>
 	</mesh>
 	<mesh>
 		<obj>Suzanne.001.obj</obj>
@@ -33,27 +25,15 @@
 		<mtl>Suzanne.002.mtl</mtl>
 	</mesh>
 	<mesh>
-		<obj>Text.obj</obj>
-		<mtl>Text.mtl</mtl>
-	</mesh>
-	<mesh>
 		<obj>Cube.003.obj</obj>
 		<mtl>Cube.003.mtl</mtl>
 	</mesh>
-	<!-- <light type="point"> -->
-	<!-- 	<position>-5.293702125549316,3.6738734245300293,8.481884956359863</position> -->
-	<!-- 	<direction>0.6503279805183411,0.055217113345861435,1.8663908243179321</direction> -->
-	<!-- 	<color>1.0,1.0,1.0</color> -->
-	<!-- 	<diffuse>1.0</diffuse> -->
-	<!-- 	<specular>1.0</specular> -->
-	<!-- 	<intensity>10000.0</intensity> -->
-	<!-- </light> -->
 	<light type="sun">
-		<position>10.940108299255371,-5.441526412963867,14.251354217529297</position>
-		<direction>0.7853981852531433,-0.7853981852531433,0.0</direction>
+		<position>10.0,-10.0,10.0</position>
+		<direction>0.9368522763252258,0.1571749895811081,0.6702885031700134</direction>
 		<color>1.0,1.0,1.0</color>
 		<diffuse>0.25</diffuse>
 		<specular>0.5</specular>
-		<intensity>50.0</intensity>
+		<intensity>20.0</intensity>
 	</light>
 </scene>

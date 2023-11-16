@@ -322,21 +322,9 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 			// gl.Uniform3f(lightPosLoc, Cam.Pos.X(), Cam.Pos.Y(), Cam.Pos.Z())
 
 			lightDirLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].direction\x00", i)))
-			down := mgl32.Vec3{0, 1, 0}
-			// rotVec := mgl32.Vec3{math.Pi/4, 0, -math.Pi/4}
-			rotVec := mgl32.Vec3{math.Pi/4, 0, math.Pi/4}
-			// rotVec := light.Dir
-			// lightDir is the down vector rotated by the light's rotation
-			rotMat := mgl32.Rotate3DX(rotVec.X())
-			rotMat = rotMat.Mul3(mgl32.Rotate3DY(rotVec.Y()))
-			rotMat = rotMat.Mul3(mgl32.Rotate3DZ(rotVec.Z()))
-			lightDir := rotMat.Mul3x1(down)
-			// fmt.Println(rotVec, light.Dir)
-			gl.Uniform3f(lightDirLoc, lightDir.X(), lightDir.Y(), lightDir.Z())
-			// gl.Uniform3f(lightDirLoc, light.Dir.X(), light.Dir.Y(), light.Dir.Z())
-			// gl.Uniform3f(lightDirLoc, Cam.Front.X(), Cam.Front.Y(), Cam.Front.Z())
+			gl.Uniform3f(lightDirLoc, light.Dir.X(), light.Dir.Y(), light.Dir.Z())
 
-			// fmt.Println(lightDir)
+			fmt.Println(light.Dir)
 		}
 
     viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))

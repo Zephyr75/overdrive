@@ -1,4 +1,4 @@
-# Blender v3.6.0 OBJ File: 'untitled.blend'
+# Blender v3.6.5 OBJ File: 'untitled.blend'
 # www.blender.org
 mtllib Text.mtl
 o Text
@@ -708,7 +708,7 @@ vn 0.0450 0.9990 0.0000
 vn 0.7240 -0.6899 0.0000
 vn -0.6979 -0.7162 0.0000
 vn 0.8337 0.5522 0.0000
-usemtl Material.006
+usemtl Material.003
 s off
 f 3/1/1 2/2/1 1/3/1
 f 3/1/1 1/3/1 9/4/1
