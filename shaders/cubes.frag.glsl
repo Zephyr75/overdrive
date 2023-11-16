@@ -26,7 +26,7 @@ struct Light {
     float outerCutoff;
 };
 
-#define NR_LIGHTS 4  
+#define NR_LIGHTS 1  
 uniform Light lights[NR_LIGHTS];
 uniform Material material;
   
@@ -169,7 +169,7 @@ vec3 CalcDirLight(Light light, vec3 normal, vec3 viewDir)
     vec3 diffuse  = light.color * light.diffuse  * diff * material.diffuse;
     vec3 specular = light.color * light.specular * spec * material.specular;
     // return (ambient + diffuse + specular); // * light.intensity / 1000;
-    return diffuse * light.intensity / 10;
+    return diffuse * light.intensity / 7;
 }
 
 // calculates the color when using a point light.

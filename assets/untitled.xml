@@ -29,43 +29,11 @@
 		<mtl>Cube.003.mtl</mtl>
 	</mesh>
 	<light type="sun">
-		<position>-0.0762338638305664,-8.45373249053955,0.3655576705932617</position>
-		<direction>0.0,1.0,4.371138828673793e-08</direction>
-		<color>0.0031191501766443253,0.0,1.0</color>
+		<position>10.526754379272461,-9.42229175567627,9.346370697021484</position>
+		<direction>-0.5132905840873718,0.7081171274185181,-0.4848741590976715</direction>
+		<color>1.0,1.0,1.0</color>
 		<diffuse>0.25</diffuse>
 		<specular>0.5</specular>
-		<intensity>30.0</intensity>
-	</light>
-	<light type="sun">
-		<position>-8.733620643615723,0.16119326651096344,0.11067771911621094</position>
-		<direction>1.0,0.0,4.371138828673793e-08</direction>
-		<color>1.0,0.0,0.0033661057241261005</color>
-		<diffuse>0.25</diffuse>
-		<specular>0.5</specular>
-		<intensity>30.0</intensity>
-	</light>
-	<light type="sun">
-		<position>7.621126174926758,-0.09369468688964844,-0.04224967956542969</position>
-		<direction>-1.0,0.0,4.371138828673793e-08</direction>
-		<color>0.7765901684761047,1.0,0.0</color>
-		<diffuse>0.25</diffuse>
-		<specular>0.5</specular>
-		<intensity>30.0</intensity>
-	</light>
-	<light type="sun">
-		<position>0.042628370225429535,0.05319887027144432,6.78260612487793</position>
-		<direction>0.0,0.0,-1.0</direction>
-		<color>0.0,1.0,0.0007980011287145317</color>
-		<diffuse>0.25</diffuse>
-		<specular>0.5</specular>
-		<intensity>30.0</intensity>
-	</light>
-	<light type="sun">
-		<position>18.531763076782227,15.294609069824219,11.244828224182129</position>
-		<direction>0.0,0.0,-1.0</direction>
-		<color>0.7765901684761047,1.0,0.0</color>
-		<diffuse>0.25</diffuse>
-		<specular>0.5</specular>
-		<intensity>30.0</intensity>
+		<intensity>50.0</intensity>
 	</light>
 </scene>
