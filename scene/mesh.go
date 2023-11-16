@@ -324,7 +324,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 			lightDirLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].direction\x00", i)))
 			gl.Uniform3f(lightDirLoc, light.Dir.X(), light.Dir.Y(), light.Dir.Z())
 
-			fmt.Println(light.Dir)
+			// fmt.Println(light.Dir)
 		}
 
     viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))

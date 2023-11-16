@@ -13,7 +13,6 @@ import (
 	"overdrive/opengl"
 	"overdrive/scene"
 	"overdrive/settings"
-  // "math"
 )
 
 
@@ -117,10 +116,10 @@ func main() {
     lightSpaceMatrix := lightProjection.Mul4(lightView)
 
     // print lightView
-    println(s.Lights[0].Pos.Add(s.Lights[0].Dir).X())
-    println(s.Lights[0].Pos.Add(s.Lights[0].Dir).Y())
-    println(s.Lights[0].Pos.Add(s.Lights[0].Dir).Z())
-    println("")
+    // println(s.Lights[0].Pos.Add(s.Lights[0].Dir).X())
+    // println(s.Lights[0].Pos.Add(s.Lights[0].Dir).Y())
+    // println(s.Lights[0].Pos.Add(s.Lights[0].Dir).Z())
+    // println("")
 
     // -6.344780e-001 +7.729409e-001 +0.000000e+000 +0.000000e+000
     // -3.138117e-001 -2.575962e-001 +9.138744e-001 +0.000000e+000
@@ -163,7 +162,8 @@ func main() {
     // fmt.Println("light0:", s.Lights[0].Pos)
 
     // oscillate light position up and down
-    // s.Lights[0].Pos[2] = 20 + 20 * float32(math.Sin(float64(glfw.GetTime())))
+    // yVar := float32(math.Sin(float64(glfw.GetTime()))) / 10.0
+    // scene.Cam.Pos = scene.Cam.Pos.Add(mgl32.Vec3{0.0, yVar, 0.0})
 
     view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
     viewLoc := gl.GetUniformLocation(cubesProgram, gl.Str("view\x00"))

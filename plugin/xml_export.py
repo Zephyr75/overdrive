@@ -182,6 +182,10 @@ class OverdriveWriter:
         light_element = self.create_xml_element("light", {"type": light.data.type.lower()})
         pos = light.location
         dir = light.rotation_euler
+        vec = Vector((0, 0, -1))
+        vec.rotate(light.rotation_euler)
+        dir = vec
+
         color = light.data.color
         specular = light.data.specular_factor
         diffuse = light.data.diffuse_factor
