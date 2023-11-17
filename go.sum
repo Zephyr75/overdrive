@@ -1,3 +1,5 @@
+github.com/deckarep/golang-set v1.8.0 h1:sk9/l/KqpunDwP7pSjUg0keiOOLEnOBHzykLrsPppp4=
+github.com/deckarep/golang-set v1.8.0/go.mod h1:5nI87KwE7wgsBU1F4GKAw2Qod7p5kyS383rP6+o6qqo=
 github.com/go-gl/example v0.0.0-20220216040751-d71b0d9f823d h1:PcSiyEVTFlK1iufVggmcUazkjl09Cv6sPY5BAasmH4M=
 github.com/go-gl/example v0.0.0-20220216040751-d71b0d9f823d/go.mod h1:cBttVGsmuCXhIDJbxzGNbjTpE6LRu/QtFV2wlCP43Yk=
 github.com/go-gl/gl v0.0.0-20210426225639-a3bfa832c8aa/go.mod h1:wjpnOv6ONl2SuJSxqCPVaPZibGFdSci9HFocT9qtVYM=

@@ -9,7 +9,9 @@ type Name struct {
   firstName string
   lastName string
 }
-func (n Name) IsComponent() {}
+func (n Name) ComponentType() string {
+  return "Name"
+}
 
 func main() {
   // Entities
@@ -39,5 +41,7 @@ func main() {
   world := ecs.World{}
   world.AddEntity(bob)
   world.AddSystem(helloSystem)
-  world.Update()
+  // world.Update()
+
+  helloSystem.RunOnQuery([]string{"Name"})
 }

@@ -1,10 +1,32 @@
 package ecs
 
+import (
+  "github.com/deckarep/golang-set"
+)
+
+func sliceToSet(mySlice []string) mapset.Set {
+    mySet := mapset.NewSet()
+    for _, ele := range mySlice {
+        mySet.Add(ele)
+    }   
+    return mySet
+}
+
+//////////////////////
+
 type Component interface {
-  IsComponent()
+  ComponentType() string
 }
 
 type Entity []Component
+
+func (e Entity) Types() []string {
+  types := make([]string, len(e))
+  for i, component := range e {
+    types[i] = component.ComponentType()
+  }
+  return types
+}
 
 //////////////////////
 
@@ -17,8 +39,13 @@ func (s *System) AddEntity(entity Entity) {
   s.Entities = append(s.Entities, entity)
 }
 
-func (s *System) RunOnQuery(query []Component) {
-  // TODO: implement
+func (s *System) RunOnQuery(query []string) {
+  for _, entity := range s.Entities {
+
+    if sliceToSet(entity.Types()).IsSuperset(sliceToSet(query)) {
+      s.Update(entity)
+    }
+  }
 }
 
 func (s *System) RunOnEntities() {
