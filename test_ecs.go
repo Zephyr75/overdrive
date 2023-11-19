@@ -2,46 +2,65 @@ package main
 
 import (
   "overdrive/ecs"
+  // "strconv"
+  "fmt"
 )
 
+type Player struct {
+  health int
+}
+// func (Player) IsComponent() {}
+func (Player) ComponentType() string { return "Player" }
 
 type Name struct {
   firstName string
   lastName string
 }
-func (n Name) ComponentType() string {
-  return "Name"
-}
+// func (Name) IsComponent() {}
+func (Name) ComponentType() string { return "Name" }
 
 func main() {
+
+  world := ecs.World{}
+
+
   // Entities
-  bob := ecs.Entity{
-    Name{
-      firstName: "Bob",
-      lastName: "Dylan",
-    },
-  }
-  zeph := ecs.Entity{
-    Name{
-      firstName: "Zeph",
-      lastName: "Carter",
-    },
-  }
+  bob := ecs.NewEntity(
+    Player{health: 100},
+    Name{firstName: "Bob", lastName: "Smith"},
+  )
 
   // Systems
-  helloSystem := ecs.System{
-    Entities: []ecs.Entity{bob, zeph},
-    Update: func (entity ecs.Entity) {
-      name := entity[0].(Name)
-      println("Hello, " + name.firstName + " " + name.lastName + "!")
+  loseHPSystem := ecs.NewSystem(&world, func(entity ecs.Entity) {
+      var name string
+      var player Player
+      var playerIndex int
+
+      for i := range *entity {
+        switch (*entity)[i].ComponentType() {
+        case "Name":
+          name = (*entity)[i].(Name).firstName
+        case "Player":
+          player = (*entity)[i].(Player)
+          playerIndex = i
+        }
+      }
+      player.health -= 10
+      (*entity)[playerIndex] = player
+
+      fmt.Printf("%s's health decreased to %d\n", name, player.health)
     },
-  }
+  )
+  loseHPSystem.AddEntities(bob)
 
   // World
-  world := ecs.World{}
-  world.AddEntity(bob)
-  world.AddSystem(helloSystem)
-  // world.Update()
+  world.AddEntities(bob)
+  world.AddSystems(loseHPSystem)
 
-  helloSystem.RunOnQuery([]string{"Name"})
+  loseHPSystem.RunOnQuery([]string{"Name", "Player"})
+  loseHPSystem.RunOnQuery([]string{"Name", "Player"})
+  loseHPSystem.RunOnQuery([]string{"Name", "Player"})
+  loseHPSystem.RunOnQuery([]string{"Name", "Player"})
 }
+
+
