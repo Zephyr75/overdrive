@@ -6,10 +6,10 @@ import (
 	// "fmt"
 )
 
+////////////////COMPONENTS////////////////
 type HealthBar struct {
 	health int
 }
-
 func (HealthBar) Component() string { return "HealthBar" }
 
 type Name struct {
@@ -17,6 +17,7 @@ type Name struct {
 }
 func (Name) Component() string { return "Name" }
 
+////////////////ENTITIES////////////////
 type Player struct {
 	name      Name
 	healthBar HealthBar
@@ -49,8 +50,8 @@ func main() {
 	world.AddEntities(bob)
 	world.AddSystems(loseHPSystem)
 
+  println(bob.healthBar.health)
 	loseHPSystem.RunOnQuery([]string{"Name", "HealthBar"})
-	loseHPSystem.RunOnQuery([]string{"Name", "HealthBar"})
-	loseHPSystem.RunOnQuery([]string{"Name", "HealthBar"})
-	loseHPSystem.RunOnQuery([]string{"Name", "HealthBar"})
+  loseHPSystem.RunOnTypes([]string{"Player"})
+  loseHPSystem.RunOnEntities([]ecs.Entity{bob})
 }
