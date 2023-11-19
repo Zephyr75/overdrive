@@ -1,66 +1,56 @@
 package main
 
 import (
-  "overdrive/ecs"
-  // "strconv"
-  "fmt"
+	"overdrive/ecs"
+	// "strconv"
+	// "fmt"
 )
 
-type Player struct {
-  health int
+type HealthBar struct {
+	health int
 }
-// func (Player) IsComponent() {}
-func (Player) ComponentType() string { return "Player" }
+
+func (HealthBar) Component() string { return "HealthBar" }
 
 type Name struct {
-  firstName string
-  lastName string
+	firstName string
 }
-// func (Name) IsComponent() {}
-func (Name) ComponentType() string { return "Name" }
+func (Name) Component() string { return "Name" }
+
+type Player struct {
+	name      Name
+	healthBar HealthBar
+}
+func (Player) Entity() string { return "Player" }
+
+
 
 func main() {
 
-  world := ecs.World{}
+	world := ecs.World{}
 
+	// Entities
+	bob := Player{
+		name:      Name{firstName: "A"},
+		healthBar: HealthBar{health: 100},
+	}
 
-  // Entities
-  bob := ecs.NewEntity(
-    Player{health: 100},
-    Name{firstName: "Bob", lastName: "Smith"},
-  )
-
-  // Systems
-  loseHPSystem := ecs.NewSystem(&world, func(entity ecs.Entity) {
-      var name string
-      var player Player
-      var playerIndex int
-
-      for i := range *entity {
-        switch (*entity)[i].ComponentType() {
-        case "Name":
-          name = (*entity)[i].(Name).firstName
-        case "Player":
-          player = (*entity)[i].(Player)
-          playerIndex = i
-        }
-      }
-      player.health -= 10
-      (*entity)[playerIndex] = player
-
-      fmt.Printf("%s's health decreased to %d\n", name, player.health)
+	// Systems
+	loseHPSystem := ecs.NewSystem(&world, func(entity ecs.Entity) ecs.Entity {
+      player := entity.(Player)
+      player.healthBar.health -= 10
+      println(player.healthBar.health)
+      
+      return player
     },
-  )
-  loseHPSystem.AddEntities(bob)
+	)
 
-  // World
-  world.AddEntities(bob)
-  world.AddSystems(loseHPSystem)
+	// World
+	world.AddEntities(bob)
+	world.AddSystems(loseHPSystem)
 
-  loseHPSystem.RunOnQuery([]string{"Name", "Player"})
-  loseHPSystem.RunOnQuery([]string{"Name", "Player"})
-  loseHPSystem.RunOnQuery([]string{"Name", "Player"})
-  loseHPSystem.RunOnQuery([]string{"Name", "Player"})
+	loseHPSystem.RunOnQuery([]string{"Name", "HealthBar"})
+	loseHPSystem.RunOnQuery([]string{"Name", "HealthBar"})
+	loseHPSystem.RunOnQuery([]string{"Name", "HealthBar"})
+	loseHPSystem.RunOnQuery([]string{"Name", "HealthBar"})
 }
-
-
