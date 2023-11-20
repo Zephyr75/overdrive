@@ -17,41 +17,35 @@ type Name struct {
 }
 func (Name) Component() string { return "Name" }
 
-////////////////ENTITIES////////////////
-type Player struct {
-	name      Name
-	healthBar HealthBar
-}
-func (Player) Entity() string { return "Player" }
-
 
 
 func main() {
-
+  bob := ecs.Entity{Name{"Bob"}, HealthBar{100}}
+  dylan := ecs.Entity{Name{"Dylan"}}
 	world := ecs.World{}
 
-	// Entities
-	bob := Player{
-		name:      Name{firstName: "A"},
-		healthBar: HealthBar{health: 100},
-	}
-
 	// Systems
-	loseHPSystem := ecs.NewSystem(&world, func(entity ecs.Entity) ecs.Entity {
-      player := entity.(Player)
-      player.healthBar.health -= 10
-      println(player.healthBar.health)
-      
-      return player
+	renameSystem := ecs.NewSystem(
+    &world, 
+    func(entity ecs.Entity) ecs.Entity {
+      name := entity.Get("Name").(Name)
+      println(name.firstName)
+      name.firstName = "Bobby"
+      entity.Set("Name", name)
+      return entity
     },
-	)
+    &bob,
+  )
 
 	// World
-	world.AddEntities(bob)
-	world.AddSystems(loseHPSystem)
+	world.AddEntities(&bob)
+  world.AddEntities(&dylan)
+	world.AddInitSystems(renameSystem)
 
-  println(bob.healthBar.health)
-	loseHPSystem.RunOnQuery([]string{"Name", "HealthBar"})
-  loseHPSystem.RunOnTypes([]string{"Player"})
-  loseHPSystem.RunOnEntities([]ecs.Entity{bob})
+  // println(bob.healthBar.health)
+  renameSystem.RunOnEntities([]*ecs.Entity{&bob, &dylan})
+	renameSystem.RunOnQuery([]string{"Name", "HealthBar"})
+  renameSystem.RunOnTargets()
+
+  world.Init()
 }

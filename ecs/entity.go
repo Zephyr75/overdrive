@@ -2,7 +2,7 @@ package ecs
 
 import (
 	"github.com/deckarep/golang-set"
-	"reflect"
+	// "reflect"
 )
 
 func sliceToSet(mySlice []string) mapset.Set {
@@ -13,13 +13,6 @@ func sliceToSet(mySlice []string) mapset.Set {
 	return mySet
 }
 
-func entitySliceToSet(mySlice []Entity) mapset.Set {
-	mySet := mapset.NewSet()
-	for _, ele := range mySlice {
-		mySet.Add(ele)
-	}
-	return mySet
-}
 
 //////////////////////
 
@@ -27,68 +20,113 @@ type Component interface {
 	Component() string
 }
 
-type Entity interface {
-	Entity() string
+type Entity []Component
+
+func (e Entity) getTypes() []string {
+  types := []string{}
+  for _, component := range e {
+    types = append(types, component.Component())
+  }
+  return types
 }
 
-func getTypes(e Entity) []string {
-	types := []string{}
-	v := reflect.ValueOf(e)
-	for i := 0; i < v.NumField(); i++ {
-		// types = append(types, v.Field(i).Interface().(Component).Component())
-    types = append(types, v.Field(i).Type().Name())
-	}
-	return types
+// Get a component from an entity.
+func (e Entity) Get(name string) Component {
+  for _, component := range e {
+    if component.Component() == name {
+      return component
+    }
+  }
+  return nil
 }
+
+// Set a component in an entity.
+func (e Entity) Set(name string, component Component) {
+  for i, c := range e {
+    if c.Component() == name {
+      e[i] = component
+    }
+  }
+}
+  
 
 //////////////////////
 
 type System struct {
 	world  *World
 	update func(Entity) Entity
+  targets []*Entity
 }
 
-func NewSystem(world *World, update func(Entity) Entity) System {
-	return System{world: world, update: update}
+// Create a new system.
+func NewSystem(world *World, update func(Entity) Entity, targets ...*Entity) System {
+  return System{world, update, targets}
 }
 
+// Add targets to the system.
+func (s System) AddTargets(targets ...*Entity) {
+  s.targets = append(s.targets, targets...)
+}
+
+// Run the system on all entities that have all components in the query.
 func (s System) RunOnQuery(query []string) {
 	for i, entity := range s.world.entities {
-		if sliceToSet(query).IsSubset(sliceToSet(getTypes(entity))) {
-			s.world.entities[i] = s.update(entity)
+		if sliceToSet(query).IsSubset(sliceToSet(entity.getTypes())) {
+			*(s.world.entities[i]) = s.update(*entity)
 		}
 	}
 }
 
-func (s System) RunOnTypes(list []string) {
-  for i, entity := range s.world.entities {
-    if sliceToSet(list).Contains(entity.Entity()) {
-      s.world.entities[i] = s.update(entity)
-    }
+// Run the system on all entities in the list.
+func (s System) RunOnEntities(list []*Entity) {
+  for i, entity := range list {
+    *(list[i]) = s.update(*entity)
   }
 }
 
-func (s System) RunOnEntities(list []Entity) {
-  for i, entity := range s.world.entities {
-    println(entity)
-    if entitySliceToSet(list).Contains(entity) {
-      s.world.entities[i] = s.update(entity)
-    }
+// Run the system on all system targets.
+func (s System) RunOnTargets() {
+  for i, entity := range s.targets {
+    *(s.targets[i]) = s.update(*entity)
   }
 }
 
 //////////////////////
 
 type World struct {
-	systems  []System
-	entities []Entity
+  init []System
+  update []System
+	entities []*Entity
 }
 
-func (w *World) AddSystems(systems ...System) {
-	w.systems = append(w.systems, systems...)
+// Add systems to Init() list. 
+// Systems are not automatically added to the world's systems list.
+func (w *World) AddInitSystems(systems ...System) {
+  w.init = append(w.init, systems...)
 }
 
-func (w *World) AddEntities(entities ...Entity) {
+// Run all systems in the Init() list.
+func (w *World) Init() {
+  for _, system := range w.init {
+    system.RunOnTargets()
+  }
+}
+
+// Add systems to Update() list.
+// Systems are not automatically added to the world's systems list.
+func (w *World) AddUpdateSystems(systems ...System) {
+  w.update = append(w.update, systems...)
+}
+
+// Run all systems in the Update() list.
+func (w *World) Update() {
+  for _, system := range w.update {
+    system.RunOnTargets()
+  }
+}
+
+// Add entities to the world.
+func (w *World) AddEntities(entities ...*Entity) {
 	w.entities = append(w.entities, entities...)
 }
 
