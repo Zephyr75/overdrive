@@ -2,6 +2,7 @@ package main
 
 import (
 	"overdrive/ecs"
+	"time"
 	// "strconv"
 	// "fmt"
 )
@@ -30,8 +31,21 @@ func main() {
     func(entity ecs.Entity) ecs.Entity {
       name := entity.Get("Name").(Name)
       println(name.firstName)
-      name.firstName = "Bobby"
+      // name.firstName = "Bobby"
       entity.Set("Name", name)
+      return entity
+    },
+    &bob,
+    &dylan,
+  )
+
+  loseHealthSystem := ecs.NewSystem(
+    &world,
+    func(entity ecs.Entity) ecs.Entity {
+      healthBar := entity.Get("HealthBar").(HealthBar)
+      println(healthBar.health)
+      healthBar.health -= 1
+      entity.Set("HealthBar", healthBar)
       return entity
     },
     &bob,
@@ -40,7 +54,7 @@ func main() {
 	// World
 	world.AddEntities(&bob)
   world.AddEntities(&dylan)
-	world.AddInitSystems(renameSystem)
+	world.AddUpdateSystems(loseHealthSystem)
 
   // println(bob.healthBar.health)
   renameSystem.RunOnEntities([]*ecs.Entity{&bob, &dylan})
@@ -48,4 +62,7 @@ func main() {
   renameSystem.RunOnTargets()
 
   world.Init()
+  world.Update(time.Second / 60)
+
+  time.Sleep(2 * time.Second)
 }

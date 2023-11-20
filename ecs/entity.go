@@ -2,7 +2,7 @@ package ecs
 
 import (
 	"github.com/deckarep/golang-set"
-	// "reflect"
+  "time"
 )
 
 func sliceToSet(mySlice []string) mapset.Set {
@@ -12,7 +12,6 @@ func sliceToSet(mySlice []string) mapset.Set {
 	}
 	return mySet
 }
-
 
 //////////////////////
 
@@ -48,7 +47,6 @@ func (e Entity) Set(name string, component Component) {
     }
   }
 }
-  
 
 //////////////////////
 
@@ -119,10 +117,15 @@ func (w *World) AddUpdateSystems(systems ...System) {
 }
 
 // Run all systems in the Update() list.
-func (w *World) Update() {
-  for _, system := range w.update {
-    system.RunOnTargets()
-  }
+func (w *World) Update(timeInterval time.Duration) {
+  go func() {
+    for {
+      for _, system := range w.update {
+        system.RunOnTargets()
+      }
+      time.Sleep(timeInterval)
+    }
+  }()
 }
 
 // Add entities to the world.
