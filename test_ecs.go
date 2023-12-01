@@ -31,7 +31,7 @@ func main() {
     func(entity ecs.Entity) ecs.Entity {
       name := entity.Get("Name").(Name)
       println(name.firstName)
-      // name.firstName = "Bobby"
+      name.firstName = "Bobby"
       entity.Set("Name", name)
       return entity
     },
