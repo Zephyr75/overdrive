@@ -110,7 +110,7 @@ void main()
   for(int i = 0; i < NR_LIGHTS; i++){
     switch (lights[i].type) {
       case 0:
-        result += CalcDirLight(lights[i], norm, viewDir); // * (1.0 - ShadowCalculation(FragPosLightSpace));
+        result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculation(FragPosLightSpace));
         break;
       case 1:
         result += CalcPointLight(lights[i], norm, FragPos, viewDir);

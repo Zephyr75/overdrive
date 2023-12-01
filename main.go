@@ -13,6 +13,7 @@ import (
 	"overdrive/opengl"
 	"overdrive/scene"
 	"overdrive/settings"
+  "fmt"
 )
 
 
@@ -49,16 +50,16 @@ func main() {
 	gl.Enable(gl.CULL_FACE)
 
   // Declare main shader programs
-  // vertexShaderFile, err := os.ReadFile("shaders/cubes.vert.glsl")
-  // if err != nil { panic(err) }
-  // vertexShaderSource := string(vertexShaderFile) + "\x00"
+  vertexShaderFile, err := os.ReadFile("shaders/cubes.vert.glsl")
+  if err != nil { panic(err) }
+  vertexShaderSource := string(vertexShaderFile) + "\x00"
 
-  // fragmentShaderFile, err := os.ReadFile("shaders/cubes.frag.glsl")
-  // if err != nil { panic(err) }
-  // fragmentShaderSource := string(fragmentShaderFile) + "\x00"
+  fragmentShaderFile, err := os.ReadFile("shaders/cubes.frag.glsl")
+  if err != nil { panic(err) }
+  fragmentShaderSource := string(fragmentShaderFile) + "\x00"
 
-  // cubesProgram, err := opengl.CreateProgram(vertexShaderSource, fragmentShaderSource)
-  // if err != nil { panic(err) }
+  cubesProgram, err := opengl.CreateProgram(vertexShaderSource, fragmentShaderSource)
+  if err != nil { panic(err) }
 
   // Declare depth shader programs
   depthVertexShaderFile, err := os.ReadFile("shaders/depth.vert.glsl")
@@ -129,7 +130,8 @@ func main() {
 
  
   // Window lifecycle
-  // lastFrame := 0.0
+  i := 0
+  time := glfw.GetTime()
   var deltaTime float32 = 0.0
   for !window.ShouldClose() {
     input.ProcessInput(window, deltaTime)
@@ -170,47 +172,48 @@ func main() {
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
     // Render debug plane
-    gl.UseProgram(depthDebugProgram)
-    nearPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("near_plane\x00"))
-    gl.Uniform1f(nearPlaneLoc, nearPlane)
-    farPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("far_plane\x00"))
-    gl.Uniform1f(farPlaneLoc, farPlane)
+    // gl.UseProgram(depthDebugProgram)
+    // nearPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("near_plane\x00"))
+    // gl.Uniform1f(nearPlaneLoc, nearPlane)
+    // farPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("far_plane\x00"))
+    // gl.Uniform1f(farPlaneLoc, farPlane)
+    // gl.ActiveTexture(gl.TEXTURE0)
+    // gl.BindTexture(gl.TEXTURE_2D, s.Lights[0].DepthMap)
+    // gl.BindVertexArray(planeVAO)
+    // renderQuad()
+
+        
+    // Render scene as normal
+    gl.UseProgram(cubesProgram)
+
+    view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
+    viewLoc := gl.GetUniformLocation(cubesProgram, gl.Str("view\x00"))
+    gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
+
+    projection := mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+    projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
+    gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
+
+    model = mgl32.Scale3D(1.0, 1.0, 1.0)
+    modelLoc = gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
+    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
+    lightSpaceMatrixLoc = gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
+    gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
+
     gl.ActiveTexture(gl.TEXTURE0)
     gl.BindTexture(gl.TEXTURE_2D, s.Lights[0].DepthMap)
-    gl.BindVertexArray(planeVAO)
-    renderQuad()
 
-    
-    // Render scene as normal
-   //  gl.UseProgram(cubesProgram)
-   // 
-   //  currentFrame := glfw.GetTime()
-   //  deltaTime = float32(currentFrame - lastFrame)
-   //  lastFrame = currentFrame
-   //  // fmt.Println("fps:", 1/deltaTime)
+    for i := 0; i < len(s.Meshes); i++ {
+      s.Meshes[i].Draw(cubesProgram, &s)
+    }
 
-   //  view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
-   //  viewLoc := gl.GetUniformLocation(cubesProgram, gl.Str("view\x00"))
-   //  gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
-
-   //  projection := mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-   //  projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
-   //  gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
-
-   //  model := mgl32.Scale3D(1.0, 1.0, 1.0)
-   //  modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
-   //  gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
-
-   //  lightSpaceMatrixLoc = gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
-   //  gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
-
-   //  gl.ActiveTexture(gl.TEXTURE1)
-   //  gl.BindTexture(gl.TEXTURE_2D, s.Lights[0].DepthMap)
-
-   //  for i := 0; i < len(s.Meshes); i++ {
-   //    s.Meshes[i].Draw(cubesProgram, &s)
-   //  }
-
+    i++
+    if glfw.GetTime()-time > 1 {
+      fmt.Printf("\rFPS: %d", i)
+      i = 0
+      time = glfw.GetTime()
+    }
     window.SwapBuffers()
     glfw.PollEvents()
   }

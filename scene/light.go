@@ -37,8 +37,6 @@ func (l LightXml) ToLight() Light {
   dir := utils.ParseVec3(l.Dir)
   color := utils.ParseVec3(l.Color)
 
-  println(l.Dir)
-
   pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
   // dir = utils.EulerToDirection(dir[0], dir[1], dir[2])
 	dir = mgl32.Vec3{-dir[0], -dir[2], dir[1]}

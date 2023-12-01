@@ -346,12 +346,12 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     // assign specular, diffuse and whatever
     // assign lights vector
 
-    gl.ActiveTexture(gl.TEXTURE0)
-    gl.BindTexture(gl.TEXTURE_2D, white)
+    // gl.ActiveTexture(gl.TEXTURE0)
+    // gl.BindTexture(gl.TEXTURE_2D, white)
 
-    if mat.Texture != 0 {
-      gl.BindTexture(gl.TEXTURE_2D, mat.Texture)
-    }
+    // if mat.Texture != 0 {
+    //   gl.BindTexture(gl.TEXTURE_2D, mat.Texture)
+    // }
     // if mat.NormalMap != 0 {
     //   gl.BindTexture(gl.TEXTURE_2D, mat.NormalMap)
     // }
