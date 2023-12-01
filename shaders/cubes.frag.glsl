@@ -35,8 +35,8 @@ in vec2 TexCoord;
 in vec3 Normal;
 in vec4 FragPosLightSpace;
 
-uniform sampler2D ourTexture;
 uniform sampler2D shadowMap;
+uniform sampler2D ourTexture;
 uniform vec3 viewPos;
 
 
@@ -144,7 +144,8 @@ float ShadowCalculation(vec4 fragPosLightSpace)
     // get depth of current fragment from light's perspective
     float currentDepth = projCoords.z;
     // check whether current frag pos is in shadow
-    float shadow = currentDepth > closestDepth  ? 1.0 : 0.0;
+    float bias = max(0.05 * (1.0 - dot(Normal, lights[0].direction)), 0.005);  
+    float shadow = currentDepth - bias > closestDepth  ? 1.0 : 0.0;
 
     return shadow;
 }  

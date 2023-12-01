@@ -346,12 +346,23 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     // assign specular, diffuse and whatever
     // assign lights vector
 
-    // gl.ActiveTexture(gl.TEXTURE0)
-    // gl.BindTexture(gl.TEXTURE_2D, white)
+    shadowMapLoc := gl.GetUniformLocation(program, gl.Str("shadowMap\x00"))
+    gl.Uniform1i(shadowMapLoc, 0)
 
-    // if mat.Texture != 0 {
-    //   gl.BindTexture(gl.TEXTURE_2D, mat.Texture)
-    // }
+    ourTextureLoc := gl.GetUniformLocation(program, gl.Str("ourTexture\x00"))
+    gl.Uniform1i(ourTextureLoc, 1)
+
+    gl.ActiveTexture(gl.TEXTURE0)
+    gl.BindTexture(gl.TEXTURE_2D, scene.Lights[0].DepthMap)
+
+    gl.ActiveTexture(gl.TEXTURE1)
+    gl.BindTexture(gl.TEXTURE_2D, white)
+
+
+    if mat.Texture != 0 {
+      gl.ActiveTexture(gl.TEXTURE1)
+      gl.BindTexture(gl.TEXTURE_2D, mat.Texture)
+    }
     // if mat.NormalMap != 0 {
     //   gl.BindTexture(gl.TEXTURE_2D, mat.NormalMap)
     // }

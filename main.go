@@ -132,17 +132,19 @@ func main() {
   // Window lifecycle
   i := 0
   time := glfw.GetTime()
+  lastFrame := float64(0.0)
   var deltaTime float32 = 0.0
   for !window.ShouldClose() {
     input.ProcessInput(window, deltaTime)
     gl.ClearColor(0.1, 0.1, 0.1, 1.0)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+    gl.CullFace(gl.FRONT)
 
     // Render scene from light's perspective
     nearPlane := float32(1.0)
     farPlane := float32(50.0)
     // increase 10 to 20 for a wider angle
-    lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
+    lightProjection := mgl32.Ortho(-15.0, 15.0, -15.0, 15.0, nearPlane, farPlane)
     // lightView := mgl32.LookAtV(mgl32.Vec3{-2.0, 4.0, -1.0}, mgl32.Vec3{0.0, 0.0, 0.0}, mgl32.Vec3{0.0, 1.0, 0.0})
     // println(s.Lights[0].Pos.X(), s.Lights[0].Pos.Y(), s.Lights[0].Pos.Z())
     // lightView := mgl32.LookAtV(s.Lights[0].Pos, mgl32.Vec3{0.0, 0.0, 0.0}, mgl32.Vec3{0.0, 1.0, 0.0})
@@ -168,6 +170,7 @@ func main() {
 
 
     // Clear buffers
+    gl.CullFace(gl.BACK)
     gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
@@ -201,12 +204,15 @@ func main() {
     lightSpaceMatrixLoc = gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
     gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
 
-    gl.ActiveTexture(gl.TEXTURE0)
-    gl.BindTexture(gl.TEXTURE_2D, s.Lights[0].DepthMap)
 
     for i := 0; i < len(s.Meshes); i++ {
       s.Meshes[i].Draw(cubesProgram, &s)
     }
+
+
+    currentFrame := glfw.GetTime()
+    deltaTime = float32(currentFrame - lastFrame)
+    lastFrame = currentFrame
 
     i++
     if glfw.GetTime()-time > 1 {
