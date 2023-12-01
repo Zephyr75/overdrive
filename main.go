@@ -146,6 +146,11 @@ func main() {
     lightSpaceMatrix := lightProjection.Mul4(lightView)
 
     gl.UseProgram(depthProgram)
+
+    model := mgl32.Scale3D(1.0, 1.0, 1.0)
+    modelLoc := gl.GetUniformLocation(depthProgram, gl.Str("model\x00"))
+    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
     lightSpaceMatrixLoc := gl.GetUniformLocation(depthProgram, gl.Str("lightSpaceMatrix\x00"))
     gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
 

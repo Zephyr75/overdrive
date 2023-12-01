@@ -1,0 +1,23 @@
+<?xml version="1.0" ?>
+<scene>
+	<camera type="persp">
+		<position>7.358891487121582,-6.925790786743164,4.958309173583984</position>
+		<front>-0.6515582203865051,0.6141704320907593,-0.44527149200439453</front>
+		<up>-0.32401347160339355,0.3054208755493164,0.8953956365585327</up>
+		<yaw>46.691944977583375</yaw>
+		<pitch>63.5592952084158</pitch>
+		<fov>39.597755335771296</fov>
+	</camera>
+	<mesh>
+		<obj>Cube.obj</obj>
+		<mtl>Cube.mtl</mtl>
+	</mesh>
+	<light type="point">
+		<position>4.076245307922363,1.0054539442062378,5.903861999511719</position>
+		<direction>-0.5663931965827942,-0.21839119493961334,-0.7946722507476807</direction>
+		<color>1.0,1.0,1.0</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>1000.0</intensity>
+	</light>
+</scene>
