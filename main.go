@@ -48,6 +48,7 @@ func main() {
   gl.Init()
   gl.Enable(gl.DEPTH_TEST)
 	gl.Enable(gl.CULL_FACE)
+  // gl.Enable(gl.FRAMEBUFFER_SRGB)
 
   // Declare main shader programs
   vertexShaderFile, err := os.ReadFile("shaders/cubes.vert.glsl")
@@ -153,9 +154,9 @@ func main() {
     input.ProcessInput(window, deltaTime)
     gl.ClearColor(0.1, 0.1, 0.1, 1.0)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-    // gl.CullFace(gl.FRONT)
 
     // Render scene from directional light's perspective
+    // gl.CullFace(gl.FRONT)
     nearPlane := float32(1.0)
     farPlane := float32(50.0)
     // increase 10 to 20 for a wider angle
@@ -179,6 +180,7 @@ func main() {
     //   s.Meshes[i].Draw(depthProgram, &s)
     // }
     // gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+    // gl.CullFace(gl.BACK)
 
     // Render scene from point light's perspective
     aspect := float32(settings.ShadowWidth) / float32(settings.ShadowHeight)
@@ -223,7 +225,6 @@ func main() {
     gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
     // Clear buffers
-    // gl.CullFace(gl.BACK)
     gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
