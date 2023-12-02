@@ -21,6 +21,7 @@ type SceneXml struct {
 type Scene struct {
   Meshes []Mesh
   Lights []Light
+  Skybox Skybox
 }
 
 func LoadScene(path string) Scene {
@@ -62,6 +63,10 @@ func LoadScene(path string) Scene {
   }
 
   // fmt.Println(scene.Meshes[0].Vertices)
+
+  s.Skybox = Skybox{}
+  s.Skybox.Setup()
+
 
 
 

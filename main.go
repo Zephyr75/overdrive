@@ -88,6 +88,7 @@ func main() {
   geometryShaderSource := string(geometryShaderFile) + "\x00"
 
   depthCubeProgram, err := opengl.CreateProgram(depthVertexShaderSource, depthFragmentShaderSource, geometryShaderSource)
+  if err != nil { panic(err) }
 
   // Declare debug shader programs
   depthDebugVertexShaderFile, err := os.ReadFile("shaders/depth_debug.vert.glsl")
@@ -105,6 +106,19 @@ func main() {
   depthMapLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("depthMap\x00"))
   gl.Uniform1i(depthMapLoc, 0)
 
+  // Declare skybox shader programs
+  skyboxVertexShaderFile, err := os.ReadFile("shaders/skybox.vert.glsl")
+  if err != nil { panic(err) }
+  skyboxVertexShaderSource := string(skyboxVertexShaderFile) + "\x00"
+
+  skyboxFragmentShaderFile, err := os.ReadFile("shaders/skybox.frag.glsl")
+  if err != nil { panic(err) }
+  skyboxFragmentShaderSource := string(skyboxFragmentShaderFile) + "\x00"
+
+  skyboxProgram, err := opengl.CreateProgram(skyboxVertexShaderSource, skyboxFragmentShaderSource, "")
+  if err != nil { panic(err) }
+
+  
   // Create debug plane
   planeVertices := []float32{
     // positions         // normals      // texcoords
@@ -154,6 +168,8 @@ func main() {
     input.ProcessInput(window, deltaTime)
     gl.ClearColor(0.1, 0.1, 0.1, 1.0)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+    
 
     // Render scene from directional light's perspective
     // gl.CullFace(gl.FRONT)
@@ -261,10 +277,33 @@ func main() {
     farPlaneLoc = gl.GetUniformLocation(cubesProgram, gl.Str("far_plane\x00"))
     gl.Uniform1f(farPlaneLoc, farPlane)
 
-
     for i := 0; i < len(s.Meshes); i++ {
       s.Meshes[i].Draw(cubesProgram, &s)
     }
+
+    // Render skybox
+    gl.DepthFunc(gl.LEQUAL)
+    gl.UseProgram(skyboxProgram)
+
+    view = mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
+    view = view.Mat3().Mat4()
+    viewLoc = gl.GetUniformLocation(skyboxProgram, gl.Str("view\x00"))
+    gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
+
+    projection = mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+    projectionLoc = gl.GetUniformLocation(skyboxProgram, gl.Str("projection\x00"))
+    gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
+
+    skyboxLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("skybox\x00"))
+    gl.Uniform1i(skyboxLoc, 0)
+
+    gl.BindVertexArray(s.Skybox.Vao)
+    gl.ActiveTexture(gl.TEXTURE0)
+    gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.Skybox.Texture)
+    gl.DrawArrays(gl.TRIANGLES, 0, 36)
+    gl.BindVertexArray(0)
+    gl.DepthFunc(gl.LESS)
+
 
 
     currentFrame := glfw.GetTime()
