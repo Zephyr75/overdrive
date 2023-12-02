@@ -68,17 +68,17 @@ func (s *Skybox) Setup() {
   gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3 * 4, gl.PtrOffset(0))
   
   s.Texture = opengl.CreateCubemap([]string{
-    "/home/zeph/GitHub/overdrive/textures/square.png",
-    "/home/zeph/GitHub/overdrive/textures/square.png",
-    "/home/zeph/GitHub/overdrive/textures/square.png",
-    "/home/zeph/GitHub/overdrive/textures/square.png",
-    "/home/zeph/GitHub/overdrive/textures/square.png",
-    "/home/zeph/GitHub/overdrive/textures/square.png",
-    // "/home/zeph/GitHub/overdrive/textures/skybox/right.jpg",
-    // "/home/zeph/GitHub/overdrive/textures/skybox/left.jpg",
-    // "/home/zeph/GitHub/overdrive/textures/skybox/top.jpg",
-    // "/home/zeph/GitHub/overdrive/textures/skybox/bottom.jpg",
-    // "/home/zeph/GitHub/overdrive/textures/skybox/front.jpg",
-    // "/home/zeph/GitHub/overdrive/textures/skybox/back.jpg",
+    // "/home/zeph/GitHub/overdrive/textures/square.png",
+    // "/home/zeph/GitHub/overdrive/textures/square.png",
+    // "/home/zeph/GitHub/overdrive/textures/square.png",
+    // "/home/zeph/GitHub/overdrive/textures/square.png",
+    // "/home/zeph/GitHub/overdrive/textures/square.png",
+    // "/home/zeph/GitHub/overdrive/textures/square.png",
+    "/home/zeph/GitHub/overdrive/textures/skybox/right.png",
+    "/home/zeph/GitHub/overdrive/textures/skybox/left.png",
+    "/home/zeph/GitHub/overdrive/textures/skybox/top.png",
+    "/home/zeph/GitHub/overdrive/textures/skybox/bottom.png",
+    "/home/zeph/GitHub/overdrive/textures/skybox/front.png",
+    "/home/zeph/GitHub/overdrive/textures/skybox/back.png",
   })
 }
