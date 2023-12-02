@@ -208,7 +208,6 @@ func main() {
 
 
     model := mgl32.Scale3D(1.0, 1.0, 1.0)
-    // model = model.Mul4(mgl32.Scale3D(5.0, 5.0, 5.0))
     modelLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("model\x00"))
     gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
 
