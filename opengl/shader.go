@@ -32,7 +32,7 @@ func createShader(source string, shaderType uint32) (uint32, error) {
 }
 
 
-func CreateProgram(vertexShaderSource, fragmentShaderSource string) (uint32, error) {
+func CreateProgram(vertexShaderSource, fragmentShaderSource, geometryShaderSource string) (uint32, error) {
 	vertexShader, err := createShader(vertexShaderSource, gl.VERTEX_SHADER)
 	if err != nil {
 		return 0, err
@@ -43,10 +43,21 @@ func CreateProgram(vertexShaderSource, fragmentShaderSource string) (uint32, err
 		return 0, err
 	}
 
+  var geometryShader uint32
+  if geometryShaderSource != "" {
+    geometryShader, err = createShader(geometryShaderSource, gl.GEOMETRY_SHADER)
+    if err != nil {
+      return 0, err
+    }
+  }
+
 	program := gl.CreateProgram()
 
 	gl.AttachShader(program, vertexShader)
 	gl.AttachShader(program, fragmentShader)
+  if geometryShaderSource != "" {
+    gl.AttachShader(program, geometryShader)
+  }
 	gl.LinkProgram(program)
 
 	var status int32
@@ -63,6 +74,9 @@ func CreateProgram(vertexShaderSource, fragmentShaderSource string) (uint32, err
 
 	gl.DeleteShader(vertexShader)
 	gl.DeleteShader(fragmentShader)
+  if geometryShaderSource != "" {
+    gl.DeleteShader(geometryShader)
+  }
 
 	return program, nil
 }

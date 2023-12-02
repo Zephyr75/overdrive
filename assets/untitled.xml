@@ -28,8 +28,8 @@
 		<obj>Cube.003.obj</obj>
 		<mtl>Cube.003.mtl</mtl>
 	</mesh>
-	<light type="sun">
-		<position>10.526754379272461,-9.42229175567627,9.346370697021484</position>
+	<light type="point">
+		<position>0.2025775909423828,6.831263542175293,5.793879508972168</position>
 		<direction>-0.5132905840873718,0.7081171274185181,-0.4848741590976715</direction>
 		<color>1.0,1.0,1.0</color>
 		<diffuse>0.25</diffuse>

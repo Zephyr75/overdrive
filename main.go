@@ -58,20 +58,35 @@ func main() {
   if err != nil { panic(err) }
   fragmentShaderSource := string(fragmentShaderFile) + "\x00"
 
-  cubesProgram, err := opengl.CreateProgram(vertexShaderSource, fragmentShaderSource)
+  cubesProgram, err := opengl.CreateProgram(vertexShaderSource, fragmentShaderSource, "")
   if err != nil { panic(err) }
 
-  // Declare depth shader programs
-  depthVertexShaderFile, err := os.ReadFile("shaders/depth.vert.glsl")
+  // Declare directional depth shader programs
+  // depthVertexShaderFile, err := os.ReadFile("shaders/depth.vert.glsl")
+  // if err != nil { panic(err) }
+  // depthVertexShaderSource := string(depthVertexShaderFile) + "\x00"
+
+  // depthFragmentShaderFile, err := os.ReadFile("shaders/depth.frag.glsl")
+  // if err != nil { panic(err) }
+  // depthFragmentShaderSource := string(depthFragmentShaderFile) + "\x00"
+
+  // depthProgram, err := opengl.CreateProgram(depthVertexShaderSource, depthFragmentShaderSource)
+  // if err != nil { panic(err) }
+
+  // Declare point depth shader programs
+  depthVertexShaderFile, err := os.ReadFile("shaders/depth_cube.vert.glsl")
   if err != nil { panic(err) }
   depthVertexShaderSource := string(depthVertexShaderFile) + "\x00"
 
-  depthFragmentShaderFile, err := os.ReadFile("shaders/depth.frag.glsl")
+  depthFragmentShaderFile, err := os.ReadFile("shaders/depth_cube.frag.glsl")
   if err != nil { panic(err) }
   depthFragmentShaderSource := string(depthFragmentShaderFile) + "\x00"
 
-  depthProgram, err := opengl.CreateProgram(depthVertexShaderSource, depthFragmentShaderSource)
+  geometryShaderFile, err := os.ReadFile("shaders/depth_cube.geo.glsl")
   if err != nil { panic(err) }
+  geometryShaderSource := string(geometryShaderFile) + "\x00"
+
+  depthCubeProgram, err := opengl.CreateProgram(depthVertexShaderSource, depthFragmentShaderSource, geometryShaderSource)
 
   // Declare debug shader programs
   depthDebugVertexShaderFile, err := os.ReadFile("shaders/depth_debug.vert.glsl")
@@ -82,7 +97,7 @@ func main() {
   if err != nil { panic(err) }
   depthDebugFragmentShaderSource := string(depthDebugFragmentShaderFile) + "\x00"
 
-  depthDebugProgram, err := opengl.CreateProgram(depthDebugVertexShaderSource, depthDebugFragmentShaderSource)
+  depthDebugProgram, err := opengl.CreateProgram(depthDebugVertexShaderSource, depthDebugFragmentShaderSource, "")
   if err != nil { panic(err) }
 
   gl.UseProgram(depthDebugProgram)
@@ -140,34 +155,67 @@ func main() {
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
     gl.CullFace(gl.FRONT)
 
-    // Render scene from light's perspective
+    // Render scene from directional light's perspective
+    // nearPlane := float32(1.0)
+    // farPlane := float32(50.0)
+    // // increase 10 to 20 for a wider angle
+    // lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
+    // lightView := mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Sub(s.Lights[0].Dir), mgl32.Vec3{0.0, 1.0, 0.0}) 
+    // lightSpaceMatrix := lightProjection.Mul4(lightView)
+
+    // gl.UseProgram(depthProgram)
+
+    // model := mgl32.Scale3D(1.0, 1.0, 1.0)
+    // modelLoc := gl.GetUniformLocation(depthProgram, gl.Str("model\x00"))
+    // gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
+    // lightSpaceMatrixLoc := gl.GetUniformLocation(depthProgram, gl.Str("lightSpaceMatrix\x00"))
+    // gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
+
+    // gl.Viewport(0, 0, int32(settings.ShadowWidth), int32(settings.ShadowHeight))
+    // gl.BindFramebuffer(gl.FRAMEBUFFER, s.Lights[0].DepthMapFBO)
+    // gl.Clear(gl.DEPTH_BUFFER_BIT)
+    // for i := 0; i < len(s.Meshes); i++ {
+    //   s.Meshes[i].Draw(depthProgram, &s)
+    // }
+    // gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+
+    // Render scene from point light's perspective
+    aspect := float32(settings.ShadowWidth) / float32(settings.ShadowHeight)
     nearPlane := float32(1.0)
-    farPlane := float32(50.0)
-    // increase 10 to 20 for a wider angle
-    lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
-    // lightView := mgl32.LookAtV(mgl32.Vec3{-2.0, 4.0, -1.0}, mgl32.Vec3{0.0, 0.0, 0.0}, mgl32.Vec3{0.0, 1.0, 0.0})
-    // println(s.Lights[0].Pos.X(), s.Lights[0].Pos.Y(), s.Lights[0].Pos.Z())
-    // lightView := mgl32.LookAtV(s.Lights[0].Pos, mgl32.Vec3{0.0, 0.0, 0.0}, mgl32.Vec3{0.0, 1.0, 0.0})
-    lightView := mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Sub(s.Lights[0].Dir), mgl32.Vec3{0.0, 1.0, 0.0}) 
-    lightSpaceMatrix := lightProjection.Mul4(lightView)
-
-    gl.UseProgram(depthProgram)
-
-    model := mgl32.Scale3D(1.0, 1.0, 1.0)
-    modelLoc := gl.GetUniformLocation(depthProgram, gl.Str("model\x00"))
-    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
-
-    lightSpaceMatrixLoc := gl.GetUniformLocation(depthProgram, gl.Str("lightSpaceMatrix\x00"))
-    gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
+    farPlane := float32(25.0)
+    shadowProjection := mgl32.Perspective(mgl32.DegToRad(90.0), aspect, nearPlane, farPlane)
+    shadowTransforms := []mgl32.Mat4{
+      shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{-1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{0.0, 1.0, 0.0}), mgl32.Vec3{0.0, 0.0, 1.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{0.0, -1.0, 0.0}), mgl32.Vec3{0.0, 0.0, -1.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{0.0, 0.0, 1.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{0.0, 0.0, -1.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
+    }
 
     gl.Viewport(0, 0, int32(settings.ShadowWidth), int32(settings.ShadowHeight))
     gl.BindFramebuffer(gl.FRAMEBUFFER, s.Lights[0].DepthMapFBO)
     gl.Clear(gl.DEPTH_BUFFER_BIT)
-    for i := 0; i < len(s.Meshes); i++ {
-      s.Meshes[i].Draw(depthProgram, &s)
-    }
-    gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
+    gl.UseProgram(depthCubeProgram)
+
+    farPlaneLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("far_plane\x00"))
+    gl.Uniform1f(farPlaneLoc, farPlane)
+
+    lightPosLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("lightPos\x00"))
+    gl.Uniform3fv(lightPosLoc, 1, &s.Lights[0].Pos[0])
+
+    for i := 0; i < 6; i++ {
+      shadowTransformLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str(fmt.Sprintf("shadowMatrices[%d]\x00", i)))
+      gl.UniformMatrix4fv(shadowTransformLoc, 1, false, &shadowTransforms[i][0])
+    }
+
+    for i := 0; i < len(s.Meshes); i++ {
+      s.Meshes[i].Draw(depthCubeProgram, &s)
+    }
+
+    gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
     // Clear buffers
     gl.CullFace(gl.BACK)
@@ -197,12 +245,15 @@ func main() {
     projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
-    model = mgl32.Scale3D(1.0, 1.0, 1.0)
-    modelLoc = gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
+    model := mgl32.Scale3D(1.0, 1.0, 1.0)
+    modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
     gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
 
-    lightSpaceMatrixLoc = gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
-    gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
+    // lightSpaceMatrixLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
+    // gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
+
+    farPlaneLoc = gl.GetUniformLocation(cubesProgram, gl.Str("far_plane\x00"))
+    gl.Uniform1f(farPlaneLoc, farPlane)
 
 
     for i := 0; i < len(s.Meshes); i++ {

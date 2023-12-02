@@ -352,11 +352,17 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     ourTextureLoc := gl.GetUniformLocation(program, gl.Str("ourTexture\x00"))
     gl.Uniform1i(ourTextureLoc, 1)
 
+    shadowCubeMapLoc := gl.GetUniformLocation(program, gl.Str("shadowCubeMap\x00"))
+    gl.Uniform1i(shadowCubeMapLoc, 2)
+
     gl.ActiveTexture(gl.TEXTURE0)
     gl.BindTexture(gl.TEXTURE_2D, scene.Lights[0].DepthMap)
 
     gl.ActiveTexture(gl.TEXTURE1)
     gl.BindTexture(gl.TEXTURE_2D, white)
+
+    gl.ActiveTexture(gl.TEXTURE2)
+    gl.BindTexture(gl.TEXTURE_2D, scene.Lights[0].DepthCubeMap)
 
 
     if mat.Texture != 0 {

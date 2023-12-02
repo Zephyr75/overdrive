@@ -35,9 +35,11 @@ in vec2 TexCoord;
 in vec3 Normal;
 in vec4 FragPosLightSpace;
 
+uniform samplerCube shadowCubeMap;
 uniform sampler2D shadowMap;
 uniform sampler2D ourTexture;
 uniform vec3 viewPos;
+uniform float far_plane;
 
 
 // function prototypes
@@ -46,6 +48,8 @@ vec3 CalcPointLight(Light light, vec3 normal, vec3 fragPos, vec3 viewDir);
 vec3 CalcSpotLight(Light light, vec3 normal, vec3 fragPos, vec3 viewDir);
 
 float ShadowCalculation(vec4 fragPosLightSpace);
+
+float ShadowCalculationCube(vec3 fragPos);
 
 void main()
 {
@@ -110,7 +114,8 @@ void main()
   for(int i = 0; i < NR_LIGHTS; i++){
     switch (lights[i].type) {
       case 0:
-        result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculation(FragPosLightSpace));
+        // result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculation(FragPosLightSpace));
+        result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculationCube(FragPos));
         break;
       case 1:
         result += CalcPointLight(lights[i], norm, FragPos, viewDir);
@@ -124,14 +129,35 @@ void main()
 
   vec2 flipped_tex = vec2(TexCoord.x, 1.0 - TexCoord.y);
 
-  // FragColor = texture(ourTexture, TexCoord);
-  FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);
-  // FragColor = vec4(result, 1.0);
 
+  vec3 fragToLight = FragPos - lights[0].position;
+  float closestDepth = texture(shadowCubeMap, fragToLight).r;
+  FragColor = vec4(vec3(closestDepth / far_plane), 1.0); 
+  // FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);
+
+  // FragColor = texture(ourTexture, TexCoord);
+  // FragColor = vec4(result, 1.0);
   // FragColor = vec4(Normal, 1.0);
   // FragColor = texture(ourTexture, TexCoord); // * vec4(lightColor, 1.0);
 
 }
+
+float ShadowCalculationCube(vec3 fragPos)
+{
+    // get vector between fragment position and light position
+    vec3 fragToLight = fragPos - lights[0].position;
+    // use the light to fragment vector to sample from the depth map    
+    float closestDepth = texture(shadowCubeMap, fragToLight).r;
+    // it is currently in linear range between [0,1]. Re-transform back to original value
+    closestDepth *= far_plane;
+    // now get current linear depth as the length between the fragment and light position
+    float currentDepth = length(fragToLight);
+    // now test for shadows
+    float bias = 0.05; 
+    float shadow = currentDepth -  bias > closestDepth ? 1.0 : 0.0;
+
+    return shadow;
+}  
 
 float ShadowCalculation(vec4 fragPosLightSpace)
 {

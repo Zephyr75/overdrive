@@ -29,6 +29,7 @@ type Light struct {
   Intensity float32
 	DepthMapFBO uint32
   DepthMap uint32
+  DepthCubeMap uint32
 }
 
 func (l LightXml) ToLight() Light {
@@ -62,18 +63,38 @@ func (l LightXml) ToLight() Light {
 
 func (l *Light) Setup() {
   gl.GenFramebuffers(1, &l.DepthMapFBO)
-  gl.GenTextures(1, &l.DepthMap)
-  gl.BindTexture(gl.TEXTURE_2D, l.DepthMap)
-  gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, int32(settings.ShadowWidth), int32(settings.ShadowHeight), 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
-  gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-  gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-  gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_BORDER)
-  gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_BORDER)
-  borderColor := []float32{1.0, 1.0, 1.0, 1.0}
-  gl.TexParameterfv(gl.TEXTURE_2D, gl.TEXTURE_BORDER_COLOR, &borderColor[0])
+
+  if l.Type == 0 {
+    // Directional light
+    gl.GenTextures(1, &l.DepthMap)
+    gl.BindTexture(gl.TEXTURE_2D, l.DepthMap)
+    gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, int32(settings.ShadowWidth), int32(settings.ShadowHeight), 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_BORDER)
+    gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_BORDER)
+    borderColor := []float32{1.0, 1.0, 1.0, 1.0}
+    gl.TexParameterfv(gl.TEXTURE_2D, gl.TEXTURE_BORDER_COLOR, &borderColor[0])
+  } else {
+    // Point light
+    gl.GenTextures(1, &l.DepthCubeMap)
+    gl.BindTexture(gl.TEXTURE_CUBE_MAP, l.DepthCubeMap)
+    for i := 0; i < 6; i++ {
+      gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + uint32(i), 0, gl.DEPTH_COMPONENT, int32(settings.ShadowWidth), int32(settings.ShadowHeight), 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+    }
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+  }
 
   gl.BindFramebuffer(gl.FRAMEBUFFER, l.DepthMapFBO)
-  gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, l.DepthMap, 0)
+  if l.Type == 0 {
+    gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, l.DepthMap, 0)
+  } else {
+    gl.FramebufferTexture(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, l.DepthCubeMap, 0)
+  }
   gl.DrawBuffer(gl.NONE)
   gl.ReadBuffer(gl.NONE)
   gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
