@@ -1,12 +1,23 @@
-TODO: Add bloom
-TODO: Fix lighting casters
-TODO: Add anti-aliasing
-TODO: Add ambient occlusion (SSAO)
-TODO: Add shadows
-TODO: Add blend (transparency)
-TODO: Add geometry shader for fur
-TODO: Add normal mapping
-TODO: Add framebuffers (post-proc + gutter)
-TODO: Add alpha
-TODO: Add instancing
-TODO: Add HDR to fix too much light
+# V1
+
+- [ ] Overlay Gutter on Overdrive
+- [ ] Add support for multiple shadows
+- [ ] Clean up fragment shader 
+- [ ] Integrate skybox reflection nicely to the color computation
+- [ ] Make it usable from a simple ECS script
+
+[Cubemap from HDRI](https://matheowis.github.io/HDRI-to-CubeMap/)
+
+# Extensions
+
+- [ ] Add bloom
+- [ ] Fix lighting casters
+- [ ] Add anti-aliasing
+- [ ] Add ambient occlusion (SSAO)
+- [ ] Add blend (transparency)
+- [ ] Add geometry shader for fur
+- [ ] Add normal mapping
+- [ ] Add framebuffers (post-proc + gutter)
+- [ ] Add alpha
+- [ ] Add instancing
+- [ ] Add HDR to fix too much light

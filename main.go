@@ -30,6 +30,7 @@ func main() {
   glfw.WindowHint(glfw.ContextVersionMinor, 1)
   glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
   glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
+  glfw.WindowHint(glfw.Samples, 4)
 
   // Window creation
   window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, "Cube", nil, nil)
@@ -48,6 +49,7 @@ func main() {
   gl.Init()
   gl.Enable(gl.DEPTH_TEST)
 	gl.Enable(gl.CULL_FACE)
+  gl.Enable(gl.MULTISAMPLE)
   // gl.Enable(gl.FRAMEBUFFER_SRGB)
 
   // Declare main shader programs
