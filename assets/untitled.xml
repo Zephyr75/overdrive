@@ -29,7 +29,7 @@
 		<mtl>Cube.003.mtl</mtl>
 	</mesh>
 	<light type="point">
-		<position>0.2025775909423828,6.831263542175293,5.793879508972168</position>
+		<position>-0.7935307025909424,7.300460338592529,7.170392036437988</position>
 		<direction>-0.5132905840873718,0.7081171274185181,-0.4848741590976715</direction>
 		<color>1.0,1.0,1.0</color>
 		<diffuse>0.25</diffuse>

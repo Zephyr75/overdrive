@@ -118,7 +118,9 @@ void main()
         result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculationCube(FragPos));
         break;
       case 1:
-        result += CalcPointLight(lights[i], norm, FragPos, viewDir);
+        result += CalcPointLight(lights[i], norm, FragPos, viewDir) * (1.0 - ShadowCalculationCube(FragPos));
+
+        // result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculationCube(FragPos));
         break;
       case 2:
         result += CalcSpotLight(lights[i], norm, FragPos, viewDir);
@@ -132,8 +134,8 @@ void main()
 
   vec3 fragToLight = FragPos - lights[0].position;
   float closestDepth = texture(shadowCubeMap, fragToLight).r;
-  FragColor = vec4(vec3(5 * closestDepth / far_plane), 1.0); 
-  // FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);
+  // FragColor = vec4(vec3(5 * closestDepth / far_plane), 1.0); 
+  FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);
 
   // FragColor = texture(ourTexture, TexCoord);
   // FragColor = vec4(result, 1.0);
@@ -237,7 +239,7 @@ vec3 CalcPointLight(Light light, vec3 normal, vec3 fragPos, vec3 viewDir)
     ambient  *= attenuation;
     diffuse  *= attenuation;
     specular *= attenuation;
-    return (ambient + diffuse + specular) * light.intensity / 10000;
+    return (ambient + diffuse + specular) * light.intensity / 50;
 } 
 
 // calculates the color when using a spot light.
