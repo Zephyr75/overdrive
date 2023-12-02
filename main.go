@@ -224,7 +224,6 @@ func main() {
     lightPosLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("lightPos\x00"))
     gl.Uniform3fv(lightPosLoc, 1, &s.Lights[0].Pos[0])
 
-
     model := mgl32.Scale3D(1.0, 1.0, 1.0)
     modelLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("model\x00"))
     gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
@@ -233,6 +232,12 @@ func main() {
       shadowTransformLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str(fmt.Sprintf("shadowMatrices[%d]\x00", i)))
       gl.UniformMatrix4fv(shadowTransformLoc, 1, false, &shadowTransforms[i][0])
     }
+
+    skyboxLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("skybox\x00"))
+    gl.Uniform1i(skyboxLoc, 3)
+
+    gl.ActiveTexture(gl.TEXTURE3)
+    gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.Skybox.Texture)
 
     for i := 0; i < len(s.Meshes); i++ {
       s.Meshes[i].Draw(depthCubeProgram, &s)
@@ -294,7 +299,7 @@ func main() {
     projectionLoc = gl.GetUniformLocation(skyboxProgram, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
-    skyboxLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("skybox\x00"))
+    skyboxLoc = gl.GetUniformLocation(skyboxProgram, gl.Str("skybox\x00"))
     gl.Uniform1i(skyboxLoc, 0)
 
     gl.BindVertexArray(s.Skybox.Vao)

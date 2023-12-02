@@ -36,6 +36,7 @@ in vec3 Normal;
 in vec4 FragPosLightSpace;
 
 uniform samplerCube shadowCubeMap;
+uniform samplerCube skybox;
 uniform sampler2D shadowMap;
 uniform sampler2D ourTexture;
 uniform vec3 viewPos;
@@ -134,8 +135,17 @@ void main()
 
   vec3 fragToLight = FragPos - lights[0].position;
   float closestDepth = texture(shadowCubeMap, fragToLight).r;
+  // Debug cubemap depth
   // FragColor = vec4(vec3(5 * closestDepth / far_plane), 1.0); 
-  FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);
+  
+  // Skybox reflection
+  vec3 I = normalize(FragPos - viewPos);
+  vec3 R = reflect(I, norm);
+  // FragColor = vec4(texture(skybox, R).rgb, 1.0);
+  FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex) * vec4(texture(skybox, R).rgb, 1.0);
+
+  // Normal
+  // FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);
 
   // FragColor = texture(ourTexture, TexCoord);
   // FragColor = vec4(result, 1.0);
