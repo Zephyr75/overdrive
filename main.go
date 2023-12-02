@@ -153,15 +153,15 @@ func main() {
     input.ProcessInput(window, deltaTime)
     gl.ClearColor(0.1, 0.1, 0.1, 1.0)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-    gl.CullFace(gl.FRONT)
+    // gl.CullFace(gl.FRONT)
 
     // Render scene from directional light's perspective
-    // nearPlane := float32(1.0)
-    // farPlane := float32(50.0)
-    // // increase 10 to 20 for a wider angle
-    // lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
-    // lightView := mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Sub(s.Lights[0].Dir), mgl32.Vec3{0.0, 1.0, 0.0}) 
-    // lightSpaceMatrix := lightProjection.Mul4(lightView)
+    nearPlane := float32(1.0)
+    farPlane := float32(50.0)
+    // increase 10 to 20 for a wider angle
+    lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
+    lightView := mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Sub(s.Lights[0].Dir), mgl32.Vec3{0.0, 1.0, 0.0}) 
+    lightSpaceMatrix := lightProjection.Mul4(lightView)
 
     // gl.UseProgram(depthProgram)
 
@@ -182,8 +182,8 @@ func main() {
 
     // Render scene from point light's perspective
     aspect := float32(settings.ShadowWidth) / float32(settings.ShadowHeight)
-    nearPlane := float32(1.0)
-    farPlane := float32(25.0)
+    nearPlane = float32(1.0)
+    farPlane = float32(25.0)
     shadowProjection := mgl32.Perspective(mgl32.DegToRad(90.0), aspect, nearPlane, farPlane)
     shadowTransforms := []mgl32.Mat4{
       shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
@@ -206,6 +206,12 @@ func main() {
     lightPosLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("lightPos\x00"))
     gl.Uniform3fv(lightPosLoc, 1, &s.Lights[0].Pos[0])
 
+
+    model := mgl32.Scale3D(1.0, 1.0, 1.0)
+    model = model.Mul4(mgl32.Scale3D(5.0, 5.0, 5.0))
+    modelLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("model\x00"))
+    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
     for i := 0; i < 6; i++ {
       shadowTransformLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str(fmt.Sprintf("shadowMatrices[%d]\x00", i)))
       gl.UniformMatrix4fv(shadowTransformLoc, 1, false, &shadowTransforms[i][0])
@@ -218,7 +224,7 @@ func main() {
     gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 
     // Clear buffers
-    gl.CullFace(gl.BACK)
+    // gl.CullFace(gl.BACK)
     gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
@@ -245,12 +251,12 @@ func main() {
     projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
     gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
-    model := mgl32.Scale3D(1.0, 1.0, 1.0)
-    modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
+    model = mgl32.Scale3D(1.0, 1.0, 1.0)
+    modelLoc = gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
     gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
 
-    // lightSpaceMatrixLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
-    // gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
+    lightSpaceMatrixLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
+    gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
 
     farPlaneLoc = gl.GetUniformLocation(cubesProgram, gl.Str("far_plane\x00"))
     gl.Uniform1f(farPlaneLoc, farPlane)

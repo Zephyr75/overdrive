@@ -132,7 +132,7 @@ void main()
 
   vec3 fragToLight = FragPos - lights[0].position;
   float closestDepth = texture(shadowCubeMap, fragToLight).r;
-  FragColor = vec4(vec3(closestDepth / far_plane), 1.0); 
+  FragColor = vec4(vec3(5 * closestDepth / far_plane), 1.0); 
   // FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);
 
   // FragColor = texture(ourTexture, TexCoord);

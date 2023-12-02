@@ -356,13 +356,13 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     gl.Uniform1i(shadowCubeMapLoc, 2)
 
     gl.ActiveTexture(gl.TEXTURE0)
-    gl.BindTexture(gl.TEXTURE_2D, scene.Lights[0].DepthMap)
+    gl.BindTexture(gl.TEXTURE_2D, white) // scene.Lights[0].DepthMap)
 
     gl.ActiveTexture(gl.TEXTURE1)
     gl.BindTexture(gl.TEXTURE_2D, white)
 
     gl.ActiveTexture(gl.TEXTURE2)
-    gl.BindTexture(gl.TEXTURE_2D, scene.Lights[0].DepthCubeMap)
+    gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Lights[0].DepthCubeMap)
 
 
     if mat.Texture != 0 {
