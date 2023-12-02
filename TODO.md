@@ -21,3 +21,6 @@
 - [ ] Add alpha
 - [ ] Add instancing
 - [ ] Add HDR to fix too much light
+
+
+GOPROXY=proxy.golang.org go list -m github.com/Zephyr75/gutter@v0.1.2
