@@ -10,3 +10,7 @@ var (
 func AspectRatio() float32 {
   return float32(WindowWidth) / float32(WindowHeight)
 }
+
+func ShadowAspectRatio() float32 {
+  return float32(ShadowWidth) / float32(ShadowHeight)
+}

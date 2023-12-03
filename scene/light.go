@@ -129,7 +129,7 @@ func (l Light) RenderLight(nearPlane, farPlane float32, depthProgram, depthCubeP
     gl.CullFace(gl.BACK)
   } else {
     // Render scene from point light's perspective
-    shadowProjection := mgl32.Perspective(mgl32.DegToRad(90.0), settings.AspectRatio(), nearPlane, farPlane)
+    shadowProjection := mgl32.Perspective(mgl32.DegToRad(90.0), settings.ShadowAspectRatio(), nearPlane, farPlane)
     shadowTransforms := []mgl32.Mat4{
       shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
       shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{-1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
