@@ -59,8 +59,9 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 	gl.Init()
 	gl.Enable(gl.DEPTH_TEST)
 	gl.Enable(gl.CULL_FACE)
-	gl.Enable(gl.MULTISAMPLE)
-	gl.Enable(gl.BLEND)
+  gl.Enable(gl.BLEND)
+  // Anti-aliasing
+	// gl.Enable(gl.MULTISAMPLE)	
 
 	// Declare main shader programs
   cubesProgram, err := opengl.CreateProgram("cubes", false)
@@ -124,9 +125,7 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 		gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		///////////////////////
-		// Render shadow map //
-		///////////////////////
+		// Render shadow map
 
 		// gl.UseProgram(depthDebugProgram)
 		// nearPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("near_plane\x00"))
