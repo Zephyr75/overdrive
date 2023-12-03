@@ -26,7 +26,7 @@ struct Light {
     float outerCutoff;
 };
 
-#define NR_LIGHTS 1  
+#define NR_LIGHTS 2  
 uniform Light lights[NR_LIGHTS];
 uniform Material material;
   
@@ -61,12 +61,12 @@ void main()
   for(int i = 0; i < NR_LIGHTS; i++){
     switch (lights[i].type) {
       case 0:
-        // result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculation(FragPosLightSpace));
-        result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculationCube(FragPos));
+        result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculation(FragPosLightSpace));
         break;
       case 1:
+
+        // result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculation(FragPosLightSpace));
         result += CalcPointLight(lights[i], norm, FragPos, viewDir) * (1.0 - ShadowCalculationCube(FragPos));
-        // result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculationCube(FragPos));
         break;
     }
     
@@ -129,7 +129,7 @@ float ShadowCalculationCube(vec3 fragPos)
     // display closestDepth as debug (to visualize depth cubemap)
     // FragColor = vec4(vec3(closestDepth / farPlane), 1.0);    
         
-    return shadow;
+    return shadow * 5;
 }
 
 float ShadowCalculation(vec4 fragPosLightSpace)
@@ -179,7 +179,6 @@ vec3 CalcDirLight(Light light, vec3 normal, vec3 viewDir)
     vec3 ambient  = light.color  * material.ambient;
     vec3 diffuse  = light.color * light.diffuse  * diff * material.diffuse;
     vec3 specular = light.color * light.specular * spec * material.specular;
-    // return diffuse * light.intensity / 7;
     return (ambient + diffuse + specular) * light.intensity / 50;
 }
 

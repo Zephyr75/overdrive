@@ -113,8 +113,12 @@ func (app App) Run(widget func(app App) ui.UIElement) {
     farPlane := float32(50.0)
 
     // Render depth map and depth cube map
-	  lightSpaceMatrix := s.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, &s)
-	  lightSpaceMatrix = s.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, &s)
+	  s.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, &s)
+    lightSpaceMatrix := s.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, &s)
+
+    // println(s.Lights[0].Type)
+    // println(s.Lights[1].Type)
+    // println()
 
 		// Clear buffers
 		gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))

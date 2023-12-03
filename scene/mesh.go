@@ -292,6 +292,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 
 			lightTypeLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].type\x00", i)))
 			gl.Uniform1i(lightTypeLoc, int32(light.Type))
+      println(light.Type)
 
 			lightConstantLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].constant\x00", i)))
 			gl.Uniform1f(lightConstantLoc, 1.0)
@@ -357,10 +358,14 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     gl.Uniform1i(skyboxLoc, 3)
 
     gl.ActiveTexture(gl.TEXTURE0)
-    gl.BindTexture(gl.TEXTURE_2D, white) // scene.Lights[0].DepthMap)
+    gl.BindTexture(gl.TEXTURE_2D, scene.Lights[1].DepthMap)
 
     gl.ActiveTexture(gl.TEXTURE1)
     gl.BindTexture(gl.TEXTURE_2D, white)
+    if mat.Texture != 0 {
+      gl.ActiveTexture(gl.TEXTURE1)
+      gl.BindTexture(gl.TEXTURE_2D, mat.Texture)
+    }
 
     gl.ActiveTexture(gl.TEXTURE2)
     gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Lights[0].DepthCubeMap)
@@ -369,10 +374,6 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Skybox.Texture)
 
 
-    if mat.Texture != 0 {
-      gl.ActiveTexture(gl.TEXTURE1)
-      gl.BindTexture(gl.TEXTURE_2D, mat.Texture)
-    }
     // if mat.NormalMap != 0 {
     //   gl.BindTexture(gl.TEXTURE_2D, mat.NormalMap)
     // }
