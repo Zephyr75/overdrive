@@ -31,11 +31,11 @@ func init() {
 	runtime.LockOSThread()
 }
 
-func (app *App) Quit() {
+func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
-func (app *App) Run(widget func(app App) ui.UIElement) {
+func (app App) Run(widget func(app App) ui.UIElement) {
 
 	// GLFW setup
 	glfw.Init()
@@ -308,7 +308,7 @@ func (app *App) Run(widget func(app App) ui.UIElement) {
 		gl.BindVertexArray(0)
 		gl.DepthFunc(gl.LESS)
 
-    renderUI(*app, window, widget, uiProgram)
+    renderUI(app, window, widget, uiProgram)
 		
 
 		/////////////////////
