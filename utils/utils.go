@@ -27,3 +27,9 @@ func EulerToDirection(pitch, yaw, roll float32) mgl32.Vec3 {
     // Create and return the resulting direction vector
     return mgl32.Vec3{x, y, z}
 }
+
+func HandleError(err error) {
+  if err != nil {
+    panic(err)
+  }
+}

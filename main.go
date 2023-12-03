@@ -11,14 +11,14 @@ import (
 	"overdrive/input"
 
 	"fmt"
+	"image"
+	"image/color"
 	"overdrive/opengl"
 	"overdrive/scene"
 	"overdrive/settings"
-	"image"
-	"image/color"
+	"overdrive/utils"
 
 	"github.com/Zephyr75/gutter/ui"
-	// "github.com/Zephyr75/gutter/utils"
 	"github.com/disintegration/imaging"
 )
 
@@ -29,6 +29,13 @@ type App struct {
 	Window *glfw.Window
 }
 
+var (
+	quadVAO uint32
+	quadVBO uint32
+)
+
+
+
 func init() {
 	// GLFW event handling must run on the main OS thread
 	runtime.LockOSThread()
@@ -36,11 +43,11 @@ func init() {
 
 func main() {
 
-  app := App {
-    Name: "Gutter",
-    Width: 1920,
-    Height: 1080,
-  }
+	app := App{
+		Name:   "Gutter",
+		Width:  1920,
+		Height: 1080,
+	}
 
 	Run(MainWindow, app)
 
@@ -58,9 +65,7 @@ func Run(widget func(app App) ui.UIElement, app App) {
 
 	// Window creation
 	window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, "Cube", nil, nil)
-	if err != nil {
-		glfw.Terminate()
-	}
+	utils.HandleError(err)
 	window.MakeContextCurrent()
 
 	// Callbacks
@@ -74,27 +79,19 @@ func Run(widget func(app App) ui.UIElement, app App) {
 	gl.Enable(gl.DEPTH_TEST)
 	gl.Enable(gl.CULL_FACE)
 	gl.Enable(gl.MULTISAMPLE)
-  gl.Enable(gl.BLEND)
-
-	// gl.Enable(gl.FRAMEBUFFER_SRGB)
+	gl.Enable(gl.BLEND)
 
 	// Declare main shader programs
 	vertexShaderFile, err := os.ReadFile("shaders/cubes.vert.glsl")
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 	vertexShaderSource := string(vertexShaderFile) + "\x00"
 
 	fragmentShaderFile, err := os.ReadFile("shaders/cubes.frag.glsl")
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 	fragmentShaderSource := string(fragmentShaderFile) + "\x00"
 
 	cubesProgram, err := opengl.CreateProgram(vertexShaderSource, fragmentShaderSource, "")
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 
 	// Declare directional depth shader programs
 	// depthVertexShaderFile, err := os.ReadFile("shaders/depth.vert.glsl")
@@ -110,78 +107,66 @@ func Run(widget func(app App) ui.UIElement, app App) {
 
 	// Declare point depth shader programs
 	depthVertexShaderFile, err := os.ReadFile("shaders/depth_cube.vert.glsl")
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 	depthVertexShaderSource := string(depthVertexShaderFile) + "\x00"
 
 	depthFragmentShaderFile, err := os.ReadFile("shaders/depth_cube.frag.glsl")
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 	depthFragmentShaderSource := string(depthFragmentShaderFile) + "\x00"
 
 	geometryShaderFile, err := os.ReadFile("shaders/depth_cube.geo.glsl")
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 	geometryShaderSource := string(geometryShaderFile) + "\x00"
 
 	depthCubeProgram, err := opengl.CreateProgram(depthVertexShaderSource, depthFragmentShaderSource, geometryShaderSource)
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 
 	// Declare debug shader programs
-	depthDebugVertexShaderFile, err := os.ReadFile("shaders/depth_debug.vert.glsl")
-	if err != nil {
-		panic(err)
-	}
-	depthDebugVertexShaderSource := string(depthDebugVertexShaderFile) + "\x00"
+	// depthDebugVertexShaderFile, err := os.ReadFile("shaders/depth_debug.vert.glsl")
+	//  utils.HandleError(err)
+	// depthDebugVertexShaderSource := string(depthDebugVertexShaderFile) + "\x00"
 
-	depthDebugFragmentShaderFile, err := os.ReadFile("shaders/depth_debug.frag.glsl")
-	if err != nil {
-		panic(err)
-	}
-	depthDebugFragmentShaderSource := string(depthDebugFragmentShaderFile) + "\x00"
+	// depthDebugFragmentShaderFile, err := os.ReadFile("shaders/depth_debug.frag.glsl")
+	//  utils.HandleError(err)
+	// depthDebugFragmentShaderSource := string(depthDebugFragmentShaderFile) + "\x00"
 
-	depthDebugProgram, err := opengl.CreateProgram(depthDebugVertexShaderSource, depthDebugFragmentShaderSource, "")
-	if err != nil {
-		panic(err)
-	}
+	// depthDebugProgram, err := opengl.CreateProgram(depthDebugVertexShaderSource, depthDebugFragmentShaderSource, "")
+	//  utils.HandleError(err)
 
-	gl.UseProgram(depthDebugProgram)
-	depthMapLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("depthMap\x00"))
-	gl.Uniform1i(depthMapLoc, 0)
+	// Declare UI shader programs
+	uiVertexShaderFile, err := os.ReadFile("shaders/ui.vert.glsl")
+	utils.HandleError(err)
+	uiVertexShaderSource := string(uiVertexShaderFile) + "\x00"
+
+	uiFragmentShaderFile, err := os.ReadFile("shaders/ui.frag.glsl")
+	utils.HandleError(err)
+	uiFragmentShaderSource := string(uiFragmentShaderFile) + "\x00"
+
+	uiProgram, err := opengl.CreateProgram(uiVertexShaderSource, uiFragmentShaderSource, "")
+	utils.HandleError(err)
 
 	// Declare skybox shader programs
 	skyboxVertexShaderFile, err := os.ReadFile("shaders/skybox.vert.glsl")
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 	skyboxVertexShaderSource := string(skyboxVertexShaderFile) + "\x00"
 
 	skyboxFragmentShaderFile, err := os.ReadFile("shaders/skybox.frag.glsl")
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 	skyboxFragmentShaderSource := string(skyboxFragmentShaderFile) + "\x00"
 
 	skyboxProgram, err := opengl.CreateProgram(skyboxVertexShaderSource, skyboxFragmentShaderSource, "")
-	if err != nil {
-		panic(err)
-	}
+	utils.HandleError(err)
 
 	// Create debug plane
 	planeVertices := []float32{
-		// positions         // normals      // texcoords
-		25.0, -0.5, 25.0, 0.0, 1.0, 0.0, 25.0, 0.0,
-		-25.0, -0.5, 25.0, 0.0, 1.0, 0.0, 0.0, 0.0,
-		-25.0, -0.5, -25.0, 0.0, 1.0, 0.0, 0.0, 25.0,
+		// positions        // normals     // texcoords
+		 25.0, -0.5,  25.0, 0.0, 1.0, 0.0, 25.0,  0.0,
+		-25.0, -0.5,  25.0, 0.0, 1.0, 0.0,  0.0,  0.0,
+		-25.0, -0.5, -25.0, 0.0, 1.0, 0.0,  0.0, 25.0,
 
-		25.0, -0.5, 25.0, 0.0, 1.0, 0.0, 25.0, 0.0,
-		-25.0, -0.5, -25.0, 0.0, 1.0, 0.0, 0.0, 25.0,
-		25.0, -0.5, -25.0, 0.0, 1.0, 0.0, 25.0, 25.0,
+		 25.0, -0.5,  25.0, 0.0, 1.0, 0.0, 25.0,  0.0,
+		-25.0, -0.5, -25.0, 0.0, 1.0, 0.0,  0.0, 25.0,
+		 25.0, -0.5, -25.0, 0.0, 1.0, 0.0, 25.0, 25.0,
 	}
 	var planeVAO uint32
 	var planeVBO uint32
@@ -200,9 +185,6 @@ func Run(widget func(app App) ui.UIElement, app App) {
 
 	// Load scene
 	var s scene.Scene = scene.LoadScene("assets/untitled.xml")
-
-	// fmt.Println(s.Meshes[0].Vertices)
-
 	for i := 0; i < len(s.Meshes); i++ {
 		s.Meshes[i].Setup()
 	}
@@ -210,20 +192,19 @@ func Run(widget func(app App) ui.UIElement, app App) {
 		s.Lights[i].Setup()
 	}
 
-	
-
-	// Window lifecycle
-
+	// Gutter init
 	lastInstance := ""
 	var flippedImg *image.NRGBA
-
 	lastMap := map[string]bool{}
 	areas := []ui.Area{}
 
+	// Time init
 	i := 0
 	time := glfw.GetTime()
-	lastFrame := float64(0.0)
 	var deltaTime float32 = 0.0
+	lastFrame := float64(0.0)
+
+	// Window lifecycle
 	for !window.ShouldClose() {
 		input.ProcessInput(window, deltaTime)
 		gl.ClearColor(0.1, 0.1, 0.1, 1.0)
@@ -276,7 +257,7 @@ func Run(widget func(app App) ui.UIElement, app App) {
 
 		gl.UseProgram(depthCubeProgram)
 
-		farPlaneLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("far_plane\x00"))
+		farPlaneLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("farPlane\x00"))
 		gl.Uniform1f(farPlaneLoc, farPlane)
 
 		lightPosLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("lightPos\x00"))
@@ -307,17 +288,25 @@ func Run(widget func(app App) ui.UIElement, app App) {
 		gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		// Render debug plane
+		///////////////////////
+		// Render shadow map //
+		///////////////////////
+
 		// gl.UseProgram(depthDebugProgram)
 		// nearPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("near_plane\x00"))
 		// gl.Uniform1f(nearPlaneLoc, nearPlane)
-		// farPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("far_plane\x00"))
+		// farPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("farPlane\x00"))
 		// gl.Uniform1f(farPlaneLoc, farPlane)
+		// depthMapLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("depthMap\x00"))
+		// gl.Uniform1i(depthMapLoc, 0)
 		// gl.ActiveTexture(gl.TEXTURE0)
 		// gl.BindTexture(gl.TEXTURE_2D, s.Lights[0].DepthMap)
 		// gl.BindVertexArray(planeVAO)
 		// renderQuad()
-		// Render scene as normal
+
+		//////////////////
+		// Render scene //
+		//////////////////
 		gl.UseProgram(cubesProgram)
 
 		view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
@@ -335,18 +324,19 @@ func Run(widget func(app App) ui.UIElement, app App) {
 		lightSpaceMatrixLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
 		gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
 
-		farPlaneLoc = gl.GetUniformLocation(cubesProgram, gl.Str("far_plane\x00"))
+		farPlaneLoc = gl.GetUniformLocation(cubesProgram, gl.Str("farPlane\x00"))
 		gl.Uniform1f(farPlaneLoc, farPlane)
 
 		for i := 0; i < len(s.Meshes); i++ {
 			s.Meshes[i].Draw(cubesProgram, &s)
 		}
 
-		// Render skybox
+		///////////////////
+		// Render skybox //
+		///////////////////
 		gl.DepthFunc(gl.LEQUAL)
 		gl.UseProgram(skyboxProgram)
 
-		view = mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
 		view = view.Mat3().Mat4()
 		viewLoc = gl.GetUniformLocation(skyboxProgram, gl.Str("view\x00"))
 		gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
@@ -365,104 +355,80 @@ func Run(widget func(app App) ui.UIElement, app App) {
 		gl.BindVertexArray(0)
 		gl.DepthFunc(gl.LESS)
 
+		///////////////
+		// Render UI //
+		///////////////
 
+		// Create texture
+		var texture uint32
+		gl.GenTextures(1, &texture)
+		gl.BindTexture(gl.TEXTURE_2D, texture)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+		gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+		gl.BindImageTexture(0, texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA8)
 
+		// Initialize image
+		var img = image.NewRGBA(image.Rect(0, 0, settings.WindowWidth, settings.WindowHeight))
+		instance := widget(app)
+		equal := true
+		for _, area := range areas {
+			if ui.MouseInBounds(window, area) != lastMap[area.ToString()] {
+				equal = false
+			}
+			if ui.MouseInBounds(window, area) && window.GetMouseButton(glfw.MouseButtonLeft) == glfw.Press {
+				area.Function()
+			}
+		}
 
-    // Render UI
+		// Only redraw if the UI has changed
+		if lastInstance != instance.ToString() || !equal {
+			lastInstance = instance.ToString()
+			areas = instance.Draw(img, window)
+			newAreas := []ui.Area{}
+			for _, area := range areas {
+				if area.Left != 0 || area.Right != 0 || area.Top != 0 || area.Bottom != 0 {
+					newAreas = append(newAreas, area)
+				}
+			}
+			areas = newAreas
+			flippedImg = imaging.FlipV(img)
+		}
+		for _, area := range areas {
+			lastMap[area.ToString()] = ui.MouseInBounds(window, area)
+		}
 
+		// Bind image to OpenGL texture
+		gl.BindTexture(gl.TEXTURE_2D, texture)
+		gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, int32(settings.WindowWidth), int32(settings.WindowHeight), 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(flippedImg.Pix))
 
-    var texture uint32
-    {
-      gl.GenTextures(1, &texture)
-
-      gl.BindTexture(gl.TEXTURE_2D, texture)
-      gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-      gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-      gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
-      gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
-
-      gl.BindImageTexture(0, texture, 0, false, 0, gl.WRITE_ONLY, gl.RGBA8)
-    }
-
-    // var framebuffer uint32
-    // {
-    //   gl.GenFramebuffers(1, &framebuffer)
-    //   gl.BindFramebuffer(gl.FRAMEBUFFER, framebuffer)
-    //   gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
-
-    //   gl.BindFramebuffer(gl.READ_FRAMEBUFFER, framebuffer)
-    //   gl.BindFramebuffer(gl.DRAW_FRAMEBUFFER, 0)
-    // }
-
-    w := settings.WindowWidth
-    h := settings.WindowHeight
-
-    var img = image.NewRGBA(image.Rect(0, 0, w, h))
-    instance := widget(app)
-
-    equal := true
-    for _, area := range areas {
-      if ui.MouseInBounds(window, area) != lastMap[area.ToString()] {
-        equal = false
-      }
-      if ui.MouseInBounds(window, area) && window.GetMouseButton(glfw.MouseButtonLeft) == glfw.Press {
-        area.Function()
-      }
-    }
-
-    if lastInstance != instance.ToString() || !equal {
-      lastInstance = instance.ToString()
-      areas = instance.Draw(img, window)
-      // Remove all empty areas
-      newAreas := []ui.Area{}
-      for _, area := range areas {
-        if area.Left != 0 || area.Right != 0 || area.Top != 0 || area.Bottom != 0 {
-          newAreas = append(newAreas, area)
-        }
-      }
-      areas = newAreas
-      flippedImg = imaging.FlipV(img)
-    }
-    for _, area := range areas {
-      lastMap[area.ToString()] = ui.MouseInBounds(window, area)
-    }
-
-    gl.BindTexture(gl.TEXTURE_2D, texture)
-    gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, int32(w), int32(h), 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(flippedImg.Pix))
-
-    // gl.BlitFramebuffer(0, 0, int32(w), int32(h), 0, 0, int32(w), int32(h), gl.COLOR_BUFFER_BIT, gl.LINEAR)
-
-    gl.UseProgram(depthDebugProgram)
-		nearPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("near_plane\x00"))
-		gl.Uniform1f(nearPlaneLoc, nearPlane)
-		// farPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("far_plane\x00"))
-		// gl.Uniform1f(farPlaneLoc, farPlane)
+		// Render texture to quad
+		gl.UseProgram(uiProgram)
 		gl.ActiveTexture(gl.TEXTURE0)
 		gl.BindTexture(gl.TEXTURE_2D, texture)
 		gl.BindVertexArray(planeVAO)
-    renderQuad()
+		renderQuad()
 
-
-    // Compute delta time
-		currentFrame := glfw.GetTime()
-		deltaTime = float32(currentFrame - lastFrame)
-		lastFrame = currentFrame
-
+		/////////////////////
+		// Time management //
+		/////////////////////
 		i++
+		deltaTime = float32(glfw.GetTime()) - float32(lastFrame)
+		lastFrame = glfw.GetTime()
 		if glfw.GetTime()-time > 1 {
 			fmt.Printf("\rFPS: %d", i)
 			i = 0
 			time = glfw.GetTime()
 		}
+
+		//////////////////
+		// Swap buffers //
+		//////////////////
 		window.SwapBuffers()
 		glfw.PollEvents()
 	}
 }
-
-var (
-	quadVAO uint32
-	quadVBO uint32
-)
 
 func renderQuad() {
 	if quadVAO == 0 {
@@ -629,10 +595,10 @@ func Quit() {
 }
 
 var (
-	green = color.RGBA{158, 206, 106, 255}
-	white = color.RGBA{192, 202, 245, 255}
-	blue  = color.RGBA{122, 162, 247, 255}
-	red   = color.RGBA{247, 118, 142, 255}
-	black = color.RGBA{26, 27, 38, 255}
-  transparent = color.RGBA{0, 0, 0, 0}
+	green       = color.RGBA{158, 206, 106, 255}
+	white       = color.RGBA{192, 202, 245, 255}
+	blue        = color.RGBA{122, 162, 247, 255}
+	red         = color.RGBA{247, 118, 142, 255}
+	black       = color.RGBA{26, 27, 38, 255}
+	transparent = color.RGBA{0, 0, 0, 0}
 )

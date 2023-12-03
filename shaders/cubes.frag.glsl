@@ -40,7 +40,7 @@ uniform samplerCube skybox;
 uniform sampler2D shadowMap;
 uniform sampler2D ourTexture;
 uniform vec3 viewPos;
-uniform float far_plane;
+uniform float farPlane;
 
 
 // function prototypes
@@ -136,7 +136,7 @@ void main()
   vec3 fragToLight = FragPos - lights[0].position;
   float closestDepth = texture(shadowCubeMap, fragToLight).r;
   // Debug cubemap depth
-  // FragColor = vec4(vec3(5 * closestDepth / far_plane), 1.0); 
+  // FragColor = vec4(vec3(5 * closestDepth / farPlane), 1.0); 
   
   // Skybox reflection
   vec3 I = normalize(FragPos - viewPos);
@@ -174,18 +174,18 @@ float ShadowCalculationCube(vec3 fragPos)
     float bias = 0.15;
     int samples = 20;
     float viewDistance = length(viewPos - fragPos);
-    float diskRadius = (1.0 + (viewDistance / far_plane)) / 25.0;
+    float diskRadius = (1.0 + (viewDistance / farPlane)) / 25.0;
     for(int i = 0; i < samples; ++i)
     {
         float closestDepth = texture(shadowCubeMap, fragToLight + gridSamplingDisk[i] * diskRadius).r;
-        closestDepth *= far_plane;   // undo mapping [0;1]
+        closestDepth *= farPlane;   // undo mapping [0;1]
         if(currentDepth - bias > closestDepth)
             shadow += 1.0;
     }
     shadow /= float(samples);
         
     // display closestDepth as debug (to visualize depth cubemap)
-    // FragColor = vec4(vec3(closestDepth / far_plane), 1.0);    
+    // FragColor = vec4(vec3(closestDepth / farPlane), 1.0);    
         
     return shadow;
 }
