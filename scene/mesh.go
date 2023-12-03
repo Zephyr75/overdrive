@@ -109,7 +109,6 @@ func (mXml MeshXml) toMesh() Mesh {
   m.NormalCoords = normalCoords
   m.TextureCoords = textureCoords
   m.Name = mXml.Name
-  println(m.Name)
 
   m.fillVertices()
   // m.fillFaces()

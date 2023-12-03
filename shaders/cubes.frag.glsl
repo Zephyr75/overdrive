@@ -84,7 +84,11 @@ void main()
   vec3 I = normalize(FragPos - viewPos);
   vec3 R = reflect(I, norm);
   // FragColor = vec4(texture(skybox, R).rgb, 1.0);
-  FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex) * vec4(texture(skybox, R).rgb, 1.0);
+  vec4 skyboxColor = vec4(texture(skybox, R).rgb, 1.0);
+  // multiply skybox by diffuse coefficient
+  skyboxColor *= vec4(vec3(1 - material.diffuse), 1.0);
+  skyboxColor += vec4(vec3(material.diffuse), 1.0);
+  FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex) * skyboxColor;
 
   // Normal
   // FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);

@@ -76,7 +76,7 @@ func main() {
   world.Init()
   world.Update(time.Second / 60)
 
-  time.Sleep(1 * time.Second)
+  // time.Sleep(1 * time.Second)
 
 
 }
