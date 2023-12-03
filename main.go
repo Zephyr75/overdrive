@@ -33,7 +33,7 @@ func main() {
 
 	app.Run(MainWindow)
 
-  bob := ecs.Entity{Name{"Bob"}, HealthBar{100}}
+  bob := ecs.Entity{Name{"Bob"}, HealthBar{60}}
   dylan := ecs.Entity{Name{"Dylan"}}
 	world := ecs.World{}
 
@@ -76,7 +76,7 @@ func main() {
   world.Init()
   world.Update(time.Second / 60)
 
-  time.Sleep(2 * time.Second)
+  time.Sleep(1 * time.Second)
 
 
 }

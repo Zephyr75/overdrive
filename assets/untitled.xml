@@ -1,6 +1,7 @@
 <?xml version="1.0" ?>
 <scene>
-	<camera type="persp">
+	<camera name="Camera">
+		<type>persp</type>
 		<position>10.59134292602539,-9.949763298034668,9.909199714660645</position>
 		<front>-0.6470975875854492,0.6149832606315613,-0.45062217116355896</front>
 		<up>-0.32664012908935547,0.31042957305908203,0.89271479845047</up>
@@ -8,27 +9,28 @@
 		<pitch>63.216392391324476</pitch>
 		<fov>39.597755335771296</fov>
 	</camera>
-	<mesh>
+	<mesh name="Cube">
 		<obj>Cube.obj</obj>
 		<mtl>Cube.mtl</mtl>
 	</mesh>
-	<mesh>
+	<mesh name="Suzanne">
 		<obj>Suzanne.obj</obj>
 		<mtl>Suzanne.mtl</mtl>
 	</mesh>
-	<mesh>
+	<mesh name="Suzanne.001">
 		<obj>Suzanne.001.obj</obj>
 		<mtl>Suzanne.001.mtl</mtl>
 	</mesh>
-	<mesh>
+	<mesh name="Suzanne.002">
 		<obj>Suzanne.002.obj</obj>
 		<mtl>Suzanne.002.mtl</mtl>
 	</mesh>
-	<mesh>
+	<mesh name="Cube.003">
 		<obj>Cube.003.obj</obj>
 		<mtl>Cube.003.mtl</mtl>
 	</mesh>
-	<light type="point">
+	<light name="Light.003">
+		<type>point</type>
 		<position>-0.7935307025909424,7.300460338592529,7.170392036437988</position>
 		<direction>-0.5132905840873718,0.7081171274185181,-0.4848741590976715</direction>
 		<color>1.0,1.0,1.0</color>
@@ -36,7 +38,8 @@
 		<specular>0.5</specular>
 		<intensity>50.0</intensity>
 	</light>
-	<light type="sun">
+	<light name="Light.001">
+		<type>sun</type>
 		<position>6.738235950469971,-1.0281014442443848,6.767632007598877</position>
 		<direction>-0.5132905840873718,0.7081171274185181,-0.4848741590976715</direction>
 		<color>1.0,1.0,1.0</color>

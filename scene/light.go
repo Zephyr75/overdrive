@@ -10,7 +10,8 @@ import (
 )
 
 type LightXml struct {
-  Type string `xml:"type,attr"`
+  Name string `xml:"name,attr"`
+  Type string `xml:"type"`
   Pos string `xml:"position"`
 	Dir string `xml:"direction"`
   Color string `xml:"color"`
@@ -20,6 +21,7 @@ type LightXml struct {
 }
 
 type Light struct {
+  Name string
   Type int
   Pos mgl32.Vec3 
   Dir mgl32.Vec3 
@@ -35,6 +37,7 @@ type Light struct {
 
 func (l LightXml) ToLight() Light {
 	t := 0
+  name := l.Name
   pos := utils.ParseVec3(l.Pos)
   dir := utils.ParseVec3(l.Dir)
   color := utils.ParseVec3(l.Color)
@@ -52,6 +55,7 @@ func (l LightXml) ToLight() Light {
 		t = 1
 	}
   return Light{
+    Name: name,
     Type: t,
     Pos: pos,
 		Dir: dir,

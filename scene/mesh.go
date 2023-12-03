@@ -22,11 +22,13 @@ var (
 )
 
 type MeshXml struct {
+  Name string `xml:"name,attr"`
   Obj string `xml:"obj"`
   Mtl string `xml:"mtl"`
 }
 
 type Mesh struct {
+  Name string
   Positions []mgl32.Vec3
   NormalCoords []mgl32.Vec3
   TextureCoords []mgl32.Vec2
@@ -106,6 +108,8 @@ func (mXml MeshXml) toMesh() Mesh {
   m.Positions = positions
   m.NormalCoords = normalCoords
   m.TextureCoords = textureCoords
+  m.Name = mXml.Name
+  println(m.Name)
 
   m.fillVertices()
   // m.fillFaces()

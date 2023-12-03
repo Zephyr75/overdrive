@@ -7,6 +7,7 @@ import (
 )
 
 type Camera struct {
+  Name string
   Type string
   Pos mgl32.Vec3
   Front mgl32.Vec3
@@ -17,7 +18,8 @@ type Camera struct {
 }
 
 type CameraXml struct {
-  Type string `xml:"type,attr"`
+  Name string `xml:"name,attr"`
+  Type string `xml:"type"`
   Pos string `xml:"position"`
   Front string `xml:"front"`
   Up string `xml:"up"`
@@ -42,6 +44,7 @@ func (c CameraXml) ToCamera() Camera {
   front = direction.Normalize()
 
   return Camera{
+    Name: c.Name,
     Type: c.Type,
     Pos: pos,
     Front: front,

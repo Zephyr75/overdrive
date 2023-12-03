@@ -96,13 +96,17 @@ class OverdriveWriter:
 
     def write_camera(self, cam):
         """convert the selected camera (cam) into xml format"""
-        camera = self.create_xml_element("camera", {"type": cam.data.type.lower()})
+        camera = self.create_xml_element("camera", {"name": cam.name})
         position = cam.location
         front = cam.matrix_world.to_quaternion() @ Vector((0, 0, -1))
         up = cam.matrix_world.to_quaternion() @ Vector((0, 1, 0))
         yaw = cam.rotation_euler[2] * 180 / math.pi
         pitch = cam.rotation_euler[0] * 180 / math.pi
         fov = cam.data.angle * 180 / math.pi
+
+        type_element = self.create_xml_element("type", {})
+        type_element.appendChild(self.doc.createTextNode(cam.data.type.lower()))
+        camera.appendChild(type_element)
 
         position_element = self.create_xml_element("position", {})
         position_element.appendChild(self.doc.createTextNode(self.write_vector(position)))
@@ -165,7 +169,7 @@ class OverdriveWriter:
         mesh.select_set(False)
 
         # Add the corresponding entry to the xml
-        mesh_element = self.create_xml_element("mesh", {})
+        mesh_element = self.create_xml_element("mesh", {"name": mesh.name})
         obj_element = self.create_xml_element("obj", {})
         obj_element.appendChild(self.doc.createTextNode(obj_name))
         mesh_element.appendChild(obj_element)
@@ -179,7 +183,7 @@ class OverdriveWriter:
             ob.select_set(True)
 
     def write_light(self, light):
-        light_element = self.create_xml_element("light", {"type": light.data.type.lower()})
+        light_element = self.create_xml_element("light", {"name": light.name})
         pos = light.location
         dir = light.rotation_euler
         vec = Vector((0, 0, -1))
@@ -190,6 +194,10 @@ class OverdriveWriter:
         specular = light.data.specular_factor
         diffuse = light.data.diffuse_factor
         intensity = light.data.energy
+
+        type_element = self.create_xml_element("type", {})
+        type_element.appendChild(self.doc.createTextNode(light.data.type.lower()))
+        light_element.appendChild(type_element)
 
         pos_element = self.create_xml_element("position", {})
         pos_element.appendChild(self.doc.createTextNode(self.write_vector(pos)))
@@ -214,6 +222,7 @@ class OverdriveWriter:
         intensity_element = self.create_xml_element("intensity", {})
         intensity_element.appendChild(self.doc.createTextNode(str(intensity)))
         light_element.appendChild(intensity_element)
+
         self.scene.appendChild(light_element)
 
 
