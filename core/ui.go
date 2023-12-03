@@ -19,12 +19,16 @@ var (
 	flippedImg *image.NRGBA
 	lastMap = map[string]bool{}
 	areas = []ui.Area{}
+  texture uint32
+  generatedTexture bool = false
 )
 
 func renderUI(app App, window *glfw.Window, widget func(app App) ui.UIElement, uiProgram uint32) {
   // Create texture
-  var texture uint32
-  gl.GenTextures(1, &texture)
+  if !generatedTexture {
+    generatedTexture = true
+    gl.GenTextures(1, &texture)
+  }
   gl.BindTexture(gl.TEXTURE_2D, texture)
   gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
   gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
