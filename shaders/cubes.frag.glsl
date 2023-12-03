@@ -9,7 +9,7 @@ struct Material {
 }; 
 
 struct Light {
-    int type; // 0 = directional, 1 = point, 2 = spot
+    int type; // 0 = directional, 1 = point
     vec3 position;
     vec3 direction;
 

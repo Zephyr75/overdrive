@@ -114,6 +114,7 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 
     // Render depth map and depth cube map
 	  lightSpaceMatrix := s.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, &s)
+	  lightSpaceMatrix = s.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, &s)
 
 		// Clear buffers
 		gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
@@ -131,7 +132,7 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 		// depthMapLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("depthMap\x00"))
 		// gl.Uniform1i(depthMapLoc, 0)
 		// gl.ActiveTexture(gl.TEXTURE0)
-		// gl.BindTexture(gl.TEXTURE_2D, s.Lights[0].DepthMap)
+		// gl.BindTexture(gl.TEXTURE_2D, s.Lights[1].DepthMap)
 		// utils.RenderQuad()
 
     s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)

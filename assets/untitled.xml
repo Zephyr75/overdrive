@@ -36,4 +36,12 @@
 		<specular>0.5</specular>
 		<intensity>50.0</intensity>
 	</light>
+	<light type="sun">
+		<position>0.8548917770385742,7.064405918121338,7.367372989654541</position>
+		<direction>-0.5132905840873718,0.7081171274185181,-0.4848741590976715</direction>
+		<color>1.0,1.0,1.0</color>
+		<diffuse>0.25</diffuse>
+		<specular>0.5</specular>
+		<intensity>50.0</intensity>
+	</light>
 </scene>
