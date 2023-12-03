@@ -54,8 +54,8 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 	// Callbacks
 	window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
   window.SetScrollCallback(input.ScrollCallback)
-	// window.SetCursorPosCallback(input.MouseCallback)
-	// window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
+	window.SetCursorPosCallback(input.MouseCallback)
+	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
 	// OpenGL setup
 	gl.Init()
@@ -257,63 +257,14 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 		// gl.BindTexture(gl.TEXTURE_2D, s.Lights[0].DepthMap)
 		// renderQuad()
 
-		//////////////////
-		// Render scene //
-		//////////////////
-		gl.UseProgram(cubesProgram)
-
-		view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
-		viewLoc := gl.GetUniformLocation(cubesProgram, gl.Str("view\x00"))
-		gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
-
-		projection := mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-		projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
-		gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
-
-		model = mgl32.Scale3D(1.0, 1.0, 1.0)
-		modelLoc = gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
-		gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
-
-		lightSpaceMatrixLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
-		gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
-
-		farPlaneLoc = gl.GetUniformLocation(cubesProgram, gl.Str("farPlane\x00"))
-		gl.Uniform1f(farPlaneLoc, farPlane)
-
-		for i := 0; i < len(s.Meshes); i++ {
-			s.Meshes[i].Draw(cubesProgram, &s)
-		}
-
-		///////////////////
-		// Render skybox //
-		///////////////////
-		gl.DepthFunc(gl.LEQUAL)
-		gl.UseProgram(skyboxProgram)
-
-		view = view.Mat3().Mat4()
-		viewLoc = gl.GetUniformLocation(skyboxProgram, gl.Str("view\x00"))
-		gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
-
-		projection = mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-		projectionLoc = gl.GetUniformLocation(skyboxProgram, gl.Str("projection\x00"))
-		gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
-
-		skyboxLoc = gl.GetUniformLocation(skyboxProgram, gl.Str("skybox\x00"))
-		gl.Uniform1i(skyboxLoc, 0)
-
-		gl.BindVertexArray(s.Skybox.Vao)
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.Skybox.Texture)
-		gl.DrawArrays(gl.TRIANGLES, 0, 36)
-		gl.BindVertexArray(0)
-		gl.DepthFunc(gl.LESS)
+    s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
+		
+    s.Skybox.RenderSkybox(skyboxProgram)
 
     renderUI(app, window, widget, uiProgram)
 		
 
-		/////////////////////
-		// Time management //
-		/////////////////////
+		// Time management
 		i++
 		deltaTime = float32(glfw.GetTime()) - float32(lastFrame)
 		lastFrame = glfw.GetTime()
@@ -323,9 +274,7 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 			time = glfw.GetTime()
 		}
 
-		//////////////////
-		// Swap buffers //
-		//////////////////
+		// Swap buffers
 		window.SwapBuffers()
 		glfw.PollEvents()
 	}

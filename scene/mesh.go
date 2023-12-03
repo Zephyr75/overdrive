@@ -45,7 +45,7 @@ type Mesh struct {
 
 
 
-func (mXml MeshXml) ToMesh() Mesh {
+func (mXml MeshXml) toMesh() Mesh {
   objFile, err := os.Open("assets/meshes/" + mXml.Obj)
   if err != nil {
     fmt.Println("Error opening file:", err)

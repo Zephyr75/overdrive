@@ -2,8 +2,10 @@ package scene
 
 import (
 	"overdrive/opengl"
+  "overdrive/settings"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
+  "github.com/go-gl/mathgl/mgl32"
 )
 
 type Skybox struct {
@@ -81,4 +83,28 @@ func (s *Skybox) Setup() {
     "/home/zeph/GitHub/overdrive/textures/skybox/front.png",
     "/home/zeph/GitHub/overdrive/textures/skybox/back.png",
   })
+}
+
+func (s Skybox) RenderSkybox(skyboxProgram uint32) {
+  gl.DepthFunc(gl.LEQUAL)
+  gl.UseProgram(skyboxProgram)
+
+  view := mgl32.LookAtV(Cam.Pos, Cam.Pos.Add(Cam.Front), Cam.Up)
+  view = view.Mat3().Mat4()
+  viewLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("view\x00"))
+  gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
+
+  projection := mgl32.Perspective(mgl32.DegToRad(Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+  projectionLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("projection\x00"))
+  gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
+
+  skyboxLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("skybox\x00"))
+  gl.Uniform1i(skyboxLoc, 0)
+
+  gl.BindVertexArray(s.Vao)
+  gl.ActiveTexture(gl.TEXTURE0)
+  gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.Texture)
+  gl.DrawArrays(gl.TRIANGLES, 0, 36)
+  gl.BindVertexArray(0)
+  gl.DepthFunc(gl.LESS)
 }
