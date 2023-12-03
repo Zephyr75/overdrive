@@ -47,12 +47,7 @@ func LoadScene(path string) Scene {
   s.Meshes = make([]Mesh, len(sceneXml.MeshesXml))
   s.Lights = make([]Light, len(sceneXml.LightsXml))
 
-
-  fmt.Println(Cam)
-
   Cam = sceneXml.CamXml.ToCamera()
-
-  fmt.Println(Cam)
 
   for i, meshXml := range sceneXml.MeshesXml {
     s.Meshes[i] = meshXml.ToMesh()
