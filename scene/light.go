@@ -6,6 +6,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 
 	"overdrive/settings"
+  "fmt"
 )
 
 type LightXml struct {
@@ -98,4 +99,68 @@ func (l *Light) Setup() {
   gl.DrawBuffer(gl.NONE)
   gl.ReadBuffer(gl.NONE)
   gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+}
+
+func (l Light) RenderLight(nearPlane, farPlane float32, depthProgram, depthCubeProgram uint32, s *Scene) mgl32.Mat4 {
+  lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane) // increase 10 to 20 for a wider angle
+  lightView := mgl32.LookAtV(l.Pos, l.Pos.Sub(l.Dir), mgl32.Vec3{0.0, 1.0, 0.0})
+  lightSpaceMatrix := lightProjection.Mul4(lightView)
+  model := mgl32.Scale3D(1.0, 1.0, 1.0)
+
+  gl.Viewport(0, 0, int32(settings.ShadowWidth), int32(settings.ShadowHeight))
+  gl.BindFramebuffer(gl.FRAMEBUFFER, l.DepthMapFBO)
+  gl.Clear(gl.DEPTH_BUFFER_BIT)
+
+  if l.Type == 0 {
+    // Render scene from directional light's perspective
+    gl.CullFace(gl.FRONT)
+    gl.UseProgram(depthProgram)
+
+    modelLoc := gl.GetUniformLocation(depthProgram, gl.Str("model\x00"))
+    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
+    lightSpaceMatrixLoc := gl.GetUniformLocation(depthProgram, gl.Str("lightSpaceMatrix\x00"))
+    gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
+
+    for i := 0; i < len(s.Meshes); i++ {
+      s.Meshes[i].Draw(depthProgram, s)
+    }
+
+    gl.CullFace(gl.BACK)
+  } else {
+    // Render scene from point light's perspective
+    shadowProjection := mgl32.Perspective(mgl32.DegToRad(90.0), settings.AspectRatio(), nearPlane, farPlane)
+    shadowTransforms := []mgl32.Mat4{
+      shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{-1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{0.0, 1.0, 0.0}), mgl32.Vec3{0.0, 0.0, 1.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{0.0, -1.0, 0.0}), mgl32.Vec3{0.0, 0.0, -1.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{0.0, 0.0, 1.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
+      shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{0.0, 0.0, -1.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
+    }
+
+    gl.UseProgram(depthCubeProgram)
+
+    farPlaneLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("farPlane\x00"))
+    gl.Uniform1f(farPlaneLoc, farPlane)
+
+    lightPosLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("lightPos\x00"))
+    gl.Uniform3fv(lightPosLoc, 1, &l.Pos[0])
+
+    modelLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("model\x00"))
+    gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
+
+    for i := 0; i < 6; i++ {
+      shadowTransformLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str(fmt.Sprintf("shadowMatrices[%d]\x00", i)))
+      gl.UniformMatrix4fv(shadowTransformLoc, 1, false, &shadowTransforms[i][0])
+    }
+
+    for i := 0; i < len(s.Meshes); i++ {
+      s.Meshes[i].Draw(depthCubeProgram, s)
+    }
+  }
+
+  gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+
+  return lightSpaceMatrix
 }

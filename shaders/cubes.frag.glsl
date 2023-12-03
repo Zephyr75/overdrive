@@ -43,7 +43,6 @@ uniform vec3 viewPos;
 uniform float farPlane;
 
 
-// function prototypes
 vec3 CalcDirLight(Light light, vec3 normal, vec3 viewDir);
 vec3 CalcPointLight(Light light, vec3 normal, vec3 fragPos, vec3 viewDir);
 
@@ -79,7 +78,7 @@ void main()
   vec3 fragToLight = FragPos - lights[0].position;
   float closestDepth = texture(shadowCubeMap, fragToLight).r;
   // Debug cubemap depth
-  // FragColor = vec4(vec3(5 * closestDepth / farPlane), 1.0); 
+  // FragColor = vec4(vec3(20 * closestDepth / farPlane), 1.0); 
   
   // Skybox reflection
   vec3 I = normalize(FragPos - viewPos);

@@ -1,12 +1,10 @@
 package core
 
 import (
-	"os"
 	"runtime"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
-	"github.com/go-gl/mathgl/mgl32"
 
 	"overdrive/input"
 
@@ -65,79 +63,27 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 	gl.Enable(gl.BLEND)
 
 	// Declare main shader programs
-	vertexShaderFile, err := os.ReadFile("shaders/cubes.vert.glsl")
-	utils.HandleError(err)
-	vertexShaderSource := string(vertexShaderFile) + "\x00"
-
-	fragmentShaderFile, err := os.ReadFile("shaders/cubes.frag.glsl")
-	utils.HandleError(err)
-	fragmentShaderSource := string(fragmentShaderFile) + "\x00"
-
-	cubesProgram, err := opengl.CreateProgram(vertexShaderSource, fragmentShaderSource, "")
+  cubesProgram, err := opengl.CreateProgram("cubes", false)
 	utils.HandleError(err)
 
 	// Declare directional depth shader programs
-	// depthVertexShaderFile, err := os.ReadFile("shaders/depth.vert.glsl")
-	// if err != nil { panic(err) }
-	// depthVertexShaderSource := string(depthVertexShaderFile) + "\x00"
-
-	// depthFragmentShaderFile, err := os.ReadFile("shaders/depth.frag.glsl")
-	// if err != nil { panic(err) }
-	// depthFragmentShaderSource := string(depthFragmentShaderFile) + "\x00"
-
-	// depthProgram, err := opengl.CreateProgram(depthVertexShaderSource, depthFragmentShaderSource)
-	// if err != nil { panic(err) }
+	depthProgram, err := opengl.CreateProgram("depth", false)
+  utils.HandleError(err)
 
 	// Declare point depth shader programs
-	depthVertexShaderFile, err := os.ReadFile("shaders/depth_cube.vert.glsl")
-	utils.HandleError(err)
-	depthVertexShaderSource := string(depthVertexShaderFile) + "\x00"
-
-	depthFragmentShaderFile, err := os.ReadFile("shaders/depth_cube.frag.glsl")
-	utils.HandleError(err)
-	depthFragmentShaderSource := string(depthFragmentShaderFile) + "\x00"
-
-	geometryShaderFile, err := os.ReadFile("shaders/depth_cube.geo.glsl")
-	utils.HandleError(err)
-	geometryShaderSource := string(geometryShaderFile) + "\x00"
-
-	depthCubeProgram, err := opengl.CreateProgram(depthVertexShaderSource, depthFragmentShaderSource, geometryShaderSource)
+	depthCubeProgram, err := opengl.CreateProgram("depth_cube", true)
 	utils.HandleError(err)
 
 	// Declare debug shader programs
-	// depthDebugVertexShaderFile, err := os.ReadFile("shaders/depth_debug.vert.glsl")
-	//  utils.HandleError(err)
-	// depthDebugVertexShaderSource := string(depthDebugVertexShaderFile) + "\x00"
-
-	// depthDebugFragmentShaderFile, err := os.ReadFile("shaders/depth_debug.frag.glsl")
-	//  utils.HandleError(err)
-	// depthDebugFragmentShaderSource := string(depthDebugFragmentShaderFile) + "\x00"
-
-	// depthDebugProgram, err := opengl.CreateProgram(depthDebugVertexShaderSource, depthDebugFragmentShaderSource, "")
-	//  utils.HandleError(err)
+  // depthDebugProgram, err := opengl.CreateProgram("depth_debug", false)
+  // utils.HandleError(err)
 
 	// Declare UI shader programs
-	uiVertexShaderFile, err := os.ReadFile("shaders/ui.vert.glsl")
-	utils.HandleError(err)
-	uiVertexShaderSource := string(uiVertexShaderFile) + "\x00"
-
-	uiFragmentShaderFile, err := os.ReadFile("shaders/ui.frag.glsl")
-	utils.HandleError(err)
-	uiFragmentShaderSource := string(uiFragmentShaderFile) + "\x00"
-
-	uiProgram, err := opengl.CreateProgram(uiVertexShaderSource, uiFragmentShaderSource, "")
+	uiProgram, err := opengl.CreateProgram("ui", false)
 	utils.HandleError(err)
 
 	// Declare skybox shader programs
-	skyboxVertexShaderFile, err := os.ReadFile("shaders/skybox.vert.glsl")
-	utils.HandleError(err)
-	skyboxVertexShaderSource := string(skyboxVertexShaderFile) + "\x00"
-
-	skyboxFragmentShaderFile, err := os.ReadFile("shaders/skybox.frag.glsl")
-	utils.HandleError(err)
-	skyboxFragmentShaderSource := string(skyboxFragmentShaderFile) + "\x00"
-
-	skyboxProgram, err := opengl.CreateProgram(skyboxVertexShaderSource, skyboxFragmentShaderSource, "")
+	skyboxProgram, err := opengl.CreateProgram("skybox", false)
 	utils.HandleError(err)
 
 	// Load scene
@@ -149,9 +95,6 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 		s.Lights[i].Setup()
 	}
 
-	// Gutter init
-	
-
 	// Time init
 	i := 0
 	time := glfw.GetTime()
@@ -160,83 +103,17 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 
 	// Window lifecycle
 	for !window.ShouldClose() {
+    // Process input
 		input.ProcessInput(window, deltaTime)
 		gl.ClearColor(0.1, 0.1, 0.1, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		// Render scene from directional light's perspective
-		// gl.CullFace(gl.FRONT)
-		nearPlane := float32(1.0)
-		farPlane := float32(50.0)
-		// increase 10 to 20 for a wider angle
-		lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
-		lightView := mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Sub(s.Lights[0].Dir), mgl32.Vec3{0.0, 1.0, 0.0})
-		lightSpaceMatrix := lightProjection.Mul4(lightView)
+    // Settings
+    nearPlane := float32(1.0)
+    farPlane := float32(50.0)
 
-		// gl.UseProgram(depthProgram)
-
-		// model := mgl32.Scale3D(1.0, 1.0, 1.0)
-		// modelLoc := gl.GetUniformLocation(depthProgram, gl.Str("model\x00"))
-		// gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
-
-		// lightSpaceMatrixLoc := gl.GetUniformLocation(depthProgram, gl.Str("lightSpaceMatrix\x00"))
-		// gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
-
-		// gl.Viewport(0, 0, int32(settings.ShadowWidth), int32(settings.ShadowHeight))
-		// gl.BindFramebuffer(gl.FRAMEBUFFER, s.Lights[0].DepthMapFBO)
-		// gl.Clear(gl.DEPTH_BUFFER_BIT)
-		// for i := 0; i < len(s.Meshes); i++ {
-		//   s.Meshes[i].Draw(depthProgram, &s)
-		// }
-		// gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-		// gl.CullFace(gl.BACK)
-
-		// Render scene from point light's perspective
-		aspect := float32(settings.ShadowWidth) / float32(settings.ShadowHeight)
-		nearPlane = float32(1.0)
-		farPlane = float32(25.0)
-		shadowProjection := mgl32.Perspective(mgl32.DegToRad(90.0), aspect, nearPlane, farPlane)
-		shadowTransforms := []mgl32.Mat4{
-			shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{-1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{0.0, 1.0, 0.0}), mgl32.Vec3{0.0, 0.0, 1.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{0.0, -1.0, 0.0}), mgl32.Vec3{0.0, 0.0, -1.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{0.0, 0.0, 1.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(s.Lights[0].Pos, s.Lights[0].Pos.Add(mgl32.Vec3{0.0, 0.0, -1.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
-		}
-
-		gl.Viewport(0, 0, int32(settings.ShadowWidth), int32(settings.ShadowHeight))
-		gl.BindFramebuffer(gl.FRAMEBUFFER, s.Lights[0].DepthMapFBO)
-		gl.Clear(gl.DEPTH_BUFFER_BIT)
-
-		gl.UseProgram(depthCubeProgram)
-
-		farPlaneLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("farPlane\x00"))
-		gl.Uniform1f(farPlaneLoc, farPlane)
-
-		lightPosLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("lightPos\x00"))
-		gl.Uniform3fv(lightPosLoc, 1, &s.Lights[0].Pos[0])
-
-		model := mgl32.Scale3D(1.0, 1.0, 1.0)
-		modelLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("model\x00"))
-		gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
-
-		for i := 0; i < 6; i++ {
-			shadowTransformLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str(fmt.Sprintf("shadowMatrices[%d]\x00", i)))
-			gl.UniformMatrix4fv(shadowTransformLoc, 1, false, &shadowTransforms[i][0])
-		}
-
-		skyboxLoc := gl.GetUniformLocation(depthCubeProgram, gl.Str("skybox\x00"))
-		gl.Uniform1i(skyboxLoc, 3)
-
-		gl.ActiveTexture(gl.TEXTURE3)
-		gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.Skybox.Texture)
-
-		for i := 0; i < len(s.Meshes); i++ {
-			s.Meshes[i].Draw(depthCubeProgram, &s)
-		}
-
-		gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+    // Render depth map and depth cube map
+	  lightSpaceMatrix := s.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, &s)
 
 		// Clear buffers
 		gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
@@ -255,14 +132,13 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 		// gl.Uniform1i(depthMapLoc, 0)
 		// gl.ActiveTexture(gl.TEXTURE0)
 		// gl.BindTexture(gl.TEXTURE_2D, s.Lights[0].DepthMap)
-		// renderQuad()
+		// utils.RenderQuad()
 
     s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
 		
     s.Skybox.RenderSkybox(skyboxProgram)
 
     renderUI(app, window, widget, uiProgram)
-		
 
 		// Time management
 		i++
@@ -279,6 +155,3 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 		glfw.PollEvents()
 	}
 }
-
-
-

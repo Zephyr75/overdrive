@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
+  "overdrive/utils"
+  "os"
 )
 
 
@@ -32,7 +34,22 @@ func createShader(source string, shaderType uint32) (uint32, error) {
 }
 
 
-func CreateProgram(vertexShaderSource, fragmentShaderSource, geometryShaderSource string) (uint32, error) {
+func CreateProgram(name string, addGeometry bool) (uint32, error) {
+  vertexShaderFile, err := os.ReadFile("shaders/" + name + ".vert.glsl")
+	utils.HandleError(err)
+	vertexShaderSource := string(vertexShaderFile) + "\x00"
+
+	fragmentShaderFile, err := os.ReadFile("shaders/" + name + ".frag.glsl")
+	utils.HandleError(err)
+	fragmentShaderSource := string(fragmentShaderFile) + "\x00"
+
+  geometryShaderSource := ""
+  if addGeometry {
+    geometryShaderFile, err := os.ReadFile("shaders/" + name + ".geo.glsl")
+    utils.HandleError(err)
+    geometryShaderSource = string(geometryShaderFile) + "\x00"
+  }
+
 	vertexShader, err := createShader(vertexShaderSource, gl.VERTEX_SHADER)
 	if err != nil {
 		return 0, err

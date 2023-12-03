@@ -343,8 +343,6 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     matShineLoc := gl.GetUniformLocation(program, gl.Str("material.shininess\x00"))
     gl.Uniform1f(matShineLoc, mat.Shininess)
 
-    // assign specular, diffuse and whatever
-    // assign lights vector
 
     shadowMapLoc := gl.GetUniformLocation(program, gl.Str("shadowMap\x00"))
     gl.Uniform1i(shadowMapLoc, 0)
@@ -355,6 +353,9 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     shadowCubeMapLoc := gl.GetUniformLocation(program, gl.Str("shadowCubeMap\x00"))
     gl.Uniform1i(shadowCubeMapLoc, 2)
 
+    skyboxLoc := gl.GetUniformLocation(program, gl.Str("skybox\x00"))
+    gl.Uniform1i(skyboxLoc, 3)
+
     gl.ActiveTexture(gl.TEXTURE0)
     gl.BindTexture(gl.TEXTURE_2D, white) // scene.Lights[0].DepthMap)
 
@@ -363,6 +364,9 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 
     gl.ActiveTexture(gl.TEXTURE2)
     gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Lights[0].DepthCubeMap)
+
+    gl.ActiveTexture(gl.TEXTURE3)
+    gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Skybox.Texture)
 
 
     if mat.Texture != 0 {
