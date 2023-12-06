@@ -118,7 +118,7 @@ func (app App) Run(scene *scene.Scene, widget func(app App) ui.UIElement) {
 
     // mesh = app.Scene.GetMesh("Suzanne")
     // mesh.Move(0.01, 0, 0)
-    println("1", scene)
+    // println("1", scene)
     // scene.GetMesh(("Suzanne")).Move(0.01, 0, 0)
     // println(app.Scene.GetLight("Light.003").Pos.X())
 

@@ -29,9 +29,9 @@ type Scene struct {
   Skybox Skybox
 }
 
-func NewScene() Scene {
+func NewScene(path string) Scene {
   // Load scene
-	var s Scene = LoadScene("assets/untitled.xml")
+	var s Scene = LoadScene(path)
 	for i := 0; i < len(s.Meshes); i++ {
 		s.Meshes[i].Setup()
 	}

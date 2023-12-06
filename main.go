@@ -39,12 +39,11 @@ func main() {
 
 	app := core.NewApp("Gutter", 1920, 1080)
 
-  scene := scene.NewScene()
-
+  scene := scene.NewScene("assets/untitled.xml")
 
   go test_ecs(app, &scene)
-	app.Run(&scene, MainWindow)
 
+	app.Run(&scene, MainWindow)
   
 }
 
@@ -55,17 +54,7 @@ func test_ecs(app core.App, scene *scene.Scene) {
     Light{scene.GetLight("Light.003")},
   }
 
-  for i := 0; i < 1000000; i++ {
-    time.Sleep(1 * time.Second / 60)
-    // suzanne.Get("Mesh").(Mesh).Move(0.1, 0, 0)
-
-    scene.GetMesh(("Suzanne")).Move(0.1, 0, 0)
-
-    println("2", scene, scene.GetMesh("Suzanne"))
-
-  }
-
-
+  
 
 	world := ecs.World{}
 
@@ -80,9 +69,9 @@ func test_ecs(app core.App, scene *scene.Scene) {
       light.Move(0.1, 0, 0)
       entity = entity.Set("Light", light)
 
-      // app.Scene.GetMesh(("Suzanne")).Move(0.01, 0, 0)
+      // scene.GetMesh(("Suzanne")).Move(0.1, 0, 0)
 
-      println(scene.GetMesh("Suzanne").Positions[0].X())
+      // println(scene.GetMesh("Suzanne").Positions[0].X())
       return entity
     },
     &suzanne,

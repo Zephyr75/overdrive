@@ -119,14 +119,20 @@ func (w *World) AddUpdateSystems(systems ...System) {
 
 // Run all systems in the Update() list.
 func (w *World) Update(timeInterval time.Duration) {
-  go func() {
-    for {
-      for _, system := range w.update {
-        system.RunOnTargets()
-      }
-      time.Sleep(timeInterval)
+  // go func() {
+  //   for {
+  //     for _, system := range w.update {
+  //       system.RunOnTargets()
+  //     }
+  //     time.Sleep(timeInterval)
+  //   }
+  // }()
+  for {
+    for _, system := range w.update {
+      system.RunOnTargets()
     }
-  }()
+    time.Sleep(timeInterval)
+  }
 }
 
 // Add entities to the world.

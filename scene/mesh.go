@@ -308,7 +308,7 @@ func (m *Mesh) UpdateVertices() {
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(face)*4, gl.Ptr(face), gl.STATIC_DRAW)
     gl.BindVertexArray(0)
   }
-  println("updated")
+  // println("updated")
 
 }
 

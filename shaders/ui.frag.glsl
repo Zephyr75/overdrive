@@ -7,7 +7,7 @@ uniform sampler2D depthMap;
 
 void main()
 {             
-    if(texture(depthMap, TexCoords).r < 0.5) {
+    if(texture(depthMap, TexCoords).a < 0.5) {
         discard;
     }
     FragColor = texture(depthMap, TexCoords); 

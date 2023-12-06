@@ -6,6 +6,9 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
+var (
+  inGame bool = true
+)
 
 func ProcessInput(window *glfw.Window, deltaTime float32) {
   if window.GetKey(glfw.KeyEscape) == glfw.Press {
@@ -33,6 +36,18 @@ func ProcessInput(window *glfw.Window, deltaTime float32) {
   }
   if window.GetKey(glfw.KeyE) == glfw.Press {
     scene.Cam.Pos = scene.Cam.Pos.Sub(scene.Cam.Up.Mul(cameraSpeed))
+  }
+
+  if window.GetKey(glfw.KeyTab) == glfw.Press {
+    if inGame {
+      window.SetCursorPosCallback(nil)
+      window.SetInputMode(glfw.CursorMode, glfw.CursorNormal)
+      inGame = false
+    } else {
+      window.SetCursorPosCallback(MouseCallback)
+      window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
+      inGame = true
+    }
   }
 }
 
