@@ -35,6 +35,11 @@ type Light struct {
   DepthCubeMap uint32
 }
 
+func (l *Light) Move(x float32, y float32, z float32) {
+  l.Pos = l.Pos.Add(mgl32.Vec3{x, y, z})
+
+}
+
 func (l LightXml) ToLight() Light {
 	t := 0
   name := l.Name

@@ -40,12 +40,13 @@ func (e Entity) Get(name string) Component {
 }
 
 // Set a component in an entity.
-func (e Entity) Set(name string, component Component) {
+func (e Entity) Set(name string, component Component) Entity {
   for i, c := range e {
     if c.Component() == name {
       e[i] = component
     }
   }
+  return e
 }
 
 //////////////////////

@@ -45,6 +45,16 @@ type Mesh struct {
 	// depthMapFBO uint32
 }
 
+func (m *Mesh) Move(x float32, y float32, z float32) {
+  for i := 0; i < len(m.Positions); i++ {
+    m.Positions[i][0] += x
+    m.Positions[i][1] += y
+    m.Positions[i][2] += z
+  }
+  m.fillVertices()
+  m.UpdateVertices()
+}
+
 
 
 func (mXml MeshXml) toMesh() Mesh {
@@ -209,7 +219,10 @@ func (m *Mesh) fillVertices() {
 
 
   var value []float32
+  var faces [][]uint32
   var index uint32
+  // m.OpenGLVertices = nil
+  // m.OpenGLFaces = nil
   index = 0
   for i := 0; i < len(m.Faces); i++ {
     var face []uint32
@@ -229,9 +242,11 @@ func (m *Mesh) fillVertices() {
       face = append(face, index)
       index++
     }
-    m.OpenGLFaces = append(m.OpenGLFaces, face)
+    faces = append(faces, face)
+    // m.OpenGLFaces = append(m.OpenGLFaces, face)
   }
   m.OpenGLVertices = value
+  m.OpenGLFaces = faces
 }
 
 func (m *Mesh) fillFaces() {
@@ -247,9 +262,9 @@ func (m *Mesh) fillFaces() {
 
 func (m *Mesh) Setup() {
   m.vao = make([]uint32, len(m.Faces))
-  for i := range m.Faces {
+  for i, face := range m.OpenGLFaces {
     // Select submesh faces
-    faces := m.OpenGLFaces[i]
+    // faces := m.OpenGLFaces[i]
 
     // Declare VBO, EBO and VAO
     gl.GenBuffers(1, &m.ebo)
@@ -265,7 +280,7 @@ func (m *Mesh) Setup() {
     // Copy EBO to an OpenGL buffer
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ebo)
     // Define OpenGL buffer structure
-    gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(faces)*4, gl.Ptr(faces), gl.STATIC_DRAW)
+    gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(face)*4, gl.Ptr(face), gl.STATIC_DRAW)
 
     // Define Vertex Attrib to be used by the shader
     gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
@@ -284,8 +299,21 @@ func (m *Mesh) Setup() {
   }
 }
 
+func (m *Mesh) UpdateVertices() {
+  for i, face := range m.OpenGLFaces {
+    gl.BindVertexArray(m.vao[i])
+    gl.BindBuffer(gl.ARRAY_BUFFER, m.vbo)
+    gl.BufferData(gl.ARRAY_BUFFER, len(m.OpenGLVertices)*4, gl.Ptr(m.OpenGLVertices), gl.STATIC_DRAW)
+    gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ebo)
+    gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(face)*4, gl.Ptr(face), gl.STATIC_DRAW)
+    gl.BindVertexArray(0)
+  }
+
+}
+
 func (m *Mesh) Draw(program uint32, scene *Scene) {
-  for i := range m.Faces {
+  faces := m.OpenGLFaces
+  for i, face := range faces {
     mat := m.Materials[i]
 
     // Define light properties
@@ -380,7 +408,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     //   gl.BindTexture(gl.TEXTURE_2D, mat.NormalMap)
     // }
 
-    faces := m.OpenGLFaces[i]
+    // faces := m.OpenGLFaces[i]
     // if len(m.OpenGLFaces) > 1 {
     //   faces = append(faces, m.OpenGLFaces[1]...)
     // }
@@ -389,7 +417,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
     // fmt.Println("faces: ", m.OpenGLFaces)
 
     gl.BindVertexArray(m.vao[i])
-    gl.DrawElements(gl.TRIANGLES, int32(len(faces)), gl.UNSIGNED_INT, gl.PtrOffset(0))
+    gl.DrawElements(gl.TRIANGLES, int32(len(face)), gl.UNSIGNED_INT, gl.PtrOffset(0))
     gl.BindVertexArray(0)
 
   }

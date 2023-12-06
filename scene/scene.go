@@ -29,6 +29,24 @@ type Scene struct {
   Skybox Skybox
 }
 
+func (s *Scene) GetMesh(name string) *Mesh {
+  for i, mesh := range s.Meshes {
+    if mesh.Name == name {
+      return &s.Meshes[i]
+    }
+  }
+  return nil
+}
+
+func (s *Scene) GetLight(name string) *Light {
+  for i, light := range s.Lights {
+    if light.Name == name {
+      return &s.Lights[i]
+    }
+  }
+  return nil
+}
+
 func LoadScene(path string) Scene {
   xmlFile, err := os.Open(path)
   if err != nil {

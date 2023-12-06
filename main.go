@@ -3,6 +3,7 @@ package main
 import (
   "overdrive/core"
   "overdrive/ecs"
+  "overdrive/scene"
 	"github.com/Zephyr75/gutter/ui"
   "image/color"
   "time"
@@ -10,70 +11,83 @@ import (
 
 
 /////////////
-
-type HealthBar struct {
-	health int
-}
-func (HealthBar) Component() string { return "HealthBar" }
-
 type Name struct {
 	firstName string
 }
 func (Name) Component() string { return "Name" }
 
+type Mesh struct {
+  mesh *scene.Mesh
+}
+func (Mesh) Component() string { return "Mesh" }
 
+func (mesh Mesh) Move(x float32, y float32, z float32) {
+  mesh.mesh.Move(x, y, z)
+}
+
+type Light struct {
+  light *scene.Light
+}
+
+func (Light) Component() string { return "Light" }
+  
+func (light Light) Move(x float32, y float32, z float32) {
+  light.light.Move(x, y, z)
+}
 
 func main() {
 
-	app := core.App{
-		Name:   "Gutter",
-		Width:  1920,
-		Height: 1080,
-	}
+	app := core.NewApp("Gutter", 1920, 1080)
 
+
+  go test_ecs(app)
 	app.Run(MainWindow)
 
-  bob := ecs.Entity{Name{"Bob"}, HealthBar{60}}
-  dylan := ecs.Entity{Name{"Dylan"}}
+  
+}
+
+func test_ecs(app core.App) {
+  suzanne := ecs.Entity{
+    Name{"Suzanne"},
+    Mesh{app.Scene.GetMesh("Suzanne")},
+    Light{app.Scene.GetLight("Light.003")},
+  }
+
+  // for i := 0; i < 100; i++ {
+  //   time.Sleep(1 * time.Second / 10)
+  //   suzanne.Get("Mesh").(Mesh).Move(0.1, 0, 0)
+  // }
+
+
+
 	world := ecs.World{}
 
 	// Systems
-	renameSystem := ecs.NewSystem(
-    &world, 
-    func(entity ecs.Entity) ecs.Entity {
-      name := entity.Get("Name").(Name)
-      println(name.firstName)
-      name.firstName = "Bobby"
-      entity.Set("Name", name)
-      return entity
-    },
-    &bob,
-    &dylan,
-  )
-
-  loseHealthSystem := ecs.NewSystem(
+	moveSystem := ecs.NewSystem(
     &world,
     func(entity ecs.Entity) ecs.Entity {
-      healthBar := entity.Get("HealthBar").(HealthBar)
-      println(healthBar.health)
-      healthBar.health -= 1
-      entity.Set("HealthBar", healthBar)
+      mesh := entity.Get("Mesh").(Mesh)
+      mesh.Move(0.1, 0, 0)
+      entity = entity.Set("Mesh", mesh)
+      light := entity.Get("Light").(Light)
+      light.Move(0.1, 0, 0)
+      entity = entity.Set("Light", light)
       return entity
     },
-    &bob,
+    &suzanne,
   )
 
+
 	// World
-	world.AddEntities(&bob)
-  world.AddEntities(&dylan)
-	world.AddUpdateSystems(loseHealthSystem)
+  world.AddEntities(&suzanne)
+  world.AddUpdateSystems(moveSystem)
 
   // println(bob.healthBar.health)
-  renameSystem.RunOnEntities([]*ecs.Entity{&bob, &dylan})
-	renameSystem.RunOnQuery([]string{"Name", "HealthBar"})
-  renameSystem.RunOnTargets()
+  // renameSystem.RunOnEntities([]*ecs.Entity{&bob, &dylan})
+	// renameSystem.RunOnQuery([]string{"Name", "HealthBar"})
+  // renameSystem.RunOnTargets()
 
-  world.Init()
+  // world.Init()
   world.Update(time.Second / 60)
 
   // time.Sleep(1 * time.Second)

@@ -22,6 +22,7 @@ type App struct {
   Width int
   Height int
   Window *glfw.Window
+  Scene *scene.Scene
 }
 
 func init() {
@@ -33,8 +34,8 @@ func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
-func (app App) Run(widget func(app App) ui.UIElement) {
-
+func NewApp(name string, width int, height int) App {
+  
 	// GLFW setup
 	glfw.Init()
 	glfw.WindowHint(glfw.ContextVersionMajor, 4)
@@ -45,7 +46,6 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 
 	// Window creation
 	window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, "Cube", nil, nil)
-  app.Window = window
 	utils.HandleError(err)
 	window.MakeContextCurrent()
 
@@ -62,6 +62,25 @@ func (app App) Run(widget func(app App) ui.UIElement) {
   gl.Enable(gl.BLEND)
   // Anti-aliasing
 	// gl.Enable(gl.MULTISAMPLE)	
+
+  // Load scene
+	var s scene.Scene = scene.LoadScene("assets/untitled.xml")
+	for i := 0; i < len(s.Meshes); i++ {
+		s.Meshes[i].Setup()
+	}
+	for i := 0; i < len(s.Lights); i++ {
+		s.Lights[i].Setup()
+	}
+  return App{
+    Name: name,
+    Width: width,
+    Height: height,
+    Scene: &s,
+    Window: window,
+  }
+}
+
+func (app *App) Run(widget func(app App) ui.UIElement) {
 
 	// Declare main shader programs
   cubesProgram, err := opengl.CreateProgram("cubes", false)
@@ -87,14 +106,7 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 	skyboxProgram, err := opengl.CreateProgram("skybox", false)
 	utils.HandleError(err)
 
-	// Load scene
-	var s scene.Scene = scene.LoadScene("assets/untitled.xml")
-	for i := 0; i < len(s.Meshes); i++ {
-		s.Meshes[i].Setup()
-	}
-	for i := 0; i < len(s.Lights); i++ {
-		s.Lights[i].Setup()
-	}
+	
 
 	// Time init
 	i := 0
@@ -103,9 +115,13 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 	lastFrame := float64(0.0)
 
 	// Window lifecycle
-	for !window.ShouldClose() {
+	for !app.Window.ShouldClose() {
+    println(app.Scene.GetMesh("Suzanne").Positions[0].X())
+    // app.Scene.GetMesh(("Suzanne")).Move(0.1, 0, 0)
+    // println(app.Scene.GetLight("Light.003").Pos.X())
+
     // Process input
-		input.ProcessInput(window, deltaTime)
+		input.ProcessInput(app.Window, deltaTime)
 		gl.ClearColor(0.1, 0.1, 0.1, 1.0)
 		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
@@ -114,8 +130,8 @@ func (app App) Run(widget func(app App) ui.UIElement) {
     farPlane := float32(50.0)
 
     // Render depth map and depth cube map
-	  s.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, &s)
-    lightSpaceMatrix := s.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, &s)
+	  app.Scene.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, app.Scene)
+    lightSpaceMatrix := app.Scene.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, app.Scene)
 
     // println(s.Lights[0].Type)
     // println(s.Lights[1].Type)
@@ -138,11 +154,11 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 		// gl.BindTexture(gl.TEXTURE_2D, s.Lights[1].DepthMap)
 		// utils.RenderQuad()
 
-    s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
+    app.Scene.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
 		
-    s.Skybox.RenderSkybox(skyboxProgram)
+    app.Scene.Skybox.RenderSkybox(skyboxProgram)
 
-    renderUI(app, window, widget, uiProgram)
+    renderUI(*app, app.Window, widget, uiProgram)
 
 		// Time management
 		i++
@@ -155,7 +171,7 @@ func (app App) Run(widget func(app App) ui.UIElement) {
 		}
 
 		// Swap buffers
-		window.SwapBuffers()
+		app.Window.SwapBuffers()
 		glfw.PollEvents()
 	}
 }
