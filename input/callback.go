@@ -17,6 +17,7 @@ var (
   firstMouse bool = true
   lastX float64 = float64(settings.WindowWidth) / 2.0
   lastY float64 = float64(settings.WindowHeight) / 2.0
+  S *scene.Scene
 )
 
 
@@ -39,29 +40,29 @@ func MouseCallback(window *glfw.Window, xPos, yPos float64) {
   sensitivity := 0.1
   xOffset *= sensitivity
   yOffset *= sensitivity
-  scene.Cam.Yaw -= float32(xOffset)
-  scene.Cam.Pitch -= float32(yOffset)
-  if scene.Cam.Pitch > 89.0 {
-    scene.Cam.Pitch = 89.0
+  S.Cam.Yaw -= float32(xOffset)
+  S.Cam.Pitch -= float32(yOffset)
+  if S.Cam.Pitch > 89.0 {
+    S.Cam.Pitch = 89.0
   }
-  if scene.Cam.Pitch < -89.0 {
-    scene.Cam.Pitch = -89.0
+  if S.Cam.Pitch < -89.0 {
+    S.Cam.Pitch = -89.0
   }
   var direction mgl32.Vec3
-  direction[2] = -float32(math.Cos(float64(mgl32.DegToRad(scene.Cam.Pitch))) * math.Cos(float64(mgl32.DegToRad(scene.Cam.Yaw))))
-  direction[1] = -float32(math.Sin(float64(mgl32.DegToRad(scene.Cam.Pitch))))
-  direction[0] = -float32(math.Cos(float64(mgl32.DegToRad(scene.Cam.Pitch))) * math.Sin(float64(mgl32.DegToRad(scene.Cam.Yaw))))
-  scene.Cam.Front = direction.Normalize()
+  direction[2] = -float32(math.Cos(float64(mgl32.DegToRad(S.Cam.Pitch))) * math.Cos(float64(mgl32.DegToRad(S.Cam.Yaw))))
+  direction[1] = -float32(math.Sin(float64(mgl32.DegToRad(S.Cam.Pitch))))
+  direction[0] = -float32(math.Cos(float64(mgl32.DegToRad(S.Cam.Pitch))) * math.Sin(float64(mgl32.DegToRad(S.Cam.Yaw))))
+  S.Cam.Front = direction.Normalize()
 
 }
 
 func ScrollCallback(window *glfw.Window, xOffset, yOffset float64) {
-  scene.Cam.Fov -= float32(yOffset) 
-  if scene.Cam.Fov < 1.0 {
-    scene.Cam.Fov = 1.0
+  S.Cam.Fov -= float32(yOffset) 
+  if S.Cam.Fov < 1.0 {
+    S.Cam.Fov = 1.0
   }
-  if scene.Cam.Fov > 90.0 {
-    scene.Cam.Fov = 90.0
+  if S.Cam.Fov > 90.0 {
+    S.Cam.Fov = 90.0
   }
 
 }

@@ -12,10 +12,6 @@ import (
 
 )
 
-var (
-  // TODO: move this to a better place
-  Cam Camera = NewCamera()
-)
 
 type SceneXml struct {
   CamXml CameraXml `xml:"camera"`
@@ -27,6 +23,7 @@ type Scene struct {
   Meshes []Mesh
   Lights []Light
   Skybox Skybox
+  Cam Camera
 }
 
 func NewScene(path string) Scene {
@@ -82,7 +79,7 @@ func LoadScene(path string) Scene {
   s.Meshes = make([]Mesh, len(sceneXml.MeshesXml))
   s.Lights = make([]Light, len(sceneXml.LightsXml))
 
-  Cam = sceneXml.CamXml.ToCamera()
+  s.Cam = sceneXml.CamXml.ToCamera()
 
   for i, meshXml := range sceneXml.MeshesXml {
     s.Meshes[i] = meshXml.toMesh()
@@ -103,11 +100,11 @@ func LoadScene(path string) Scene {
 func (s Scene) RenderScene(cubesProgram uint32, lightSpaceMatrix mgl32.Mat4, farPlane float32) {
   gl.UseProgram(cubesProgram)
 
-  view := mgl32.LookAtV(Cam.Pos, Cam.Pos.Add(Cam.Front), Cam.Up)
+  view := mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
   viewLoc := gl.GetUniformLocation(cubesProgram, gl.Str("view\x00"))
   gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
 
-  projection := mgl32.Perspective(mgl32.DegToRad(Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+  projection := mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
   projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
   gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 

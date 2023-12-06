@@ -97,6 +97,8 @@ func (app App) Run(scene *scene.Scene, widget func(app App) ui.UIElement) {
 	skyboxProgram, err := opengl.CreateProgram("skybox", false)
 	utils.HandleError(err)
 
+
+  input.S = scene
 	
 
 	// Time init
@@ -158,7 +160,7 @@ func (app App) Run(scene *scene.Scene, widget func(app App) ui.UIElement) {
 
     scene.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
 		
-    scene.Skybox.RenderSkybox(skyboxProgram)
+    scene.RenderSkybox(skyboxProgram)
 
     renderUI(app, app.Window, widget, uiProgram)
 

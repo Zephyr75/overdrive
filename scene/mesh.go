@@ -359,7 +359,7 @@ func (m *Mesh) Draw(program uint32, scene *Scene) {
 		}
 
     viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
-    gl.Uniform3f(viewPosLoc, Cam.Pos.X(), Cam.Pos.Y(), Cam.Pos.Z())
+    gl.Uniform3f(viewPosLoc, scene.Cam.Pos.X(), scene.Cam.Pos.Y(), scene.Cam.Pos.Z())
 
     // Define material properties
     matAmbientLoc := gl.GetUniformLocation(program, gl.Str("material.ambient\x00"))

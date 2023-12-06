@@ -79,25 +79,25 @@ func (s *Skybox) Setup() {
   })
 }
 
-func (s Skybox) RenderSkybox(skyboxProgram uint32) {
+func (s Scene) RenderSkybox(skyboxProgram uint32) {
   gl.DepthFunc(gl.LEQUAL)
   gl.UseProgram(skyboxProgram)
 
-  view := mgl32.LookAtV(Cam.Pos, Cam.Pos.Add(Cam.Front), Cam.Up)
+  view := mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
   view = view.Mat3().Mat4()
   viewLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("view\x00"))
   gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
 
-  projection := mgl32.Perspective(mgl32.DegToRad(Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+  projection := mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
   projectionLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("projection\x00"))
   gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
 
   skyboxLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("skybox\x00"))
   gl.Uniform1i(skyboxLoc, 0)
 
-  gl.BindVertexArray(s.Vao)
+  gl.BindVertexArray(s.Skybox.Vao)
   gl.ActiveTexture(gl.TEXTURE0)
-  gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.Texture)
+  gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.Skybox.Texture)
   gl.DrawArrays(gl.TRIANGLES, 0, 36)
   gl.BindVertexArray(0)
   gl.DepthFunc(gl.LESS)
