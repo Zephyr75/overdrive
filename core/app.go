@@ -22,7 +22,6 @@ type App struct {
   Width int
   Height int
   Window *glfw.Window
-  Scene *scene.Scene
 }
 
 func init() {
@@ -63,24 +62,16 @@ func NewApp(name string, width int, height int) App {
   // Anti-aliasing
 	// gl.Enable(gl.MULTISAMPLE)	
 
-  // Load scene
-	var s scene.Scene = scene.LoadScene("assets/untitled.xml")
-	for i := 0; i < len(s.Meshes); i++ {
-		s.Meshes[i].Setup()
-	}
-	for i := 0; i < len(s.Lights); i++ {
-		s.Lights[i].Setup()
-	}
+  
   return App{
     Name: name,
     Width: width,
     Height: height,
-    Scene: &s,
     Window: window,
   }
 }
 
-func (app *App) Run(widget func(app App) ui.UIElement) {
+func (app App) Run(scene *scene.Scene, widget func(app App) ui.UIElement) {
 
 	// Declare main shader programs
   cubesProgram, err := opengl.CreateProgram("cubes", false)
@@ -116,8 +107,19 @@ func (app *App) Run(widget func(app App) ui.UIElement) {
 
 	// Window lifecycle
 	for !app.Window.ShouldClose() {
-    println(app.Scene.GetMesh("Suzanne").Positions[0].X())
-    // app.Scene.GetMesh(("Suzanne")).Move(0.1, 0, 0)
+
+
+    // update every mesh
+    for _, mesh := range scene.Meshes {
+      mesh.UpdateVertices()
+    }
+    // println(scene.GetMesh("Suzanne").Positions[0].X())
+    // var mesh *scene.Mesh
+
+    // mesh = app.Scene.GetMesh("Suzanne")
+    // mesh.Move(0.01, 0, 0)
+    println("1", scene)
+    // scene.GetMesh(("Suzanne")).Move(0.01, 0, 0)
     // println(app.Scene.GetLight("Light.003").Pos.X())
 
     // Process input
@@ -130,8 +132,8 @@ func (app *App) Run(widget func(app App) ui.UIElement) {
     farPlane := float32(50.0)
 
     // Render depth map and depth cube map
-	  app.Scene.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, app.Scene)
-    lightSpaceMatrix := app.Scene.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, app.Scene)
+	  scene.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, scene)
+    lightSpaceMatrix := scene.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, scene)
 
     // println(s.Lights[0].Type)
     // println(s.Lights[1].Type)
@@ -154,11 +156,11 @@ func (app *App) Run(widget func(app App) ui.UIElement) {
 		// gl.BindTexture(gl.TEXTURE_2D, s.Lights[1].DepthMap)
 		// utils.RenderQuad()
 
-    app.Scene.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
+    scene.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
 		
-    app.Scene.Skybox.RenderSkybox(skyboxProgram)
+    scene.Skybox.RenderSkybox(skyboxProgram)
 
-    renderUI(*app, app.Window, widget, uiProgram)
+    renderUI(app, app.Window, widget, uiProgram)
 
 		// Time management
 		i++

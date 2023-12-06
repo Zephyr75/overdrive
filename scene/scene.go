@@ -29,6 +29,18 @@ type Scene struct {
   Skybox Skybox
 }
 
+func NewScene() Scene {
+  // Load scene
+	var s Scene = LoadScene("assets/untitled.xml")
+	for i := 0; i < len(s.Meshes); i++ {
+		s.Meshes[i].Setup()
+	}
+	for i := 0; i < len(s.Lights); i++ {
+		s.Lights[i].Setup()
+	}
+  return s
+}
+
 func (s *Scene) GetMesh(name string) *Mesh {
   for i, mesh := range s.Meshes {
     if mesh.Name == name {

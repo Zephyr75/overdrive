@@ -86,9 +86,11 @@ void main()
   // FragColor = vec4(texture(skybox, R).rgb, 1.0);
   vec4 skyboxColor = vec4(texture(skybox, R).rgb, 1.0);
   // multiply skybox by diffuse coefficient
+  // TODO: adapt formula to diffuse and specular
   skyboxColor *= vec4(vec3(1 - material.diffuse), 1.0);
-  skyboxColor += vec4(vec3(material.diffuse), 1.0);
-  FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex) * skyboxColor;
+  skyboxColor /= vec4(vec3(5), 1.0);
+  // skyboxColor += vec4(vec3(material.diffuse), 1.0);
+  FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex) + skyboxColor;
 
   // Normal
   // FragColor = vec4(result, 1.0) * texture(ourTexture, flipped_tex);

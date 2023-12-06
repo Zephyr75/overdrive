@@ -52,7 +52,7 @@ func (m *Mesh) Move(x float32, y float32, z float32) {
     m.Positions[i][2] += z
   }
   m.fillVertices()
-  m.UpdateVertices()
+  // m.UpdateVertices()
 }
 
 
@@ -308,12 +308,12 @@ func (m *Mesh) UpdateVertices() {
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(face)*4, gl.Ptr(face), gl.STATIC_DRAW)
     gl.BindVertexArray(0)
   }
+  println("updated")
 
 }
 
 func (m *Mesh) Draw(program uint32, scene *Scene) {
-  faces := m.OpenGLFaces
-  for i, face := range faces {
+  for i, face := range m.OpenGLFaces{
     mat := m.Materials[i]
 
     // Define light properties

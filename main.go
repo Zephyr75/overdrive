@@ -39,24 +39,31 @@ func main() {
 
 	app := core.NewApp("Gutter", 1920, 1080)
 
+  scene := scene.NewScene()
 
-  go test_ecs(app)
-	app.Run(MainWindow)
+
+  go test_ecs(app, &scene)
+	app.Run(&scene, MainWindow)
 
   
 }
 
-func test_ecs(app core.App) {
+func test_ecs(app core.App, scene *scene.Scene) {
   suzanne := ecs.Entity{
     Name{"Suzanne"},
-    Mesh{app.Scene.GetMesh("Suzanne")},
-    Light{app.Scene.GetLight("Light.003")},
+    Mesh{scene.GetMesh("Suzanne")},
+    Light{scene.GetLight("Light.003")},
   }
 
-  // for i := 0; i < 100; i++ {
-  //   time.Sleep(1 * time.Second / 10)
-  //   suzanne.Get("Mesh").(Mesh).Move(0.1, 0, 0)
-  // }
+  for i := 0; i < 1000000; i++ {
+    time.Sleep(1 * time.Second / 60)
+    // suzanne.Get("Mesh").(Mesh).Move(0.1, 0, 0)
+
+    scene.GetMesh(("Suzanne")).Move(0.1, 0, 0)
+
+    println("2", scene, scene.GetMesh("Suzanne"))
+
+  }
 
 
 
@@ -72,6 +79,10 @@ func test_ecs(app core.App) {
       light := entity.Get("Light").(Light)
       light.Move(0.1, 0, 0)
       entity = entity.Set("Light", light)
+
+      // app.Scene.GetMesh(("Suzanne")).Move(0.01, 0, 0)
+
+      println(scene.GetMesh("Suzanne").Positions[0].X())
       return entity
     },
     &suzanne,
