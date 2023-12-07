@@ -21,8 +21,8 @@ type Mesh struct {
 }
 func (Mesh) Component() string { return "Mesh" }
 
-func (mesh Mesh) Move(x float32, y float32, z float32) {
-  mesh.mesh.Move(x, y, z)
+func (m Mesh) Move(x float32, y float32, z float32) {
+  m.mesh.Move(x, y, z)
 }
 
 type Light struct {

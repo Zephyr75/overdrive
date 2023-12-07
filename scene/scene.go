@@ -38,6 +38,15 @@ func NewScene(path string) Scene {
   return s
 }
 
+func EmptyScene() Scene {
+  var s Scene
+  s.Meshes = make([]Mesh, 0)
+  s.Lights = make([]Light, 0)
+  s.Skybox = Skybox{}
+  s.Cam = Camera{}
+  return s
+}
+
 func (s *Scene) GetMesh(name string) *Mesh {
   for i, mesh := range s.Meshes {
     if mesh.Name == name {

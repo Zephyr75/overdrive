@@ -71,7 +71,7 @@ func NewApp(name string, width int, height int) App {
   }
 }
 
-func (app App) Run(scene *scene.Scene, widget func(app App) ui.UIElement) {
+func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement) {
 
 	// Declare main shader programs
   cubesProgram, err := opengl.CreateProgram("cubes", false)
@@ -98,7 +98,13 @@ func (app App) Run(scene *scene.Scene, widget func(app App) ui.UIElement) {
 	utils.HandleError(err)
 
 
-  input.S = scene
+  
+  if s != nil {
+    input.S = s
+  } else {
+    emptyScene := scene.EmptyScene()
+    input.S = &emptyScene
+  }
 	
 
 	// Time init
@@ -110,10 +116,11 @@ func (app App) Run(scene *scene.Scene, widget func(app App) ui.UIElement) {
 	// Window lifecycle
 	for !app.Window.ShouldClose() {
 
-
     // update every mesh
-    for _, mesh := range scene.Meshes {
-      mesh.UpdateVertices()
+    if s != nil {
+      for _, mesh := range s.Meshes {
+        mesh.UpdateVertices()
+      }
     }
     // println(scene.GetMesh("Suzanne").Positions[0].X())
     // var mesh *scene.Mesh
@@ -125,44 +132,48 @@ func (app App) Run(scene *scene.Scene, widget func(app App) ui.UIElement) {
     // println(app.Scene.GetLight("Light.003").Pos.X())
 
     // Process input
-		input.ProcessInput(app.Window, deltaTime)
-		gl.ClearColor(0.1, 0.1, 0.1, 1.0)
-		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+    input.ProcessInput(app.Window, deltaTime)
+    gl.ClearColor(0.1, 0.1, 0.1, 1.0)
+    gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-    // Settings
-    nearPlane := float32(1.0)
-    farPlane := float32(50.0)
+    if s != nil {
+      // Settings
+      nearPlane := float32(1.0)
+      farPlane := float32(50.0)
 
-    // Render depth map and depth cube map
-	  scene.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, scene)
-    lightSpaceMatrix := scene.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, scene)
+      // Render depth map and depth cube map
+      s.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, s)
+      lightSpaceMatrix := s.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, s)
 
-    // println(s.Lights[0].Type)
-    // println(s.Lights[1].Type)
-    // println()
+      // println(s.Lights[0].Type)
+      // println(s.Lights[1].Type)
+      // println()
 
-		// Clear buffers
-		gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
-		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+      // Clear buffers
+      gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
+      gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-		// Render shadow map
+      // Render shadow map
 
-		// gl.UseProgram(depthDebugProgram)
-		// nearPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("near_plane\x00"))
-		// gl.Uniform1f(nearPlaneLoc, nearPlane)
-		// farPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("farPlane\x00"))
-		// gl.Uniform1f(farPlaneLoc, farPlane)
-		// depthMapLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("depthMap\x00"))
-		// gl.Uniform1i(depthMapLoc, 0)
-		// gl.ActiveTexture(gl.TEXTURE0)
-		// gl.BindTexture(gl.TEXTURE_2D, s.Lights[1].DepthMap)
-		// utils.RenderQuad()
+      // gl.UseProgram(depthDebugProgram)
+      // nearPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("near_plane\x00"))
+      // gl.Uniform1f(nearPlaneLoc, nearPlane)
+      // farPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("farPlane\x00"))
+      // gl.Uniform1f(farPlaneLoc, farPlane)
+      // depthMapLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("depthMap\x00"))
+      // gl.Uniform1i(depthMapLoc, 0)
+      // gl.ActiveTexture(gl.TEXTURE0)
+      // gl.BindTexture(gl.TEXTURE_2D, s.Lights[1].DepthMap)
+      // utils.RenderQuad()
 
-    scene.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
-		
-    scene.RenderSkybox(skyboxProgram)
+      s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
+      
+      s.RenderSkybox(skyboxProgram)
+    }
 
-    renderUI(app, app.Window, widget, uiProgram)
+    if widget != nil {
+      renderUI(app, app.Window, widget, uiProgram)
+    }
 
 		// Time management
 		i++
