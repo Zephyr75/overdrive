@@ -1,0 +1,64 @@
+package physics
+
+import (
+  "github.com/go-gl/mathgl/mgl32"
+)
+
+type Sphere struct {
+  Pos mgl32.Vec3
+  Radius float32
+}
+
+type Plane struct {
+  Pos mgl32.Vec3
+  Normal mgl32.Vec3
+}
+
+func (s Sphere) OverlapSphere(s2 Sphere) float32 {
+  return s.Radius + s2.Radius - s.Pos.Sub(s2.Pos).Len()
+}
+
+func (s Sphere) OverlapPlane(p Plane) float32 {
+  return s.Radius - s.Pos.Sub(p.Pos).Dot(p.Normal)
+}
+
+//////////////////////
+
+
+type Verlet struct {
+  Pos mgl32.Vec3
+  PrevPos mgl32.Vec3
+  Accel mgl32.Vec3
+}
+
+func (v *Verlet) UpdatePosition(dt float32) {
+  velocity := v.Pos.Sub(v.PrevPos)
+  v.PrevPos = v.Pos
+  v.Pos = v.Pos.Add(velocity).Add(v.Accel.Mul(dt * dt))
+  v.Accel = mgl32.Vec3{0.0, 0.0, 0.0}
+}
+
+func (v *Verlet) Accelerate(accel mgl32.Vec3) {
+  v.Accel = v.Accel.Add(accel)
+}
+
+//////////////////////
+
+var (
+  gravity = mgl32.Vec3{0.0, -9.8, 0.0}
+)
+
+type World struct {
+  Verlets []Verlet
+  Spheres []Sphere
+  Planes []Plane
+}
+
+func (w *World) Update(dt float32) {
+  for i := 0; i < len(w.Verlets); i++ {
+    w.Verlets[i].Accelerate(gravity)
+  }
+  for i := 0; i < len(w.Verlets); i++ {
+    w.Verlets[i].UpdatePosition(dt)
+  }
+}

@@ -35,23 +35,41 @@ func (light Light) Move(x float32, y float32, z float32) {
   light.light.Move(x, y, z)
 }
 
+type Camera struct {
+  camera *scene.Camera
+}
+
+func (Camera) Component() string { return "Camera" }
+
+func (camera Camera) Move(x float32, y float32, z float32) {
+  camera.camera.Move(x, y, z)
+}
+
 func main() {
 
 	app := core.NewApp("Gutter", 1920, 1080)
 
-  scene := scene.NewScene("assets/untitled.xml")
+  scene := scene.NewScene("assets/sphere.xml")
 
   go test_ecs(app, &scene)
 
-	app.Run(&scene, MainWindow)
+	app.Run(&scene, nil)
+	// app.Run(nil, nil)
   
 }
 
 func test_ecs(app core.App, scene *scene.Scene) {
+  // suzanne := ecs.Entity{
+  //   Name{"Suzanne"},
+  //   Mesh{scene.GetMesh("Suzanne")},
+  //   Light{scene.GetLight("Light.003")},
+  //   Camera{scene.GetCamera()},
+  // }
   suzanne := ecs.Entity{
-    Name{"Suzanne"},
-    Mesh{scene.GetMesh("Suzanne")},
-    Light{scene.GetLight("Light.003")},
+    Name{"Sphere"},
+    Mesh{scene.GetMesh("Sphere")},
+    Light{scene.GetLight("Light")},
+    Camera{scene.GetCamera()},
   }
 
   
@@ -63,11 +81,14 @@ func test_ecs(app core.App, scene *scene.Scene) {
     &world,
     func(entity ecs.Entity) ecs.Entity {
       mesh := entity.Get("Mesh").(Mesh)
-      mesh.Move(0.1, 0, 0)
+      // mesh.Move(0.1, 0, 0)
       entity = entity.Set("Mesh", mesh)
       light := entity.Get("Light").(Light)
-      light.Move(0.1, 0, 0)
+      // light.Move(0.1, 0, 0)
       entity = entity.Set("Light", light)
+      camera := entity.Get("Camera").(Camera)
+      // camera.Move(0.1, 0, 0)
+      entity = entity.Set("Camera", camera)
 
       // scene.GetMesh(("Suzanne")).Move(0.1, 0, 0)
 

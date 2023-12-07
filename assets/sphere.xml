@@ -1,0 +1,38 @@
+<?xml version="1.0" ?>
+<scene>
+	<camera name="Camera">
+		<type>persp</type>
+		<position>7.358891487121582,-6.925790786743164,4.958309173583984</position>
+		<front>-0.6515582203865051,0.6141704320907593,-0.44527149200439453</front>
+		<up>-0.32401347160339355,0.3054208755493164,0.8953956365585327</up>
+		<yaw>46.691944977583375</yaw>
+		<pitch>63.5592952084158</pitch>
+		<fov>39.597755335771296</fov>
+	</camera>
+	<mesh name="Plane">
+		<obj>Plane.obj</obj>
+		<mtl>Plane.mtl</mtl>
+	</mesh>
+	<mesh name="Sphere">
+		<obj>Sphere.obj</obj>
+		<mtl>Sphere.mtl</mtl>
+	</mesh>
+	<light name="Light">
+		<type>point</type>
+		<position>-2.756476402282715,1.8836654424667358,9.329094886779785</position>
+		<direction>-0.5663931965827942,-0.21839119493961334,-0.7946722507476807</direction>
+		<color>1.0,1.0,1.0</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>1000.0</intensity>
+	</light>
+	<light name="Sun">
+		<type>sun</type>
+		<position>5.65306282043457,0.8999340534210205,5.629050254821777</position>
+		<direction>-0.5873152613639832,0.05591001361608505,-0.8074248433113098</direction>
+		<color>1.0,1.0,1.0</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>1.0</intensity>
+	</light>
+</scene>

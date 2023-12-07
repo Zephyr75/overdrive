@@ -53,12 +53,15 @@ func (l LightXml) ToLight() Light {
 	// dir = dir.Add(mgl32.Vec3{0, 1, 0})
 	// dir = mgl32.Vec3{0, 1, 0}
 	// dir = dir.Mul(180.0 / 3.14)
+  intensity := l.Intensity
 	switch l.Type {
 	case "sun":
 		t = 0
 	case "point":
 		t = 1
+    intensity /= 1000
 	}
+
   return Light{
     Name: name,
     Type: t,
@@ -67,7 +70,7 @@ func (l LightXml) ToLight() Light {
     Color: color,
 		Diffuse: l.Diffuse,
 		Specular: l.Specular,
-    Intensity: l.Intensity,
+    Intensity: intensity,
   }
 }
 

@@ -43,18 +43,19 @@ type Mesh struct {
   vao []uint32
   ebo uint32
 	// depthMapFBO uint32
+  needsUpdate bool
+
+  Position mgl32.Vec3
 }
 
 func (m *Mesh) Move(x float32, y float32, z float32) {
-  for i := 0; i < len(m.Positions); i++ {
-    m.Positions[i][0] += x
-    m.Positions[i][1] += y
-    m.Positions[i][2] += z
-  }
+  m.Position[0] += x
+  m.Position[1] += y
+  m.Position[2] += z
   m.fillVertices()
+  m.needsUpdate = true
   // m.UpdateVertices()
 }
-
 
 
 func (mXml MeshXml) toMesh() Mesh {
@@ -119,6 +120,7 @@ func (mXml MeshXml) toMesh() Mesh {
   m.NormalCoords = normalCoords
   m.TextureCoords = textureCoords
   m.Name = mXml.Name
+  m.Position = mgl32.Vec3{0.0, 0.0, 0.0}
 
   m.fillVertices()
   // m.fillFaces()
@@ -230,9 +232,10 @@ func (m *Mesh) fillVertices() {
       posIndex := m.Faces[i][j] - 1
       texIndex := m.Faces[i][j+1] - 1
       normIndex := m.Faces[i][j+2] - 1
-      value = append(value, m.Positions[posIndex][0])
-      value = append(value, m.Positions[posIndex][1])
-      value = append(value, m.Positions[posIndex][2])
+      position := m.Position.Add(m.Positions[posIndex])
+      value = append(value, position[0])
+      value = append(value, position[1])
+      value = append(value, position[2])
       value = append(value, m.NormalCoords[normIndex][0])
       value = append(value, m.NormalCoords[normIndex][1])
       value = append(value, m.NormalCoords[normIndex][2])
@@ -300,6 +303,9 @@ func (m *Mesh) Setup() {
 }
 
 func (m *Mesh) UpdateVertices() {
+  if !m.needsUpdate {
+    return
+  }
   for i, face := range m.OpenGLFaces {
     gl.BindVertexArray(m.vao[i])
     gl.BindBuffer(gl.ARRAY_BUFFER, m.vbo)
@@ -309,6 +315,7 @@ func (m *Mesh) UpdateVertices() {
     gl.BindVertexArray(0)
   }
   // println("updated")
+  m.needsUpdate = false
 
 }
 

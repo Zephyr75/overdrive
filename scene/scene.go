@@ -65,6 +65,10 @@ func (s *Scene) GetLight(name string) *Light {
   return nil
 }
 
+func (s *Scene) GetCamera() *Camera {
+  return &s.Cam
+}
+
 func LoadScene(path string) Scene {
   xmlFile, err := os.Open(path)
   if err != nil {

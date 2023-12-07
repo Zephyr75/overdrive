@@ -185,7 +185,7 @@ vec3 CalcDirLight(Light light, vec3 normal, vec3 viewDir)
     vec3 ambient  = light.color  * material.ambient;
     vec3 diffuse  = light.color * light.diffuse  * diff * material.diffuse;
     vec3 specular = light.color * light.specular * spec * material.specular;
-    return (ambient + diffuse + specular) * light.intensity / 50;
+    return (ambient + diffuse + specular) * light.intensity / 5;
 }
 
 // calculates the color when using a point light.
@@ -207,6 +207,6 @@ vec3 CalcPointLight(Light light, vec3 normal, vec3 fragPos, vec3 viewDir)
     ambient  *= attenuation;
     diffuse  *= attenuation;
     specular *= attenuation;
-    return (ambient + diffuse + specular) * light.intensity / 50;
+    return (ambient + diffuse + specular) * light.intensity / 5;
 } 
 
