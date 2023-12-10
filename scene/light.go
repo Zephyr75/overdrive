@@ -135,7 +135,7 @@ func (l Light) RenderLight(nearPlane, farPlane float32, depthProgram, depthCubeP
     gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
 
     for i := 0; i < len(s.Meshes); i++ {
-      s.Meshes[i].Draw(depthProgram, s)
+      s.Meshes[i].draw(depthProgram, s)
     }
 
     gl.CullFace(gl.BACK)
@@ -168,7 +168,7 @@ func (l Light) RenderLight(nearPlane, farPlane float32, depthProgram, depthCubeP
     }
 
     for i := 0; i < len(s.Meshes); i++ {
-      s.Meshes[i].Draw(depthCubeProgram, s)
+      s.Meshes[i].draw(depthCubeProgram, s)
     }
   }
 

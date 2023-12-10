@@ -60,6 +60,18 @@ func (v *Verlet) SphereConstraint(s Sphere) {
   }
 }
 
+func (v *Verlet) CollisionConstraint(s *Sphere) {
+  colAxis := v.Pos.Sub(s.Pos)
+  colDist := colAxis.Len()
+  if colDist < s.Radius * 2.0 {
+    n := colAxis.Mul(1.0 / colDist)
+    delta := (s.Radius * 2.0 - colDist) * 0.5
+    v.Pos = v.Pos.Add(n.Mul(delta))
+    s.Pos = s.Pos.Sub(n.Mul(delta))
+  }
+}
+
+
 
 //////////////////////
 

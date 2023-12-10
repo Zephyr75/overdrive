@@ -30,7 +30,7 @@ func NewScene(path string) Scene {
   // Load scene
 	var s Scene = LoadScene(path)
 	for i := 0; i < len(s.Meshes); i++ {
-		s.Meshes[i].Setup()
+		s.Meshes[i].setup()
 	}
 	for i := 0; i < len(s.Lights); i++ {
 		s.Lights[i].Setup()
@@ -45,6 +45,14 @@ func EmptyScene() Scene {
   s.Skybox = Skybox{}
   s.Cam = Camera{}
   return s
+}
+
+func (s *Scene) UpdateMeshes() {
+  if s != nil {
+    for _, mesh := range s.Meshes {
+      mesh.updateVertices()
+    }
+  }
 }
 
 func (s *Scene) GetMesh(name string) *Mesh {
@@ -132,7 +140,7 @@ func (s Scene) RenderScene(cubesProgram uint32, lightSpaceMatrix mgl32.Mat4, far
   gl.Uniform1f(farPlaneLoc, farPlane)
 
   for i := 0; i < len(s.Meshes); i++ {
-    s.Meshes[i].Draw(cubesProgram, &s)
+    s.Meshes[i].draw(cubesProgram, &s)
   }
 
 }

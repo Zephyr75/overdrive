@@ -1,8 +1,8 @@
 # V1
 
-- [ ] Overlay Gutter on Overdrive
-- [ ] Add support for multiple shadows
-- [ ] Clean up fragment shader 
+- [X] Overlay Gutter on Overdrive
+- [X] Add support for multiple shadows
+- [X] Clean up fragment shader 
 - [ ] Integrate skybox reflection nicely to the color computation
 - [ ] Make it usable from a simple ECS script
 
@@ -12,7 +12,7 @@
 
 - [ ] Add bloom
 - [ ] Fix lighting casters
-- [ ] Add anti-aliasing
+- [X] Add anti-aliasing
 - [ ] Add ambient occlusion (SSAO)
 - [ ] Add blend (transparency)
 - [ ] Add geometry shader for fur

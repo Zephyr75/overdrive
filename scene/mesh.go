@@ -31,15 +31,15 @@ type MeshXml struct {
 
 type Mesh struct {
   Name string
-  Positions []mgl32.Vec3
+  Vertices []mgl32.Vec3
   NormalCoords []mgl32.Vec3
   TextureCoords []mgl32.Vec2
-
-  OpenGLVertices []float32
   Faces [][]uint32
-  OpenGLFaces [][]uint32
-
   Materials []Material
+  Position mgl32.Vec3
+
+  openGLVertices []float32
+  openGLFaces [][]uint32
 
   vbo uint32
   vao []uint32
@@ -47,8 +47,7 @@ type Mesh struct {
 	// depthMapFBO uint32
   needsUpdate bool
 
-  Position mgl32.Vec3
-  InitialPosition mgl32.Vec3
+  initialPosition mgl32.Vec3
 }
 
 func (m *Mesh) MoveBy(x float32, y float32, z float32) {
@@ -129,12 +128,12 @@ func (mXml MeshXml) toMesh() Mesh {
 
   var m Mesh
   m.Faces = faces
-  m.Positions = positions
+  m.Vertices = positions
   m.NormalCoords = normalCoords
   m.TextureCoords = textureCoords
   m.Name = mXml.Name
   m.Position = pos
-  m.InitialPosition = pos
+  m.initialPosition = pos
 
   m.fillVertices()
   // m.fillFaces()
@@ -246,7 +245,7 @@ func (m *Mesh) fillVertices() {
       posIndex := m.Faces[i][j] - 1
       texIndex := m.Faces[i][j+1] - 1
       normIndex := m.Faces[i][j+2] - 1
-      position := m.Position.Sub(m.InitialPosition).Add(m.Positions[posIndex])
+      position := m.Position.Sub(m.initialPosition).Add(m.Vertices[posIndex])
       value = append(value, position[0])
       value = append(value, position[1])
       value = append(value, position[2])
@@ -262,8 +261,8 @@ func (m *Mesh) fillVertices() {
     faces = append(faces, face)
     // m.OpenGLFaces = append(m.OpenGLFaces, face)
   }
-  m.OpenGLVertices = value
-  m.OpenGLFaces = faces
+  m.openGLVertices = value
+  m.openGLFaces = faces
 }
 
 func (m *Mesh) fillFaces() {
@@ -272,14 +271,14 @@ func (m *Mesh) fillFaces() {
     for j := 0; j < len(m.Faces[i]); j+=3 {
       faces = append(faces, m.Faces[i][j]-1)
     }
-    m.OpenGLFaces = append(m.OpenGLFaces, faces)
+    m.openGLFaces = append(m.openGLFaces, faces)
   }
 }
 
 
-func (m *Mesh) Setup() {
+func (m *Mesh) setup() {
   m.vao = make([]uint32, len(m.Faces))
-  for i, face := range m.OpenGLFaces {
+  for i, face := range m.openGLFaces {
     // Select submesh faces
     // faces := m.OpenGLFaces[i]
 
@@ -293,7 +292,7 @@ func (m *Mesh) Setup() {
     // Copy VBO to an OpenGL buffer
     gl.BindBuffer(gl.ARRAY_BUFFER, m.vbo)
     // Define OpenGL buffer structure
-    gl.BufferData(gl.ARRAY_BUFFER, len(m.OpenGLVertices)*4, gl.Ptr(m.OpenGLVertices), gl.STATIC_DRAW)
+    gl.BufferData(gl.ARRAY_BUFFER, len(m.openGLVertices)*4, gl.Ptr(m.openGLVertices), gl.STATIC_DRAW)
     // Copy EBO to an OpenGL buffer
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ebo)
     // Define OpenGL buffer structure
@@ -316,14 +315,14 @@ func (m *Mesh) Setup() {
   }
 }
 
-func (m *Mesh) UpdateVertices() {
+func (m *Mesh) updateVertices() {
   if !m.needsUpdate {
     return
   }
-  for i, face := range m.OpenGLFaces {
+  for i, face := range m.openGLFaces {
     gl.BindVertexArray(m.vao[i])
     gl.BindBuffer(gl.ARRAY_BUFFER, m.vbo)
-    gl.BufferData(gl.ARRAY_BUFFER, len(m.OpenGLVertices)*4, gl.Ptr(m.OpenGLVertices), gl.STATIC_DRAW)
+    gl.BufferData(gl.ARRAY_BUFFER, len(m.openGLVertices)*4, gl.Ptr(m.openGLVertices), gl.STATIC_DRAW)
     gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, m.ebo)
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(face)*4, gl.Ptr(face), gl.STATIC_DRAW)
     gl.BindVertexArray(0)
@@ -333,8 +332,8 @@ func (m *Mesh) UpdateVertices() {
 
 }
 
-func (m *Mesh) Draw(program uint32, scene *Scene) {
-  for i, face := range m.OpenGLFaces{
+func (m *Mesh) draw(program uint32, scene *Scene) {
+  for i, face := range m.openGLFaces{
     mat := m.Materials[i]
 
     // Define light properties

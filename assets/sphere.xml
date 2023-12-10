@@ -16,10 +16,16 @@
 		<mtl>Plane.mtl</mtl>
 	</mesh>
 	<mesh name="Sphere">
-		<position>0.0,0.0,5.0</position>
+		<position>0.0,2.0,5.0</position>
 		<rotation>0.0,0.0,0.0</rotation>
 		<obj>Sphere.obj</obj>
 		<mtl>Sphere.mtl</mtl>
+	</mesh>
+	<mesh name="Sphere.001">
+		<position>2.0,0.0,5.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Sphere.001.obj</obj>
+		<mtl>Sphere.001.mtl</mtl>
 	</mesh>
 	<light name="Point">
 		<type>point</type>

@@ -67,15 +67,26 @@ func main() {
 }
 
 func test_ecs(app core.App, scene *scene.Scene) {
-  // suzanne := ecs.Entity{
+  // s1 := ecs.Entity{
   //   Name{"Suzanne"},
   //   Mesh{scene.GetMesh("Suzanne")},
   //   Light{scene.GetLight("Light.003")},
   //   Camera{scene.GetCamera()},
   // }
-  suzanne := ecs.Entity{
+  s1 := ecs.Entity{
     Name{"Sphere"},
     Mesh{scene.GetMesh("Sphere")},
+    Light{scene.GetLight("Light")},
+    Camera{scene.GetCamera()},
+    Sphere{&physics.Sphere{}, &physics.Verlet{
+      Pos: mgl32.Vec3{0.0, 5.0, 2.0},
+      PrevPos: mgl32.Vec3{0.0, 5.0, 2.0},
+    }},
+  }
+
+  s2 := ecs.Entity{
+    Name{"Sphere2"},
+    Mesh{scene.GetMesh("Sphere.001")},
     Light{scene.GetLight("Light")},
     Camera{scene.GetCamera()},
     Sphere{&physics.Sphere{}, &physics.Verlet{
@@ -98,7 +109,8 @@ func test_ecs(app core.App, scene *scene.Scene) {
       entity = entity.Set("Mesh", mesh)
       return entity
     },
-    &suzanne,
+    &s1,
+    &s2,
   )
   
 
@@ -109,10 +121,50 @@ func test_ecs(app core.App, scene *scene.Scene) {
       println(sphere.verlet.Pos[0], sphere.verlet.Pos[1], sphere.verlet.Pos[2])
       sphere.verlet.Accelerate(gravity)
       // sphere.verlet.FloorConstraint(0)
+
+
       sphere.verlet.SphereConstraint(physics.Sphere{
         Pos: mgl32.Vec3{3.0, 11.0, 0.0}, 
         Radius: 10.0,
       })
+
+      sphere2 := s2.Get("Sphere").(Sphere)
+      sphere.verlet.CollisionConstraint(sphere2.sphere)
+
+      sphere.verlet.UpdatePosition(1.0 / 60.0)
+      pos := sphere.verlet.Pos
+      entity = entity.Set("Sphere", sphere)
+
+
+      mesh := entity.Get("Mesh").(Mesh)
+      // mesh.mesh.Position = pos
+      mesh.mesh.MoveTo(pos[0], pos[1], pos[2])
+
+
+      entity = entity.Set("Mesh", mesh)
+
+      return entity
+    },
+    &s1,
+  )
+
+	moveSystem2 := ecs.NewSystem(
+    &world,
+    func(entity ecs.Entity) ecs.Entity {
+      sphere := entity.Get("Sphere").(Sphere)
+      println(sphere.verlet.Pos[0], sphere.verlet.Pos[1], sphere.verlet.Pos[2])
+      sphere.verlet.Accelerate(gravity)
+      // sphere.verlet.FloorConstraint(0)
+
+
+      sphere.verlet.SphereConstraint(physics.Sphere{
+        Pos: mgl32.Vec3{3.0, 11.0, 0.0}, 
+        Radius: 10.0,
+      })
+
+      sphere2 := s1.Get("Sphere").(Sphere)
+      sphere.verlet.CollisionConstraint(sphere2.sphere)
+
       sphere.verlet.UpdatePosition(1.0 / 60.0)
       pos := sphere.verlet.Pos
       entity = entity.Set("Sphere", sphere)
@@ -127,14 +179,17 @@ func test_ecs(app core.App, scene *scene.Scene) {
 
       return entity
     },
-    &suzanne,
+    &s2,
   )
 
 
+
 	// World
-  world.AddEntities(&suzanne)
+  world.AddEntities(&s1)
+  world.AddEntities(&s2)
   world.AddInitSystems(initSystem)
   world.AddUpdateSystems(moveSystem)
+  world.AddUpdateSystems(moveSystem2)
 
   // println(bob.healthBar.health)
   // renameSystem.RunOnEntities([]*ecs.Entity{&bob, &dylan})

@@ -117,11 +117,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement) {
 	for !app.Window.ShouldClose() {
 
     // update every mesh
-    if s != nil {
-      for _, mesh := range s.Meshes {
-        mesh.UpdateVertices()
-      }
-    }
+    s.UpdateMeshes()
     // println(scene.GetMesh("Suzanne").Positions[0].X())
     // var mesh *scene.Mesh
 
