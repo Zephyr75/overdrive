@@ -25,14 +25,13 @@ type Light struct {
   Type int
   Pos mgl32.Vec3 
   Dir mgl32.Vec3 
-	CutOff float32
   Color mgl32.Vec3
   Diffuse float32
   Specular float32
   Intensity float32
-	DepthMapFBO uint32
-  DepthMap uint32
-  DepthCubeMap uint32
+	depthMapFBO uint32
+  depthMap uint32
+  depthCubeMap uint32
 }
 
 func (l *Light) Move(x float32, y float32, z float32) {
@@ -40,7 +39,7 @@ func (l *Light) Move(x float32, y float32, z float32) {
 
 }
 
-func (l LightXml) ToLight() Light {
+func (l LightXml) toLight() Light {
 	t := 0
   name := l.Name
   pos := utils.ParseVec3(l.Pos)
@@ -74,13 +73,13 @@ func (l LightXml) ToLight() Light {
   }
 }
 
-func (l *Light) Setup() {
-  gl.GenFramebuffers(1, &l.DepthMapFBO)
+func (l *Light) setup() {
+  gl.GenFramebuffers(1, &l.depthMapFBO)
 
   if l.Type == 0 {
     // Directional light
-    gl.GenTextures(1, &l.DepthMap)
-    gl.BindTexture(gl.TEXTURE_2D, l.DepthMap)
+    gl.GenTextures(1, &l.depthMap)
+    gl.BindTexture(gl.TEXTURE_2D, l.depthMap)
     gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, int32(settings.ShadowWidth), int32(settings.ShadowHeight), 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
     gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
@@ -90,8 +89,8 @@ func (l *Light) Setup() {
     gl.TexParameterfv(gl.TEXTURE_2D, gl.TEXTURE_BORDER_COLOR, &borderColor[0])
   } else {
     // Point light
-    gl.GenTextures(1, &l.DepthCubeMap)
-    gl.BindTexture(gl.TEXTURE_CUBE_MAP, l.DepthCubeMap)
+    gl.GenTextures(1, &l.depthCubeMap)
+    gl.BindTexture(gl.TEXTURE_CUBE_MAP, l.depthCubeMap)
     for i := 0; i < 6; i++ {
       gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + uint32(i), 0, gl.DEPTH_COMPONENT, int32(settings.ShadowWidth), int32(settings.ShadowHeight), 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
     }
@@ -102,11 +101,11 @@ func (l *Light) Setup() {
     gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
   }
 
-  gl.BindFramebuffer(gl.FRAMEBUFFER, l.DepthMapFBO)
+  gl.BindFramebuffer(gl.FRAMEBUFFER, l.depthMapFBO)
   if l.Type == 0 {
-    gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, l.DepthMap, 0)
+    gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, l.depthMap, 0)
   } else {
-    gl.FramebufferTexture(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, l.DepthCubeMap, 0)
+    gl.FramebufferTexture(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, l.depthCubeMap, 0)
   }
   gl.DrawBuffer(gl.NONE)
   gl.ReadBuffer(gl.NONE)
@@ -120,7 +119,7 @@ func (l Light) RenderLight(nearPlane, farPlane float32, depthProgram, depthCubeP
   model := mgl32.Scale3D(1.0, 1.0, 1.0)
 
   gl.Viewport(0, 0, int32(settings.ShadowWidth), int32(settings.ShadowHeight))
-  gl.BindFramebuffer(gl.FRAMEBUFFER, l.DepthMapFBO)
+  gl.BindFramebuffer(gl.FRAMEBUFFER, l.depthMapFBO)
   gl.Clear(gl.DEPTH_BUFFER_BIT)
 
   if l.Type == 0 {

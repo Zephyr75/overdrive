@@ -33,7 +33,7 @@ func NewScene(path string) Scene {
 		s.Meshes[i].setup()
 	}
 	for i := 0; i < len(s.Lights); i++ {
-		s.Lights[i].Setup()
+		s.Lights[i].setup()
 	}
   return s
 }
@@ -100,20 +100,20 @@ func LoadScene(path string) Scene {
   s.Meshes = make([]Mesh, len(sceneXml.MeshesXml))
   s.Lights = make([]Light, len(sceneXml.LightsXml))
 
-  s.Cam = sceneXml.CamXml.ToCamera()
+  s.Cam = sceneXml.CamXml.toCamera()
 
   for i, meshXml := range sceneXml.MeshesXml {
     s.Meshes[i] = meshXml.toMesh()
   }
 
   for i, lightXml := range sceneXml.LightsXml {
-    s.Lights[i] = lightXml.ToLight()
+    s.Lights[i] = lightXml.toLight()
   }
 
   // fmt.Println(scene.Meshes[0].Vertices)
 
   s.Skybox = Skybox{}
-  s.Skybox.Setup()
+  s.Skybox.setup()
 
   return s
 }

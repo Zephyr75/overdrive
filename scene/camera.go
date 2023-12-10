@@ -34,7 +34,7 @@ func (c *Camera) Move(x float32, y float32, z float32) {
   c.Pos[2] += z
 }
 
-func (c CameraXml) ToCamera() Camera {
+func (c CameraXml) toCamera() Camera {
   pos := utils.ParseVec3(c.Pos)
   front := utils.ParseVec3(c.Front)
   up := utils.ParseVec3(c.Up)

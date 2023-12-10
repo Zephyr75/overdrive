@@ -408,7 +408,7 @@ func (m *Mesh) draw(program uint32, scene *Scene) {
     gl.Uniform1i(skyboxLoc, 3)
 
     gl.ActiveTexture(gl.TEXTURE0)
-    gl.BindTexture(gl.TEXTURE_2D, scene.Lights[1].DepthMap)
+    gl.BindTexture(gl.TEXTURE_2D, scene.Lights[1].depthMap)
 
     gl.ActiveTexture(gl.TEXTURE1)
     gl.BindTexture(gl.TEXTURE_2D, white)
@@ -418,7 +418,7 @@ func (m *Mesh) draw(program uint32, scene *Scene) {
     }
 
     gl.ActiveTexture(gl.TEXTURE2)
-    gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Lights[0].DepthCubeMap)
+    gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Lights[0].depthCubeMap)
 
     gl.ActiveTexture(gl.TEXTURE3)
     gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Skybox.Texture)

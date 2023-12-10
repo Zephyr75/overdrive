@@ -15,7 +15,7 @@ type Skybox struct {
   Texture uint32
 }
 
-func (s *Skybox) Setup() {
+func (s *Skybox) setup() {
   s.vertices = []float32{
     // positions
     -1.0,  1.0, -1.0,
