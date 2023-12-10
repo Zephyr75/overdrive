@@ -12,6 +12,7 @@ import (
 
 	// "github.com/go-gl/glfw/v3.3/glfw"
   "overdrive/opengl"
+  "overdrive/utils"
 
 	"math"
 )
@@ -23,6 +24,7 @@ var (
 
 type MeshXml struct {
   Name string `xml:"name,attr"`
+  Position string `xml:"position"`
   Obj string `xml:"obj"`
   Mtl string `xml:"mtl"`
 }
@@ -46,12 +48,20 @@ type Mesh struct {
   needsUpdate bool
 
   Position mgl32.Vec3
+  InitialPosition mgl32.Vec3
 }
 
-func (m *Mesh) Move(x float32, y float32, z float32) {
+func (m *Mesh) MoveBy(x float32, y float32, z float32) {
   m.Position[0] += x
   m.Position[1] += y
   m.Position[2] += z
+  m.fillVertices()
+  m.needsUpdate = true
+  // m.UpdateVertices()
+}
+
+func (m *Mesh) MoveTo(x float32, y float32, z float32) {
+  m.Position = mgl32.Vec3{x, y, z}
   m.fillVertices()
   m.needsUpdate = true
   // m.UpdateVertices()
@@ -114,13 +124,17 @@ func (mXml MeshXml) toMesh() Mesh {
   }
   faces = append(faces, face)
 
+  pos := utils.ParseVec3(mXml.Position)
+  pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
+
   var m Mesh
   m.Faces = faces
   m.Positions = positions
   m.NormalCoords = normalCoords
   m.TextureCoords = textureCoords
   m.Name = mXml.Name
-  m.Position = mgl32.Vec3{0.0, 0.0, 0.0}
+  m.Position = pos
+  m.InitialPosition = pos
 
   m.fillVertices()
   // m.fillFaces()
@@ -232,7 +246,7 @@ func (m *Mesh) fillVertices() {
       posIndex := m.Faces[i][j] - 1
       texIndex := m.Faces[i][j+1] - 1
       normIndex := m.Faces[i][j+2] - 1
-      position := m.Position.Add(m.Positions[posIndex])
+      position := m.Position.Sub(m.InitialPosition).Add(m.Positions[posIndex])
       value = append(value, position[0])
       value = append(value, position[1])
       value = append(value, position[2])

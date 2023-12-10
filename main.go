@@ -1,14 +1,16 @@
 package main
 
 import (
-  "overdrive/core"
-  "overdrive/ecs"
-  "overdrive/scene"
-	"github.com/Zephyr75/gutter/ui"
-  "image/color"
-  "time"
-)
+	"image/color"
+	"overdrive/core"
+	"overdrive/ecs"
+	"overdrive/physics"
+	"overdrive/scene"
+	"time"
 
+	"github.com/Zephyr75/gutter/ui"
+  "github.com/go-gl/mathgl/mgl32"
+)
 
 /////////////
 type Name struct {
@@ -21,9 +23,6 @@ type Mesh struct {
 }
 func (Mesh) Component() string { return "Mesh" }
 
-func (m Mesh) Move(x float32, y float32, z float32) {
-  m.mesh.Move(x, y, z)
-}
 
 type Light struct {
   light *scene.Light
@@ -44,6 +43,15 @@ func (Camera) Component() string { return "Camera" }
 func (camera Camera) Move(x float32, y float32, z float32) {
   camera.camera.Move(x, y, z)
 }
+
+type Sphere struct {
+  sphere *physics.Sphere
+  verlet *physics.Verlet
+}
+
+func (Sphere) Component() string { return "Sphere" }
+
+
 
 func main() {
 
@@ -70,29 +78,50 @@ func test_ecs(app core.App, scene *scene.Scene) {
     Mesh{scene.GetMesh("Sphere")},
     Light{scene.GetLight("Light")},
     Camera{scene.GetCamera()},
+    Sphere{&physics.Sphere{}, &physics.Verlet{
+      Pos: mgl32.Vec3{0.0, 5.0, 0.0},
+      PrevPos: mgl32.Vec3{0.0, 5.0, 0.0},
+    }},
   }
 
   
+  gravity := mgl32.Vec3{0.0, -9.8, 0.0}
 
 	world := ecs.World{}
 
 	// Systems
-	moveSystem := ecs.NewSystem(
+  initSystem := ecs.NewSystem(
     &world,
     func(entity ecs.Entity) ecs.Entity {
       mesh := entity.Get("Mesh").(Mesh)
-      // mesh.Move(0.1, 0, 0)
+      // mesh.mesh.SetPosition(0.0, 4.0, 0.0)
       entity = entity.Set("Mesh", mesh)
-      light := entity.Get("Light").(Light)
-      // light.Move(0.1, 0, 0)
-      entity = entity.Set("Light", light)
-      camera := entity.Get("Camera").(Camera)
-      // camera.Move(0.1, 0, 0)
-      entity = entity.Set("Camera", camera)
+      return entity
+    },
+    &suzanne,
+  )
+  
 
-      // scene.GetMesh(("Suzanne")).Move(0.1, 0, 0)
+	moveSystem := ecs.NewSystem(
+    &world,
+    func(entity ecs.Entity) ecs.Entity {
+      sphere := entity.Get("Sphere").(Sphere)
+      println(sphere.verlet.Pos[0], sphere.verlet.Pos[1], sphere.verlet.Pos[2])
+      sphere.verlet.Accelerate(gravity)
+      sphere.verlet.FloorConstraint(0)
+      // sphere.verlet.SphereConstraint(physics.Sphere{mgl32.Vec3{0.0, 0.0, 0.0}, 10.0})
+      sphere.verlet.UpdatePosition(1.0 / 60.0)
+      pos := sphere.verlet.Pos
+      entity = entity.Set("Sphere", sphere)
 
-      // println(scene.GetMesh("Suzanne").Positions[0].X())
+
+      mesh := entity.Get("Mesh").(Mesh)
+      // mesh.mesh.Position = pos
+      mesh.mesh.MoveTo(pos[0], pos[1], pos[2])
+      
+
+      entity = entity.Set("Mesh", mesh)
+
       return entity
     },
     &suzanne,
@@ -101,6 +130,7 @@ func test_ecs(app core.App, scene *scene.Scene) {
 
 	// World
   world.AddEntities(&suzanne)
+  world.AddInitSystems(initSystem)
   world.AddUpdateSystems(moveSystem)
 
   // println(bob.healthBar.health)
@@ -108,7 +138,7 @@ func test_ecs(app core.App, scene *scene.Scene) {
 	// renameSystem.RunOnQuery([]string{"Name", "HealthBar"})
   // renameSystem.RunOnTargets()
 
-  // world.Init()
+  world.Init()
   world.Update(time.Second / 60)
 
   // time.Sleep(1 * time.Second)

@@ -31,16 +31,35 @@ type Verlet struct {
   Accel mgl32.Vec3
 }
 
+func (v *Verlet) Accelerate(accel mgl32.Vec3) {
+  v.Accel = v.Accel.Add(accel)
+}
+
 func (v *Verlet) UpdatePosition(dt float32) {
   velocity := v.Pos.Sub(v.PrevPos)
   v.PrevPos = v.Pos
   v.Pos = v.Pos.Add(velocity).Add(v.Accel.Mul(dt * dt))
   v.Accel = mgl32.Vec3{0.0, 0.0, 0.0}
+
+  // println(v.Pos[0], v.Pos[1], v.Pos[2])
 }
 
-func (v *Verlet) Accelerate(accel mgl32.Vec3) {
-  v.Accel = v.Accel.Add(accel)
+func (v *Verlet) FloorConstraint(y float32) {
+  if v.Pos[1] < y {
+    v.Pos[1] = y
+  }
 }
+
+func (v *Verlet) SphereConstraint(s Sphere) {
+  toObj := v.Pos.Sub(s.Pos)
+  dist := toObj.Len()
+  if dist > s.Radius && dist > 0.0 {
+    n := toObj.Mul(1.0 / dist)
+    v.Pos = s.Pos.Add(n.Mul(s.Radius))
+    // println(v.Pos[0], v.Pos[1], v.Pos[2])
+  }
+}
+
 
 //////////////////////
 

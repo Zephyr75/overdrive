@@ -170,9 +170,19 @@ class OverdriveWriter:
 
         # Add the corresponding entry to the xml
         mesh_element = self.create_xml_element("mesh", {"name": mesh.name})
+
+        pos_element = self.create_xml_element("position", {})
+        pos_element.appendChild(self.doc.createTextNode(self.write_vector(mesh.location)))
+        mesh_element.appendChild(pos_element)
+
+        rot_element = self.create_xml_element("rotation", {})
+        rot_element.appendChild(self.doc.createTextNode(self.write_vector(mesh.rotation_euler)))
+        mesh_element.appendChild(rot_element)
+
         obj_element = self.create_xml_element("obj", {})
         obj_element.appendChild(self.doc.createTextNode(obj_name))
         mesh_element.appendChild(obj_element)
+
         mtl_element = self.create_xml_element("mtl", {})
         mtl_element.appendChild(self.doc.createTextNode(mtl_name))
         mesh_element.appendChild(mtl_element)
