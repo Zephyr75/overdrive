@@ -108,8 +108,11 @@ func test_ecs(app core.App, scene *scene.Scene) {
       sphere := entity.Get("Sphere").(Sphere)
       println(sphere.verlet.Pos[0], sphere.verlet.Pos[1], sphere.verlet.Pos[2])
       sphere.verlet.Accelerate(gravity)
-      sphere.verlet.FloorConstraint(0)
-      // sphere.verlet.SphereConstraint(physics.Sphere{mgl32.Vec3{0.0, 0.0, 0.0}, 10.0})
+      // sphere.verlet.FloorConstraint(0)
+      sphere.verlet.SphereConstraint(physics.Sphere{
+        Pos: mgl32.Vec3{3.0, 11.0, 0.0}, 
+        Radius: 10.0,
+      })
       sphere.verlet.UpdatePosition(1.0 / 60.0)
       pos := sphere.verlet.Pos
       entity = entity.Set("Sphere", sphere)
