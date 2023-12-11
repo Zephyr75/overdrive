@@ -207,32 +207,6 @@ func (mXml MeshXml) toMesh() Mesh {
 }
 
 func (m *Mesh) fillVertices() {
-  // mapVertices := make(map[int][]float32)
-  // for i := 0; i < len(m.Faces); i++ {
-  //   for j := 0; j < len(m.Faces[i]); j+=3 {
-  //     posIndex := m.Faces[i][j] - 1
-  //     texIndex := m.Faces[i][j+1] - 1
-  //     normIndex := m.Faces[i][j+2] - 1
-  //     var value []float32
-  //     value = append(value, m.Positions[posIndex][0])
-  //     value = append(value, m.Positions[posIndex][1])
-  //     value = append(value, m.Positions[posIndex][2])
-  //     value = append(value, m.NormalCoords[normIndex][0])
-  //     value = append(value, m.NormalCoords[normIndex][1])
-  //     value = append(value, m.NormalCoords[normIndex][2])
-  //     value = append(value, m.TextureCoords[texIndex][0])
-  //     value = append(value, m.TextureCoords[texIndex][1])
-  //     mapVertices[int(posIndex)] = value
-  //   }
-  // }
-  // for i := 0; i < len(mapVertices); i++ {
-  //   for j := 0; j < len(mapVertices[i]); j++ {
-  //     m.OpenGLVertices = append(m.OpenGLVertices, mapVertices[i][j])
-  //   }
-  // }
-  // m.fillFaces()
-
-
   var value []float32
   var faces [][]uint32
   var index uint32
