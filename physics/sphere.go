@@ -24,7 +24,6 @@ func (s *Sphere) Collide(c Collider) mgl32.Vec3 {
     return s.sphereCollide(c.(Sphere))
   case Plane:
     return s.planeCollide(c.(Plane))
-  default:
   // case Box:
   //   return s.BoxCollide(c.(Box))
   }

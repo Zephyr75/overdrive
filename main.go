@@ -92,6 +92,19 @@ func test_ecs(app core.App, scene *scene.Scene) {
     },
   }
 
+  wall := ecs.Entity{
+    Plane{
+      &physics.Plane{
+        Verlet: physics.NewVerlet(mgl32.Vec3{10.0, 0.0, 0.0}),
+        Normal: mgl32.Vec3{-1.0, 0.0, 0.0},
+        MainAxis: mgl32.Vec3{0.0, 0.0, 1.0},
+        CrossAxis: mgl32.Vec3{0.0, 1.0, 0.0},
+        MainHalf: 10.0,
+        CrossHalf: 10.0,
+      },
+    },
+  }
+
   
   gravity := mgl32.Vec3{0.0, -9.8, 0.0}
 
@@ -123,10 +136,12 @@ func test_ecs(app core.App, scene *scene.Scene) {
       groundPlane := ground.Get("Plane").(Plane)
       sphere.Collide(*groundPlane.Plane)
 
+      wallPlane := wall.Get("Plane").(Plane)
+      sphere.Collide(*wallPlane.Plane)
+
       sphere.UpdatePosition(1.0 / 60.0)
       pos := sphere.Pos
       sphere.Pos = pos
-      // println(pos[0], pos[1], pos[2])
       entity = entity.Set("Sphere", sphere)
 
 
