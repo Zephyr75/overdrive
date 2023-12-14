@@ -107,22 +107,22 @@ func test_ecs(app core.App, scene *scene.Scene) {
     },
   }
 
-  // ground := ecs.Entity{
-  //   Name{"Ground"},
-  //   Mesh{scene.GetMesh("Plane")},
-  //   Light{scene.GetLight("Light")},
-  //   Camera{scene.GetCamera()},
-  //   Plane{
-  //     &physics.Plane{
-  //       Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),
-  //       Normal: mgl32.Vec3{0.0, 1.0, 0.0},
-  //       MainAxis: mgl32.Vec3{1.0, 0.0, 0.0},
-  //       CrossAxis: mgl32.Vec3{0.0, 0.0, 1.0},
-  //       MainHalf: 10.0,
-  //       CrossHalf: 10.0,
-  //     },
-  //   },
-  // }
+  ground := ecs.Entity{
+    Name{"Ground"},
+    Mesh{scene.GetMesh("Plane")},
+    Light{scene.GetLight("Light")},
+    Camera{scene.GetCamera()},
+    Plane{
+      &physics.Plane{
+        Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),
+        Normal: mgl32.Vec3{0.0, 1.0, 0.0},
+        MainAxis: mgl32.Vec3{1.0, 0.0, 0.0},
+        CrossAxis: mgl32.Vec3{0.0, 0.0, 1.0},
+        MainHalf: 10.0,
+        CrossHalf: 10.0,
+      },
+    },
+  }
 
   
   gravity := mgl32.Vec3{0.0, -9.8, 0.0}
@@ -151,27 +151,14 @@ func test_ecs(app core.App, scene *scene.Scene) {
       sphere.Accelerate(gravity)
       // sphere.verlet.FloorConstraint(0)
 
-
-      // sphere.verlet.SphereConstraint(physics.Sphere{
-      //   Verlet: physics.NewVerlet(mgl32.Vec3{3.0, 11.0, 0.0}),
-      //   Radius: 10.0,
-      // })
-
       sphere2 := s2.Get("Sphere").(Sphere)
-      // sphere.verlet.CollisionConstraint(sphere2.sphere)
       overlap := sphere.Collide(sphere2.GetSphere())
-      // overlap = overlap.Mul(5)
-      // println(overlap[0], overlap[1], overlap[2])
-      println("--------------------")
-      println(sphere.Pos[0], sphere.Pos[1], sphere.Pos[2])
       sphere.Pos = sphere.Pos.Add(overlap)
-      println(sphere.Pos[0], sphere.Pos[1], sphere.Pos[2])
 
-      // groundPlane := ground.Get("Plane").(Plane)
+      groundPlane := ground.Get("Plane").(Plane)
 
-      // overlap = sphere.Collide(groundPlane.GetPlane())
-      // println(overlap[0], overlap[1], overlap[2])
-      // sphere.Pos.Add(overlap)
+      overlap2 := sphere.Collide(groundPlane.GetPlane())
+      sphere.Pos = sphere.Pos.Add(overlap2)
 
       sphere.UpdatePosition(1.0 / 60.0)
       pos := sphere.Pos
@@ -180,7 +167,6 @@ func test_ecs(app core.App, scene *scene.Scene) {
 
 
       mesh := entity.Get("Mesh").(Mesh)
-      // mesh.mesh.Position = pos
       mesh.MoveTo(pos[0], pos[1], pos[2])
 
 
