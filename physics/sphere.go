@@ -9,7 +9,7 @@ type Sphere struct {
   Radius float32
 }
 
-func (s Sphere) GetVerlet() Verlet {
+func (s Sphere) getVerlet() Verlet {
   return s.Verlet
 }
 
@@ -18,13 +18,12 @@ func NewSphere(pos mgl32.Vec3, radius float32) Sphere {
   return Sphere{verlet, radius}
 }
 
-func (s Sphere) Collide(c Collider) mgl32.Vec3 {
+func (s *Sphere) Collide(c Collider) mgl32.Vec3 {
   switch c.(type) {
   case Sphere:
-    return s.SphereCollide(c.(Sphere))
+    return s.sphereCollide(c.(Sphere))
   case Plane:
-    println("plane")
-    return s.PlaneCollide(c.(Plane))
+    return s.planeCollide(c.(Plane))
   default:
   // case Box:
   //   return s.BoxCollide(c.(Box))
@@ -32,30 +31,28 @@ func (s Sphere) Collide(c Collider) mgl32.Vec3 {
   return mgl32.Vec3{0.0, 0.0, 0.0}
 }
 
-func (s Sphere) SphereCollide(s2 Sphere) mgl32.Vec3 {
+func (s *Sphere) sphereCollide(s2 Sphere) mgl32.Vec3 {
   colAxis := s.Pos.Sub(s2.Pos)
   colDist := colAxis.Len()
   if colDist < s.Radius * 2.0 {
     n := colAxis.Mul(1.0 / colDist)
     delta := (s.Radius * 2.0 - colDist) * 0.5
+    s.Pos = s.Pos.Add(n.Mul(delta))
     return n.Mul(delta)
   }
   
   return mgl32.Vec3{0.0, 0.0, 0.0}
 }
 
-func (s Sphere) PlaneCollide(p Plane) mgl32.Vec3 {
+func (s *Sphere) planeCollide(p Plane) mgl32.Vec3 {
   distNormal := s.Pos.Sub(p.Pos).Dot(p.Normal)
   distMain := s.Pos.Sub(p.Pos).Dot(p.MainAxis)
   distCross := s.Pos.Sub(p.Pos).Dot(p.CrossAxis)
 
-  println("a")
   if distNormal > -s.Radius && distNormal < s.Radius {
-    println("b")
     if distMain > -p.MainHalf && distMain < p.MainHalf {
-      println("c")
       if distCross > -p.CrossHalf && distCross < p.CrossHalf {
-        println("d")
+        s.Pos = s.Pos.Add(p.Normal.Mul(s.Radius - distNormal))
         return p.Normal.Mul(s.Radius - distNormal)
       }
     }

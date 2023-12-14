@@ -13,11 +13,6 @@ import (
 )
 
 /////////////
-type Name struct {
-	string
-}
-func (Name) Component() string { return "Name" }
-
 type Mesh struct {
   *scene.Mesh
 }
@@ -28,10 +23,6 @@ type Light struct {
   *scene.Light
 }
 func (Light) Component() string { return "Light" }
-  
-// func (light Light) Move(x float32, y float32, z float32) {
-//   light.Move(x, y, z)
-// }
 
 type Camera struct {
   camera *scene.Camera
@@ -47,18 +38,10 @@ type Sphere struct {
 }
 func (Sphere) Component() string { return "Sphere" }
 
-func (s Sphere) GetSphere() physics.Sphere {
-  return *s.Sphere
-}
-
 type Plane struct {
   *physics.Plane
 }
 func (Plane) Component() string { return "Plane" }
-
-func (p Plane) GetPlane() physics.Plane {
-  return *p.Plane
-}
 
 
 func main() {
@@ -75,17 +58,8 @@ func main() {
 }
 
 func test_ecs(app core.App, scene *scene.Scene) {
-  // s1 := ecs.Entity{
-  //   Name{"Suzanne"},
-  //   Mesh{scene.GetMesh("Suzanne")},
-  //   Light{scene.GetLight("Light.003")},
-  //   Camera{scene.GetCamera()},
-  // }
   s1 := ecs.Entity{
-    Name{"Sphere"},
     Mesh{scene.GetMesh("Sphere")},
-    Light{scene.GetLight("Light")},
-    Camera{scene.GetCamera()},
     Sphere{
       &physics.Sphere{
         Verlet: physics.NewVerlet(mgl32.Vec3{1.0, 10.0, 0.0}),
@@ -95,10 +69,7 @@ func test_ecs(app core.App, scene *scene.Scene) {
   }
 
   s2 := ecs.Entity{
-    Name{"Sphere2"},
     Mesh{scene.GetMesh("Sphere.001")},
-    Light{scene.GetLight("Light")},
-    Camera{scene.GetCamera()},
     Sphere{
       &physics.Sphere{
         Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),
@@ -108,10 +79,7 @@ func test_ecs(app core.App, scene *scene.Scene) {
   }
 
   ground := ecs.Entity{
-    Name{"Ground"},
     Mesh{scene.GetMesh("Plane")},
-    Light{scene.GetLight("Light")},
-    Camera{scene.GetCamera()},
     Plane{
       &physics.Plane{
         Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),
@@ -147,22 +115,18 @@ func test_ecs(app core.App, scene *scene.Scene) {
     &world,
     func(entity ecs.Entity) ecs.Entity {
       sphere := entity.Get("Sphere").(Sphere)
-      // println(sphere.verlet.Pos[0], sphere.verlet.Pos[1], sphere.verlet.Pos[2])
       sphere.Accelerate(gravity)
-      // sphere.verlet.FloorConstraint(0)
 
       sphere2 := s2.Get("Sphere").(Sphere)
-      overlap := sphere.Collide(sphere2.GetSphere())
-      sphere.Pos = sphere.Pos.Add(overlap)
+      sphere.Collide(*sphere2.Sphere)
 
       groundPlane := ground.Get("Plane").(Plane)
-
-      overlap2 := sphere.Collide(groundPlane.GetPlane())
-      sphere.Pos = sphere.Pos.Add(overlap2)
+      sphere.Collide(*groundPlane.Plane)
 
       sphere.UpdatePosition(1.0 / 60.0)
       pos := sphere.Pos
       sphere.Pos = pos
+      // println(pos[0], pos[1], pos[2])
       entity = entity.Set("Sphere", sphere)
 
 

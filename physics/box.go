@@ -25,6 +25,6 @@ func (b Box) Collide(c Collider) bool {
   return false
 }
 
-func (b Box) GetVerlet() Verlet {
+func (b Box) getVerlet() Verlet {
   return Verlet{b.Pos, b.Pos, mgl32.Vec3{0.0, 0.0, 0.0}}
 }

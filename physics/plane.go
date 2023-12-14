@@ -13,7 +13,7 @@ type Plane struct {
   CrossHalf float32
 }
 
-func (p Plane) GetVerlet() Verlet {
+func (p Plane) getVerlet() Verlet {
   return p.Verlet
 }
 
