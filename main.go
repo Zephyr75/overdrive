@@ -139,6 +139,9 @@ func test_ecs(app core.App, scene *scene.Scene) {
       wallPlane := wall.Get("Plane").(Plane)
       sphere.Collide(*wallPlane.Plane)
 
+
+      print(groundPlane.Collide(*wallPlane.Plane))
+
       sphere.UpdatePosition(1.0 / 60.0)
       pos := sphere.Pos
       sphere.Pos = pos
@@ -150,6 +153,7 @@ func test_ecs(app core.App, scene *scene.Scene) {
 
 
       entity = entity.Set("Mesh", mesh)
+
 
       return entity
     },
