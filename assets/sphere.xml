@@ -27,6 +27,18 @@
 		<obj>Sphere.001.obj</obj>
 		<mtl>Sphere.001.mtl</mtl>
 	</mesh>
+	<mesh name="Cube">
+		<position>0.0,-3.0,5.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Cube.obj</obj>
+		<mtl>Cube.mtl</mtl>
+	</mesh>
+	<mesh name="Cube.001">
+		<position>-3.0,-3.0,5.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Cube.001.obj</obj>
+		<mtl>Cube.001.mtl</mtl>
+	</mesh>
 	<light name="Point">
 		<type>point</type>
 		<position>-2.0340654850006104,2.4325599670410156,8.332712173461914</position>

@@ -98,19 +98,36 @@ func test_ecs(app core.App, scene *scene.Scene) {
   }
 
   physicsBox := physics.NewBox(
-    mgl32.Vec3{0.0, 0.0, 0.0},
+    mgl32.Vec3{0.0, 5.0, 0.0},
     mgl32.Vec3{1.0, 0.0, 0.0},
     mgl32.Vec3{0.0, 0.0, 1.0},
     mgl32.Vec3{0.0, 1.0, 0.0},
-    10.0,
-    10.0,
-    5.0,
+    2.0,
+    3.0,
+    1.0,
   )
-  slope := ecs.Entity{ 
+  cube := ecs.Entity{ 
+    Mesh{scene.GetMesh("Cube")},
     Box{
       &physicsBox,
     },
   }
+
+  // physicsBox2 := physics.NewBox(
+  //   mgl32.Vec3{0.0, 0.0, 0.0},
+  //   mgl32.Vec3{1.0, 0.0, 0.0},
+  //   mgl32.Vec3{0.0, 0.0, 1.0},
+  //   mgl32.Vec3{0.0, 1.0, 0.0},
+  //   10.0,
+  //   10.0,
+  //   5.0,
+  // )
+  // cube2 := ecs.Entity{ 
+  //   Mesh{scene.GetMesh("Cube.001")},
+  //   Box{
+  //     &physicsBox2,
+  //   },
+  // }
 
   
   gravity := mgl32.Vec3{0.0, -9.8, 0.0}
@@ -122,12 +139,11 @@ func test_ecs(app core.App, scene *scene.Scene) {
     &world,
     func(entity ecs.Entity) ecs.Entity {
       mesh := entity.Get("Mesh").(Mesh)
-      // mesh.mesh.SetPosition(0.0, 4.0, 0.0)
+      mesh.MoveTo(0.0, 5.0, 0.0)
       entity = entity.Set("Mesh", mesh)
       return entity
     },
-    &s1,
-    &s2,
+    &cube,
   )
   
 
@@ -137,14 +153,11 @@ func test_ecs(app core.App, scene *scene.Scene) {
       sphere := entity.Get("Sphere").(Sphere)
       sphere.Accelerate(gravity)
 
-      // sphere2 := s2.Get("Sphere").(Sphere)
-      // sphere.Collide(*sphere2.Sphere)
-
       groundPlane := ground.Get("Plane").(Plane)
       sphere.Collide(*groundPlane.Plane)
 
-      slopeBox := slope.Get("Box").(Box)
-      sphere.Collide(*slopeBox.Box)
+      cubeBox := cube.Get("Box").(Box)
+      sphere.Collide(*cubeBox.Box)
 
       sphere.UpdatePosition(1.0 / 60.0)
       pos := sphere.Pos
@@ -155,13 +168,40 @@ func test_ecs(app core.App, scene *scene.Scene) {
       mesh := entity.Get("Mesh").(Mesh)
       mesh.MoveTo(pos[0], pos[1], pos[2])
 
-
       entity = entity.Set("Mesh", mesh)
 
       return entity
     },
     &s1,
   )
+
+  moveCubeSystem := ecs.NewSystem(
+    &world,
+    func(entity ecs.Entity) ecs.Entity {
+      cubeBox := entity.Get("Box").(Box)
+      cubeBox.Accelerate(gravity)
+
+
+      groundPlane := ground.Get("Plane").(Plane)
+      cubeBox.Collide(*groundPlane.Plane)
+
+
+      cubeBox.UpdatePosition(1.0 / 60.0)
+      pos := cubeBox.Pos
+      cubeBox.Pos = pos
+      entity = entity.Set("Sphere", cubeBox)
+
+
+      mesh := entity.Get("Mesh").(Mesh)
+      mesh.MoveTo(pos[0], pos[1], pos[2])
+
+      entity = entity.Set("Mesh", mesh)
+
+      return entity
+    },
+    &cube,
+  )
+
 
 	// moveSystem2 := ecs.NewSystem(
  //    &world,
@@ -205,7 +245,7 @@ func test_ecs(app core.App, scene *scene.Scene) {
   world.AddEntities(&s2)
   world.AddInitSystems(initSystem)
   world.AddUpdateSystems(moveSystem)
-  // world.AddUpdateSystems(moveSystem2)
+  world.AddUpdateSystems(moveCubeSystem)
 
   // println(bob.healthBar.health)
   // renameSystem.RunOnEntities([]*ecs.Entity{&bob, &dylan})

@@ -69,7 +69,7 @@ func NewBox(center mgl32.Vec3, mainAxis mgl32.Vec3, crossAxis mgl32.Vec3, upAxis
 }
 
 
-func (b Box) Collide(c Collider) {
+func (b *Box) Collide(c Collider) {
   switch c.(type) {
   case Sphere:
     b.sphereCollide(c.(Sphere))
@@ -102,3 +102,20 @@ func (b *Box) boxCollide(b2 Box) {
   }
 }
 
+func (b *Box) UpdatePosition(dt float32) {
+  for i, _ := range b.Spheres {
+    b.Spheres[i].UpdatePosition(dt)
+  }
+  avgPos := mgl32.Vec3{0.0, 0.0, 0.0}
+  for i, _ := range b.Spheres {
+    avgPos = avgPos.Add(b.Spheres[i].Pos)
+  }
+  avgPos = avgPos.Mul(1.0 / float32(len(b.Spheres)))
+  b.Pos = avgPos
+}
+
+func (b *Box) Accelerate(a mgl32.Vec3) {
+  for i, _ := range b.Spheres {
+    b.Spheres[i].Accelerate(a)
+  }
+}
