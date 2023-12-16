@@ -43,6 +43,11 @@ type Plane struct {
 }
 func (Plane) Component() string { return "Plane" }
 
+type Box struct {
+  *physics.Box
+}
+func (Box) Component() string { return "Box" }
+
 
 func main() {
 
@@ -63,7 +68,7 @@ func test_ecs(app core.App, scene *scene.Scene) {
     Sphere{
       &physics.Sphere{
         Verlet: physics.NewVerlet(mgl32.Vec3{1.0, 10.0, 0.0}),
-        Radius: 1.0,
+        Radius: 1.5,
       }, 
     },
   }
@@ -92,16 +97,18 @@ func test_ecs(app core.App, scene *scene.Scene) {
     },
   }
 
-  wall := ecs.Entity{
-    Plane{
-      &physics.Plane{
-        Verlet: physics.NewVerlet(mgl32.Vec3{10.0, 0.0, 0.0}),
-        Normal: mgl32.Vec3{-1.0, 0.0, 0.0},
-        MainAxis: mgl32.Vec3{0.0, 0.0, 1.0},
-        CrossAxis: mgl32.Vec3{0.0, 1.0, 0.0},
-        MainHalf: 10.0,
-        CrossHalf: 10.0,
-      },
+  physicsBox := physics.NewBox(
+    mgl32.Vec3{0.0, 0.0, 0.0},
+    mgl32.Vec3{1.0, 0.0, 0.0},
+    mgl32.Vec3{0.0, 0.0, 1.0},
+    mgl32.Vec3{0.0, 1.0, 0.0},
+    10.0,
+    10.0,
+    5.0,
+  )
+  slope := ecs.Entity{ 
+    Box{
+      &physicsBox,
     },
   }
 
@@ -130,14 +137,14 @@ func test_ecs(app core.App, scene *scene.Scene) {
       sphere := entity.Get("Sphere").(Sphere)
       sphere.Accelerate(gravity)
 
-      sphere2 := s2.Get("Sphere").(Sphere)
-      sphere.Collide(*sphere2.Sphere)
+      // sphere2 := s2.Get("Sphere").(Sphere)
+      // sphere.Collide(*sphere2.Sphere)
 
       groundPlane := ground.Get("Plane").(Plane)
       sphere.Collide(*groundPlane.Plane)
 
-      wallPlane := wall.Get("Plane").(Plane)
-      sphere.Collide(*wallPlane.Plane)
+      slopeBox := slope.Get("Box").(Box)
+      sphere.Collide(*slopeBox.Box)
 
       sphere.UpdatePosition(1.0 / 60.0)
       pos := sphere.Pos

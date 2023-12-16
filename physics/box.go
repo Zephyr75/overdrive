@@ -47,11 +47,13 @@ func NewBox(center mgl32.Vec3, mainAxis mgl32.Vec3, crossAxis mgl32.Vec3, upAxis
   spheres := make([]Sphere, 0)
   links := make([]Link, 0)
 
+  corner := center.Sub(longAxis1.Mul(longLength1 * 0.5)).Sub(longAxis2.Mul(longLength2 * 0.5))
+
   var a float32 = radius
   for a < longLength1 {
     var b float32 = radius
     for b < longLength2 {
-      spheres = append(spheres, NewSphere(center.Add(longAxis1.Mul(float32(a))).Add(longAxis2.Mul(float32(b))), radius))
+      spheres = append(spheres, NewSphere(corner.Add(longAxis1.Mul(a)).Add(longAxis2.Mul(b)), radius))
       b += radius * 2.0
     }
     a += radius * 2.0

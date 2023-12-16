@@ -31,9 +31,11 @@ func (s *Sphere) Collide(c Collider) {
 func (s *Sphere) sphereCollide(s2 Sphere) {
   colAxis := s.Pos.Sub(s2.Pos)
   colDist := colAxis.Len()
-  if colDist < s.Radius * 2.0 {
+  dist := s.Radius + s2.Radius
+  if colDist < dist {
     n := colAxis.Mul(1.0 / colDist)
-    delta := (s.Radius * 2.0 - colDist) * 0.5
+    delta := (dist - colDist) * 0.5
+    println("delta", delta)
     s.Pos = s.Pos.Add(n.Mul(delta))
     return 
   }
@@ -56,6 +58,11 @@ func (s *Sphere) planeCollide(p Plane) {
 
 func (s *Sphere) boxCollide(b Box) {
   for _, sphere := range b.Spheres {
+    println(sphere.Pos[0], sphere.Pos[1], sphere.Pos[2])
+    println(sphere.Radius)
+    println(s.Pos[0], s.Pos[1], s.Pos[2])
     s.sphereCollide(sphere)
+    println(s.Pos[0], s.Pos[1], s.Pos[2])
   }
+  println("box")
 }
