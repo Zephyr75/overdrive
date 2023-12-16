@@ -7,7 +7,9 @@ import (
 
 type Collider interface {
   // Collide(c Collider) mgl32.Vec3
-  getVerlet() Verlet
+  // getVerlet() Verlet
+
+	Collider() string
 }
 
 type Verlet struct {

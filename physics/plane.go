@@ -13,9 +13,8 @@ type Plane struct {
   CrossHalf float32
 }
 
-func (p Plane) getVerlet() Verlet {
-  return p.Verlet
-}
+
+func (p Plane) Collider() string { return "Plane" }
 
 
 func NewPlane(p1 mgl32.Vec3, p2 mgl32.Vec3, p3 mgl32.Vec3, p4 mgl32.Vec3) Plane {
@@ -28,7 +27,7 @@ func NewPlane(p1 mgl32.Vec3, p2 mgl32.Vec3, p3 mgl32.Vec3, p4 mgl32.Vec3) Plane 
   return Plane{verlet, normal, mainAxis, crossAxis, mainAxis.Len() * 0.5, crossAxis.Len() * 0.5}
 }
 
-func (p Plane) Collide(c Collider) mgl32.Vec3 {
-  return mgl32.Vec3{0.0, 0.0, 0.0}
+func (p Plane) Collide(c Collider) {
+  // TODO: Implement
 }
 
