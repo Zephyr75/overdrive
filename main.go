@@ -15,6 +15,7 @@ import (
 /////////////
 
 type Sphere struct {
+  name string
   *physics.Sphere
   *scene.Mesh
   ground *Plane
@@ -29,7 +30,15 @@ func (s *Sphere) Update(world *ecs.World) {
   // s.Collide(*s.cube.Box)
   s.UpdatePosition(1.0 / 60.0)
   s.Mesh.MoveTo(s.Pos)
+  spheres := world.GetEntitiesByType("Sphere")
+  for _, sphere := range spheres {
+    println(sphere.(*Sphere).name)
+    sphere.(*Sphere).name = "Alice"
+  }
+
 }
+
+func (s *Sphere) GetType() string { return "Sphere" }
 
 
 
@@ -56,14 +65,14 @@ func main() {
 
   scene := scene.NewScene("assets/sphere.xml")
 
-  go test_ecs(app, &scene)
+  go runWorld(&scene)
 
 	app.Run(&scene, nil)
 	// app.Run(nil, nil)
   
 }
 
-func test_ecs(app core.App, scene *scene.Scene) {
+func runWorld(scene *scene.Scene) {
   ground := Plane{
     &physics.Plane{
       Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),
@@ -90,6 +99,7 @@ func test_ecs(app core.App, scene *scene.Scene) {
   }
 
   s1 := Sphere{
+    "Bob",
     &physics.Sphere{
       Verlet: physics.NewVerlet(mgl32.Vec3{1.0, 10.0, 0.0}),
       Radius: 1.5,
@@ -99,16 +109,10 @@ func test_ecs(app core.App, scene *scene.Scene) {
     &cube,
   }
 
-
-  
-
 	world := ecs.World{}
   world.AddEntities(&s1)
-
+  world.Init()
   world.Update(time.Second / 60)
-
-
-
 }
 
 var (
