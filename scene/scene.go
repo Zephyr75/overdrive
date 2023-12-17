@@ -7,7 +7,7 @@ import (
   "encoding/xml"
   "github.com/go-gl/gl/v4.1-core/gl"
   "github.com/go-gl/mathgl/mgl32"
-  "overdrive/settings"
+  "github.com/Zephyr75/overdrive/settings"
 
 
 )

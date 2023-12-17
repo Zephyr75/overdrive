@@ -11,8 +11,8 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 
 	// "github.com/go-gl/glfw/v3.3/glfw"
-  "overdrive/opengl"
-  "overdrive/utils"
+  "github.com/Zephyr75/overdrive/opengl"
+  "github.com/Zephyr75/overdrive/utils"
 
 	"math"
 )

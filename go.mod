@@ -1,4 +1,4 @@
-module overdrive
+module github.com/Zephyr75/overdrive
 
 go 1.20
 

@@ -7,8 +7,8 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
-	"overdrive/settings"
-	"overdrive/utils"
+	"github.com/Zephyr75/overdrive/settings"
+	"github.com/Zephyr75/overdrive/utils"
 
 	"github.com/Zephyr75/gutter/ui"
 )

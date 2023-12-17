@@ -6,13 +6,13 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
-	"overdrive/input"
+	"github.com/Zephyr75/overdrive/input"
 
 	"fmt"
-	"overdrive/opengl"
-	"overdrive/scene"
-	"overdrive/settings"
-	"overdrive/utils"
+	"github.com/Zephyr75/overdrive/opengl"
+	"github.com/Zephyr75/overdrive/scene"
+	"github.com/Zephyr75/overdrive/settings"
+	"github.com/Zephyr75/overdrive/utils"
 
 	"github.com/Zephyr75/gutter/ui"
 )

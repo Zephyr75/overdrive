@@ -2,10 +2,10 @@ package scene
 
 import (
   "github.com/go-gl/mathgl/mgl32"
-  "overdrive/utils"
+  "github.com/Zephyr75/overdrive/utils"
 	"github.com/go-gl/gl/v4.1-core/gl"
 
-	"overdrive/settings"
+	"github.com/Zephyr75/overdrive/settings"
   "fmt"
 )
 

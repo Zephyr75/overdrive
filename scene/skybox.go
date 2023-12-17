@@ -1,8 +1,8 @@
 package scene
 
 import (
-	"overdrive/opengl"
-  "overdrive/settings"
+	"github.com/Zephyr75/overdrive/opengl"
+  "github.com/Zephyr75/overdrive/settings"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
   "github.com/go-gl/mathgl/mgl32"

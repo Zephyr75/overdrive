@@ -2,10 +2,10 @@ package main
 
 import (
 	"image/color"
-	"overdrive/core"
-	"overdrive/ecs"
-	"overdrive/physics"
-	"overdrive/scene"
+	"github.com/Zephyr75/overdrive/core"
+	"github.com/Zephyr75/overdrive/ecs"
+	"github.com/Zephyr75/overdrive/physics"
+	"github.com/Zephyr75/overdrive/scene"
 	"time"
 
 	"github.com/Zephyr75/gutter/ui"

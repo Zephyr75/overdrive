@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
-  "overdrive/utils"
+  "github.com/Zephyr75/overdrive/utils"
   "os"
 )
 

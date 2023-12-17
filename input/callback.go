@@ -8,9 +8,9 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
   "math"
 
-  "overdrive/settings"
+  "github.com/Zephyr75/overdrive/settings"
 
-  "overdrive/scene"
+  "github.com/Zephyr75/overdrive/scene"
 )
 
 var (

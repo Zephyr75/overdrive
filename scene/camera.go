@@ -2,7 +2,7 @@ package scene
 
 import (
 	"github.com/go-gl/mathgl/mgl32"
-  "overdrive/utils"
+  "github.com/Zephyr75/overdrive/utils"
   "math"
 )
 
