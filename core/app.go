@@ -128,7 +128,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement) {
     // println(app.Scene.GetLight("Light.003").Pos.X())
 
     // Process input
-    input.ProcessInput(app.Window, deltaTime)
+    input.ProcessInput(app.Window, deltaTime, false)
     gl.ClearColor(0.1, 0.1, 0.1, 1.0)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
