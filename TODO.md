@@ -24,3 +24,9 @@
 
 
 GOPROXY=proxy.golang.org go list -m github.com/Zephyr75/gutter@v0.1.2
+
+
+Using OBJ conventions: Y is Up
+
+    Blender to OBJ:
+    pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
