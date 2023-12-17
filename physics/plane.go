@@ -27,7 +27,7 @@ func NewPlane(p1 mgl32.Vec3, p2 mgl32.Vec3, p3 mgl32.Vec3, p4 mgl32.Vec3) Plane 
   return Plane{verlet, normal, mainAxis, crossAxis, mainAxis.Len() * 0.5, crossAxis.Len() * 0.5}
 }
 
-func (p Plane) Collide(c Collider) {
+func (p *Plane) Collide(c Collider) {
   // TODO: Implement
 }
 

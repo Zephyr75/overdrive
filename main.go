@@ -9,44 +9,45 @@ import (
 	"time"
 
 	"github.com/Zephyr75/gutter/ui"
-  "github.com/go-gl/mathgl/mgl32"
+	"github.com/go-gl/mathgl/mgl32"
 )
 
 /////////////
-type Mesh struct {
-  *scene.Mesh
-}
-func (Mesh) Component() string { return "Mesh" }
-
-
-type Light struct {
-  *scene.Light
-}
-func (Light) Component() string { return "Light" }
-
-type Camera struct {
-  camera *scene.Camera
-}
-func (Camera) Component() string { return "Camera" }
-
-func (camera Camera) Move(x float32, y float32, z float32) {
-  camera.camera.Move(x, y, z)
-}
 
 type Sphere struct {
   *physics.Sphere
+  *scene.Mesh
+  ground *Plane
+  cube *Box
 }
-func (Sphere) Component() string { return "Sphere" }
+
+func (s *Sphere) Init(world *ecs.World) { }
+
+func (s *Sphere) Update(world *ecs.World) {
+  s.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
+  s.Collide(*s.ground.Plane)
+  // s.Collide(*s.cube.Box)
+  s.UpdatePosition(1.0 / 60.0)
+  s.Mesh.MoveTo(s.Pos)
+}
+
+
+
+
 
 type Plane struct {
   *physics.Plane
 }
-func (Plane) Component() string { return "Plane" }
+func (p *Plane) Init(world *ecs.World) { }
+func (p *Plane) Update(world *ecs.World) { }
+
 
 type Box struct {
   *physics.Box
+  *scene.Mesh
 }
-func (Box) Component() string { return "Box" }
+func (b *Box) Init(world *ecs.World) { }
+func (b *Box) Update(world *ecs.World) { }
 
 
 func main() {
@@ -63,37 +64,14 @@ func main() {
 }
 
 func test_ecs(app core.App, scene *scene.Scene) {
-  s1 := ecs.Entity{
-    Mesh{scene.GetMesh("Sphere")},
-    Sphere{
-      &physics.Sphere{
-        Verlet: physics.NewVerlet(mgl32.Vec3{1.0, 10.0, 0.0}),
-        Radius: 1.5,
-      }, 
-    },
-  }
-
-  s2 := ecs.Entity{
-    Mesh{scene.GetMesh("Sphere.001")},
-    Sphere{
-      &physics.Sphere{
-        Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),
-        Radius: 1.0,
-      }, 
-    },
-  }
-
-  ground := ecs.Entity{
-    Mesh{scene.GetMesh("Plane")},
-    Plane{
-      &physics.Plane{
-        Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),
-        Normal: mgl32.Vec3{0.0, 1.0, 0.0},
-        MainAxis: mgl32.Vec3{1.0, 0.0, 0.0},
-        CrossAxis: mgl32.Vec3{0.0, 0.0, 1.0},
-        MainHalf: 10.0,
-        CrossHalf: 10.0,
-      },
+  ground := Plane{
+    &physics.Plane{
+      Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),
+      Normal: mgl32.Vec3{0.0, 1.0, 0.0},
+      MainAxis: mgl32.Vec3{1.0, 0.0, 0.0},
+      CrossAxis: mgl32.Vec3{0.0, 0.0, 1.0},
+      MainHalf: 10.0,
+      CrossHalf: 10.0,
     },
   }
 
@@ -106,156 +84,29 @@ func test_ecs(app core.App, scene *scene.Scene) {
     3.0,
     1.0,
   )
-  cube := ecs.Entity{ 
-    Mesh{scene.GetMesh("Cube")},
-    Box{
-      &physicsBox,
-    },
+  cube := Box{
+    &physicsBox,
+    scene.GetMesh("Cube"),
   }
 
-  // physicsBox2 := physics.NewBox(
-  //   mgl32.Vec3{0.0, 0.0, 0.0},
-  //   mgl32.Vec3{1.0, 0.0, 0.0},
-  //   mgl32.Vec3{0.0, 0.0, 1.0},
-  //   mgl32.Vec3{0.0, 1.0, 0.0},
-  //   10.0,
-  //   10.0,
-  //   5.0,
-  // )
-  // cube2 := ecs.Entity{ 
-  //   Mesh{scene.GetMesh("Cube.001")},
-  //   Box{
-  //     &physicsBox2,
-  //   },
-  // }
+  s1 := Sphere{
+    &physics.Sphere{
+      Verlet: physics.NewVerlet(mgl32.Vec3{1.0, 10.0, 0.0}),
+      Radius: 1.5,
+    }, 
+    scene.GetMesh("Sphere"),
+    &ground,
+    &cube,
+  }
+
 
   
-  gravity := mgl32.Vec3{0.0, -9.8, 0.0}
 
 	world := ecs.World{}
-
-	// Systems
-  initSystem := ecs.NewSystem(
-    &world,
-    func(entity ecs.Entity) ecs.Entity {
-      mesh := entity.Get("Mesh").(Mesh)
-      mesh.MoveTo(0.0, 5.0, 0.0)
-      entity = entity.Set("Mesh", mesh)
-      return entity
-    },
-    &cube,
-  )
-  
-
-	moveSystem := ecs.NewSystem(
-    &world,
-    func(entity ecs.Entity) ecs.Entity {
-      sphere := entity.Get("Sphere").(Sphere)
-      sphere.Accelerate(gravity)
-
-      groundPlane := ground.Get("Plane").(Plane)
-      sphere.Collide(*groundPlane.Plane)
-
-      cubeBox := cube.Get("Box").(Box)
-      sphere.Collide(*cubeBox.Box)
-
-      sphere.UpdatePosition(1.0 / 60.0)
-      pos := sphere.Pos
-      sphere.Pos = pos
-      entity = entity.Set("Sphere", sphere)
-
-
-      mesh := entity.Get("Mesh").(Mesh)
-      mesh.MoveTo(pos[0], pos[1], pos[2])
-
-      entity = entity.Set("Mesh", mesh)
-
-      return entity
-    },
-    &s1,
-  )
-
-  moveCubeSystem := ecs.NewSystem(
-    &world,
-    func(entity ecs.Entity) ecs.Entity {
-      cubeBox := entity.Get("Box").(Box)
-      cubeBox.Accelerate(gravity)
-
-
-      groundPlane := ground.Get("Plane").(Plane)
-      cubeBox.Collide(*groundPlane.Plane)
-
-
-      cubeBox.UpdatePosition(1.0 / 60.0)
-      pos := cubeBox.Pos
-      cubeBox.Pos = pos
-      entity = entity.Set("Sphere", cubeBox)
-
-
-      mesh := entity.Get("Mesh").(Mesh)
-      mesh.MoveTo(pos[0], pos[1], pos[2])
-
-      entity = entity.Set("Mesh", mesh)
-
-      return entity
-    },
-    &cube,
-  )
-
-
-	// moveSystem2 := ecs.NewSystem(
- //    &world,
- //    func(entity ecs.Entity) ecs.Entity {
- //      sphere := entity.Get("Sphere").(Sphere)
- //      // println(sphere.verlet.Pos[0], sphere.verlet.Pos[1], sphere.verlet.Pos[2])
- //      sphere.verlet.Accelerate(gravity)
- //      // sphere.verlet.FloorConstraint(0)
-
-
- //      sphere.verlet.SphereConstraint(physics.Sphere{
- //        Verlet: physics.NewVerlet(mgl32.Vec3{3.0, 11.0, 0.0}),
- //        Radius: 10.0,
- //      })
-
- //      sphere2 := s1.Get("Sphere").(Sphere)
- //      sphere.verlet.CollisionConstraint(sphere2.sphere)
-
- //      sphere.verlet.UpdatePosition(1.0 / 60.0)
- //      pos := sphere.verlet.Pos
- //      sphere.sphere.Pos = pos
- //      entity = entity.Set("Sphere", sphere)
-
-
- //      mesh := entity.Get("Mesh").(Mesh)
- //      // mesh.mesh.Position = pos
- //      mesh.MoveTo(pos[0], pos[1], pos[2])
- //      
-
- //      entity = entity.Set("Mesh", mesh)
-
- //      return entity
- //    },
- //    &s2,
- //  )
-
-
-
-	// World
   world.AddEntities(&s1)
-  world.AddEntities(&s2)
-  world.AddInitSystems(initSystem)
-  world.AddUpdateSystems(moveSystem)
-  world.AddUpdateSystems(moveCubeSystem)
 
-  // println(bob.healthBar.health)
-  // renameSystem.RunOnEntities([]*ecs.Entity{&bob, &dylan})
-	// renameSystem.RunOnQuery([]string{"Name", "HealthBar"})
-  // renameSystem.RunOnTargets()
-
-  world.Init()
   world.Update(time.Second / 60)
 
-  // time.Sleep(1 * time.Second)
 
 
 }

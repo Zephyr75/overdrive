@@ -59,8 +59,8 @@ func (m *Mesh) MoveBy(x float32, y float32, z float32) {
   // m.UpdateVertices()
 }
 
-func (m *Mesh) MoveTo(x float32, y float32, z float32) {
-  m.Position = mgl32.Vec3{x, y, z}
+func (m *Mesh) MoveTo(dest mgl32.Vec3) {
+  m.Position = dest
   m.fillVertices()
   m.needsUpdate = true
   // m.UpdateVertices()
