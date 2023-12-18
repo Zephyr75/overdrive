@@ -27,7 +27,7 @@ func FramebufferSizeCallback(window *glfw.Window, width int, height int) {
   settings.WindowHeight = height
 }
 
-func MouseCallback(window *glfw.Window, xPos, yPos float64) {
+func DefaultMouseCallback(window *glfw.Window, xPos, yPos float64) {
   if firstMouse {
     lastX = xPos
     lastY = yPos

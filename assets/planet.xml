@@ -1,0 +1,60 @@
+<?xml version="1.0" ?>
+<scene>
+	<camera name="Camera">
+		<type>persp</type>
+		<position>7.358891487121582,-6.925790786743164,6.683829307556152</position>
+		<front>-0.6515582203865051,0.6141704320907593,-0.44527149200439453</front>
+		<up>-0.32401347160339355,0.3054208755493164,0.8953956365585327</up>
+		<yaw>46.691944977583375</yaw>
+		<pitch>63.5592952084158</pitch>
+		<fov>39.597755335771296</fov>
+	</camera>
+	<mesh name="Plane">
+		<position>0.0,0.0,0.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Plane.obj</obj>
+		<mtl>Plane.mtl</mtl>
+	</mesh>
+	<mesh name="Enemy">
+		<position>-4.965565204620361,7.352482795715332,0.0</position>
+		<rotation>0.0,-0.0,0.0</rotation>
+		<obj>Enemy.obj</obj>
+		<mtl>Enemy.mtl</mtl>
+	</mesh>
+	<mesh name="Enemy1">
+		<position>4.498260974884033,1.606588363647461,0.0</position>
+		<rotation>0.0,-0.0,0.0</rotation>
+		<obj>Enemy1.obj</obj>
+		<mtl>Enemy1.mtl</mtl>
+	</mesh>
+	<mesh name="Enemy2">
+		<position>-7.838512897491455,-7.0122528076171875,0.0</position>
+		<rotation>0.0,-0.0,0.0</rotation>
+		<obj>Enemy2.obj</obj>
+		<mtl>Enemy2.mtl</mtl>
+	</mesh>
+	<mesh name="Ship">
+		<position>1.728118896484375,-4.699823379516602,1.7230573892593384</position>
+		<rotation>1.570796251296997,-0.0,-3.1415929794311523</rotation>
+		<obj>Ship.obj</obj>
+		<mtl>Ship.mtl</mtl>
+	</mesh>
+	<light name="ASun">
+		<type>sun</type>
+		<position>8.058662414550781,-3.6441597938537598,5.426122665405273</position>
+		<direction>-0.526104211807251,0.6586690545082092,-0.5379307270050049</direction>
+		<color>1.0,1.0,1.0</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>1.0</intensity>
+	</light>
+	<light name="Point">
+		<type>point</type>
+		<position>-9.12911605834961,-4.88801383972168,5.726858615875244</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.0,1.0,1.0</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>10.0</intensity>
+	</light>
+</scene>

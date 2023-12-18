@@ -13,8 +13,10 @@ import (
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
 	"github.com/Zephyr75/overdrive/utils"
+	"github.com/Zephyr75/overdrive/ecs"
 
 	"github.com/Zephyr75/gutter/ui"
+  "time"
 )
 
 type App struct {
@@ -22,6 +24,8 @@ type App struct {
   Width int
   Height int
   Window *glfw.Window
+  InputHandler func(window *glfw.Window, deltaTime float32)
+  MouseCallback func(window *glfw.Window, x float64, y float64)
 }
 
 func init() {
@@ -33,7 +37,15 @@ func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
-func NewApp(name string, width int, height int) App {
+func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App {
+
+  app := App{
+    Name: name,
+    Width: width,
+    Height: height,
+    MouseCallback: mouseCallback,
+    InputHandler: inputHandler,
+  }
   
 	// GLFW setup
 	glfw.Init()
@@ -47,11 +59,12 @@ func NewApp(name string, width int, height int) App {
 	window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, "Cube", nil, nil)
 	utils.HandleError(err)
 	window.MakeContextCurrent()
+  app.Window = window
 
 	// Callbacks
 	window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
   window.SetScrollCallback(input.ScrollCallback)
-	window.SetCursorPosCallback(input.MouseCallback)
+  window.SetCursorPosCallback(app.MouseCallback)
 	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
 	// OpenGL setup
@@ -62,16 +75,10 @@ func NewApp(name string, width int, height int) App {
   // Anti-aliasing
 	// gl.Enable(gl.MULTISAMPLE)	
 
-  
-  return App{
-    Name: name,
-    Width: width,
-    Height: height,
-    Window: window,
-  }
+  return app
 }
 
-func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement) {
+func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) {
 
 	// Declare main shader programs
   cubesProgram, err := opengl.CreateProgram("cubes", false)
@@ -109,12 +116,14 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement) {
 
 	// Time init
 	i := 0
-	time := glfw.GetTime()
+	curTime := glfw.GetTime()
 	var deltaTime float32 = 0.0
 	lastFrame := float64(0.0)
 
 	// Window lifecycle
 	for !app.Window.ShouldClose() {
+
+    world.Update(time.Second / 60)
 
     // update every mesh
     s.UpdateMeshes()
@@ -128,7 +137,11 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement) {
     // println(app.Scene.GetLight("Light.003").Pos.X())
 
     // Process input
-    input.ProcessInput(app.Window, deltaTime, false)
+    if app.InputHandler != nil {
+      app.InputHandler(app.Window, deltaTime)
+    } else {
+      input.DefaultInput(app.Window, deltaTime)
+    }
     gl.ClearColor(0.1, 0.1, 0.1, 1.0)
     gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
@@ -175,10 +188,10 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement) {
 		i++
 		deltaTime = float32(glfw.GetTime()) - float32(lastFrame)
 		lastFrame = glfw.GetTime()
-		if glfw.GetTime()-time > 1 {
+		if glfw.GetTime()-curTime > 1 {
 			fmt.Printf("\rFPS: %d", i)
 			i = 0
-			time = glfw.GetTime()
+			curTime = glfw.GetTime()
 		}
 
 		// Swap buffers

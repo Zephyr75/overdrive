@@ -28,11 +28,14 @@ type CameraXml struct {
   Fov float32 `xml:"fov"`
 }
 
-func (c *Camera) Move(x float32, y float32, z float32) {
-  c.Pos[0] += x
-  c.Pos[1] += y
-  c.Pos[2] += z
+func (c *Camera) Move(pos mgl32.Vec3) {
+  c.Pos = pos
 }
+
+func (c *Camera) LookAt(pos mgl32.Vec3) {
+  c.Front = pos.Sub(c.Pos).Normalize()
+}
+
 
 func (c CameraXml) toCamera() Camera {
   pos := utils.ParseVec3(c.Pos)

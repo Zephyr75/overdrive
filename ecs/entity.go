@@ -19,15 +19,18 @@ func (w *World) Init() {
 }
 
 func (w *World) Update(timeInterval time.Duration) {
-  for {
-    for _, entity := range w.entities {
-      entity.Update(w)
-    }
-    time.Sleep(timeInterval)
+  for _, entity := range w.entities {
+    entity.Update(w)
   }
+  // for {
+  //   for _, entity := range w.entities {
+  //     entity.Update(w)
+  //   }
+  //   time.Sleep(timeInterval)
+  // }
 }
 
-func (w *World) GetEntitiesByType(entityType string) []Entity {
+func (w *World) GetEntities(entityType string) []Entity {
   var entities []Entity
   for _, entity := range w.entities {
     if entity.GetType() == entityType {
@@ -35,6 +38,15 @@ func (w *World) GetEntitiesByType(entityType string) []Entity {
     }
   }
   return entities
+}
+
+func (w *World) GetEntity(entityType string) Entity {
+  for _, entity := range w.entities {
+    if entity.GetType() == entityType {
+      return entity
+    }
+  }
+  return nil
 }
 
 
