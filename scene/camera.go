@@ -36,7 +36,6 @@ func (c *Camera) LookAt(pos mgl32.Vec3) {
   c.Front = pos.Sub(c.Pos).Normalize()
 }
 
-
 func (c CameraXml) toCamera() Camera {
   pos := utils.ParseVec3(c.Pos)
   front := utils.ParseVec3(c.Front)

@@ -2,6 +2,7 @@ package core
 
 import (
 	"runtime"
+	"time"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -9,14 +10,14 @@ import (
 	"github.com/Zephyr75/overdrive/input"
 
 	"fmt"
+
+	"github.com/Zephyr75/overdrive/ecs"
 	"github.com/Zephyr75/overdrive/opengl"
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
 	"github.com/Zephyr75/overdrive/utils"
-	"github.com/Zephyr75/overdrive/ecs"
 
 	"github.com/Zephyr75/gutter/ui"
-  "time"
 )
 
 type App struct {
@@ -64,7 +65,11 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 	// Callbacks
 	window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
   window.SetScrollCallback(input.ScrollCallback)
-  window.SetCursorPosCallback(app.MouseCallback)
+  if app.MouseCallback != nil {
+    window.SetCursorPosCallback(app.MouseCallback)
+  } else {
+    window.SetCursorPosCallback(input.DefaultMouseCallback)
+  }
 	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
 	// OpenGL setup
@@ -75,6 +80,7 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
   // Anti-aliasing
 	// gl.Enable(gl.MULTISAMPLE)	
 
+  
   return app
 }
 
