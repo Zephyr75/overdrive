@@ -5,6 +5,9 @@
 - [X] Clean up fragment shader 
 - [ ] Integrate skybox reflection nicely to the color computation
 - [ ] Make it usable from a simple ECS script
+- [ ] Get colliders position, size and rotation from Blender scene
+- [ ] Add multiple lights of the same type
+- [ ] Add proper box colliders
 
 [Cubemap from HDRI](https://matheowis.github.io/HDRI-to-CubeMap/)
 
@@ -18,7 +21,6 @@
 - [ ] Add geometry shader for fur
 - [ ] Add normal mapping
 - [ ] Add framebuffers (post-proc + gutter)
-- [ ] Add alpha
 - [ ] Add instancing
 - [ ] Add HDR to fix too much light
 

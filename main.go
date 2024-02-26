@@ -58,14 +58,6 @@ func (b *Box) Init(world *ecs.World) { }
 func (b *Box) Update(world *ecs.World) { }
 
 
-var (
-	// s          scene.Scene
-  // w          ecs.World
-  // inGame     bool = true
-	// firstMouse bool    = true
-	// lastX      float64 = float64(settings.WindowWidth) / 2.0
-	// lastY      float64 = float64(settings.WindowHeight) / 2.0
-)
 
 func main() {
 
@@ -73,14 +65,14 @@ func main() {
 
   scene := scene.NewScene("assets/sphere.xml")
 
-  world := runWorld(&scene)
+  world := createWorld(&scene)
 
 	app.Run(&scene, nil, world)
 	// app.Run(nil, nil)
   
 }
 
-func runWorld(scene *scene.Scene) *ecs.World {
+func createWorld(scene *scene.Scene) *ecs.World {
   ground := Plane{
     &physics.Plane{
       Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),

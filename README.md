@@ -31,11 +31,11 @@ func (p *Player) GetType() string { return "Player" }
 func main() {
     app := core.NewApp("Gutter", 1920, 1080)
     scene := scene.NewScene("assets/sphere.xml")
-    go runWorld(&scene)
-    app.Run(&scene, exitUI)
+    world = runWorld(&scene)
+    app.Run(&scene, exitUI, world)
 }
 
-func runWorld(scene *scene.Scene) {
+func runWorld(scene *scene.Scene) *ecs.World {
     player := Player{
         "Bob",
     }
@@ -43,6 +43,7 @@ func runWorld(scene *scene.Scene) {
     world.AddEntities(&player)
     world.Init()
     world.Update(time.Second / 60)
+    return &world
 }
 
 func exitUI(app core.App) ui.UIElement {
