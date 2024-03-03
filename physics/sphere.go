@@ -2,6 +2,7 @@ package physics
 
 import (
   "github.com/go-gl/mathgl/mgl32"
+  "github.com/Zephyr75/overdrive/scene"
 )
 
 type Sphere struct {
@@ -12,9 +13,14 @@ type Sphere struct {
 func (Sphere) Collider() string { return "Sphere" }
 
 
-func NewSphere(pos mgl32.Vec3, radius float32) Sphere {
+func NewSphere(pos mgl32.Vec3, radius float32) *Sphere {
   verlet := NewVerlet(pos)
-  return Sphere{verlet, radius}
+  return &Sphere{verlet, radius}
+}
+
+func NewSphereFromMesh(mesh *scene.Mesh) *Sphere {
+  radius := mesh.Vertices[0].Sub(mesh.Position).Len()
+  return &Sphere{NewVerlet(mesh.Position), radius}
 }
 
 func (s *Sphere) Collide(c Collider) {
@@ -23,8 +29,8 @@ func (s *Sphere) Collide(c Collider) {
     s.sphereCollide(c.(Sphere))
   case Plane:
     s.planeCollide(c.(Plane))
-  case Box:
-    s.boxCollide(c.(Box))
+  // case Box:
+  //   s.boxCollide(c.(Box))
   }
 }
 
@@ -56,13 +62,13 @@ func (s *Sphere) planeCollide(p Plane) {
   }
 }
 
-func (s *Sphere) boxCollide(b Box) {
-  for _, sphere := range b.Spheres {
-    println(sphere.Pos[0], sphere.Pos[1], sphere.Pos[2])
-    println(sphere.Radius)
-    println(s.Pos[0], s.Pos[1], s.Pos[2])
-    s.sphereCollide(sphere)
-    println(s.Pos[0], s.Pos[1], s.Pos[2])
-  }
-  println("box")
-}
+// func (s *Sphere) boxCollide(b Box) {
+//   for _, sphere := range b.Spheres {
+//     println(sphere.Pos[0], sphere.Pos[1], sphere.Pos[2])
+//     println(sphere.Radius)
+//     println(s.Pos[0], s.Pos[1], s.Pos[2])
+//     s.sphereCollide(sphere)
+//     println(s.Pos[0], s.Pos[1], s.Pos[2])
+//   }
+//   println("box")
+// }

@@ -181,6 +181,8 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
       // gl.BindTexture(gl.TEXTURE_2D, s.Lights[1].DepthMap)
       // utils.RenderQuad()
 
+      // gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
+
       s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
       
       s.RenderSkybox(skyboxProgram)

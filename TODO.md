@@ -4,8 +4,8 @@
 - [X] Add support for multiple shadows
 - [X] Clean up fragment shader 
 - [ ] Integrate skybox reflection nicely to the color computation
-- [ ] Make it usable from a simple ECS script
-- [ ] Get colliders position, size and rotation from Blender scene
+- [X] Make it usable from a simple ECS script
+- [X] Get colliders position, size and rotation from Blender scene
 - [ ] Add multiple lights of the same type
 - [ ] Add proper box colliders
 

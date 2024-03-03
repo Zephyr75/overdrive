@@ -18,7 +18,6 @@ type Sphere struct {
   *physics.Sphere
   *scene.Mesh
   ground *Plane
-  cube *Box
 }
 
 func (s *Sphere) Init(world *ecs.World) { }
@@ -34,13 +33,9 @@ func (s *Sphere) Update(world *ecs.World) {
     // println(sphere.(*Sphere).name)
     sphere.(*Sphere).name = "Alice"
   }
-
 }
 
 func (s *Sphere) GetType() string { return "Sphere" }
-
-
-
 
 
 type Plane struct {
@@ -48,15 +43,6 @@ type Plane struct {
 }
 func (p *Plane) Init(world *ecs.World) { }
 func (p *Plane) Update(world *ecs.World) { }
-
-
-type Box struct {
-  *physics.Box
-  *scene.Mesh
-}
-func (b *Box) Init(world *ecs.World) { }
-func (b *Box) Update(world *ecs.World) { }
-
 
 
 func main() {
@@ -74,45 +60,21 @@ func main() {
 
 func createWorld(scene *scene.Scene) *ecs.World {
   ground := Plane{
-    &physics.Plane{
-      Verlet: physics.NewVerlet(mgl32.Vec3{0.0, 0.0, 0.0}),
-      Normal: mgl32.Vec3{0.0, 1.0, 0.0},
-      MainAxis: mgl32.Vec3{1.0, 0.0, 0.0},
-      CrossAxis: mgl32.Vec3{0.0, 0.0, 1.0},
-      MainHalf: 10.0,
-      CrossHalf: 10.0,
-    },
+    physics.NewPlaneFromMesh(scene.GetMesh("Ground")),
   }
 
-  physicsBox := physics.NewBox(
-    mgl32.Vec3{0.0, 5.0, 0.0},
-    mgl32.Vec3{1.0, 0.0, 0.0},
-    mgl32.Vec3{0.0, 0.0, 1.0},
-    mgl32.Vec3{0.0, 1.0, 0.0},
-    2.0,
-    3.0,
-    1.0,
-  )
-  cube := Box{
-    &physicsBox,
-    scene.GetMesh("Cube"),
-  }
+  sphereMesh := scene.GetMesh("Sphere")
 
   s1 := Sphere{
     "Bob",
-    &physics.Sphere{
-      Verlet: physics.NewVerlet(mgl32.Vec3{1.0, 10.0, 0.0}),
-      Radius: 1.5,
-    }, 
-    scene.GetMesh("Sphere"),
+    physics.NewSphereFromMesh(sphereMesh),
+    sphereMesh,
     &ground,
-    &cube,
   }
 
 	world := ecs.World{}
   world.AddEntities(&s1)
   world.Init()
-  // world.Update(time.Second / 60)
   return &world
 }
 

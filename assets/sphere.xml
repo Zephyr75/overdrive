@@ -9,12 +9,6 @@
 		<pitch>63.5592952084158</pitch>
 		<fov>39.597755335771296</fov>
 	</camera>
-	<mesh name="Plane">
-		<position>0.0,0.0,0.0</position>
-		<rotation>0.0,0.0,0.0</rotation>
-		<obj>Plane.obj</obj>
-		<mtl>Plane.mtl</mtl>
-	</mesh>
 	<mesh name="Sphere">
 		<position>0.0,2.0,5.0</position>
 		<rotation>0.0,0.0,0.0</rotation>
@@ -38,6 +32,12 @@
 		<rotation>0.0,0.0,0.0</rotation>
 		<obj>Cube.001.obj</obj>
 		<mtl>Cube.001.mtl</mtl>
+	</mesh>
+	<mesh name="Ground">
+		<position>0.0,0.0,0.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Ground.obj</obj>
+		<mtl>Ground.mtl</mtl>
 	</mesh>
 	<light name="Point">
 		<type>point</type>
