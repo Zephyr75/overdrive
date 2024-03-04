@@ -24,11 +24,12 @@ func (w *World) Update(timeInterval time.Duration) {
   for _, entity := range w.entities {
     entity.Update(w)
   }
+
   // Handle collisions
-  for i, _ := range w.entities {
-    for j, _ := range w.entities {
+  for i, entity := range w.entities {
+    for j, otherEntity := range w.entities {
       if i != j {
-        w.entities[i].GetCollider().Collide(w.entities[j].GetCollider())
+        entity.GetCollider().Collide(otherEntity.GetCollider())
       }
     }
   }
