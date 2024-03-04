@@ -17,8 +17,6 @@ type Plane struct {
 }
 
 
-func (p Plane) Collider() string { return "Plane" }
-
 func NewPlaneFromMesh(mesh *scene.Mesh) *Plane {
   fmt.Println(
     mesh.Vertices[0],
@@ -46,4 +44,6 @@ func NewPlane(p1 mgl32.Vec3, p2 mgl32.Vec3, p3 mgl32.Vec3, p4 mgl32.Vec3) *Plane
 func (p *Plane) Collide(c Collider) {
   // TODO: Implement
 }
+
+func (p *Plane) GetVerlet() *Verlet { return &p.Verlet }
 

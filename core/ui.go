@@ -59,18 +59,15 @@ func renderUI(app App, window *glfw.Window, widget func(app App) ui.UIElement, u
 
   // Draw debug information
   // iterate over all entities to find physics objects
-  for _, entity := range world.Entities {
-    if entity.HasComponent("Physics") {
-      physics := entity.GetComponent("Physics").(*ecs.Physics)
-      if physics != nil {
-  if app.Debug {
-    radius := 50
-    for i := 0; i < 360; i++ {
-      x := int(float64(radius) * math.Cos(float64(i)))
-      y := int(float64(radius) * math.Sin(float64(i)))
-      img.SetRGBA(settings.WindowWidth / 2 + x, settings.WindowHeight / 2 + y, color.RGBA{255, 255, 255, 255})
-    }
-  }
+  // for _, entity := range world.Entities {
+      if app.Debug {
+        radius := 50
+        for i := 0; i < 360; i++ {
+          x := int(float64(radius) * math.Cos(float64(i)))
+          y := int(float64(radius) * math.Sin(float64(i)))
+          img.SetRGBA(settings.WindowWidth / 2 + x, settings.WindowHeight / 2 + y, color.RGBA{255, 255, 255, 255})
+        }
+      }
 
   if instance != nil {
     // Only redraw if the UI has changed
@@ -103,4 +100,3 @@ func renderUI(app App, window *glfw.Window, widget func(app App) ui.UIElement, u
   gl.BindTexture(gl.TEXTURE_2D, texture)
   utils.RenderQuad()
 }
-

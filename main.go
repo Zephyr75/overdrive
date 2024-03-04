@@ -24,10 +24,10 @@ func (s *Sphere) Init(world *ecs.World) { }
 
 func (s *Sphere) Update(world *ecs.World) {
   s.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
-  s.Collide(*s.ground.Plane)
-  // s.Collide(*s.cube.Box)
-  s.UpdatePosition(1.0 / 60.0)
   s.Mesh.MoveTo(s.Pos)
+  // s.Collide(s.ground.Plane)
+  // s.Collide(*s.cube.Box)
+  // s.UpdatePosition(1.0 / 60.0)
   spheres := world.GetEntities("Sphere")
   for _, sphere := range spheres {
     // println(sphere.(*Sphere).name)
@@ -37,12 +37,16 @@ func (s *Sphere) Update(world *ecs.World) {
 
 func (s *Sphere) GetType() string { return "Sphere" }
 
+func (s *Sphere) GetCollider() physics.Collider { return s.Sphere }
+
 
 type Plane struct {
   *physics.Plane
 }
 func (p *Plane) Init(world *ecs.World) { }
 func (p *Plane) Update(world *ecs.World) { }
+func (p *Plane) GetType() string { return "Plane" }
+func (p *Plane) GetCollider() physics.Collider { return p.Plane }
 
 
 func main() {
@@ -74,6 +78,7 @@ func createWorld(scene *scene.Scene) *ecs.World {
 
 	world := ecs.World{}
   world.AddEntities(&s1)
+  world.AddEntities(&ground)
   world.Init()
   return &world
 }

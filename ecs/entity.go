@@ -1,7 +1,9 @@
 package ecs
 
 import (
-  "time"
+	"time"
+
+	"github.com/Zephyr75/overdrive/physics"
 )
 
 type World struct {
@@ -22,6 +24,19 @@ func (w *World) Update(timeInterval time.Duration) {
   for _, entity := range w.entities {
     entity.Update(w)
   }
+  // Handle collisions
+  for i, _ := range w.entities {
+    for j, _ := range w.entities {
+      if i != j {
+        w.entities[i].GetCollider().Collide(w.entities[j].GetCollider())
+      }
+    }
+  }
+  for _, entity := range w.entities {
+    entity.GetCollider().GetVerlet().UpdatePosition(1.0 / 60.0)
+  }
+
+
   // for {
   //   for _, entity := range w.entities {
   //     entity.Update(w)
@@ -54,6 +69,7 @@ type Entity interface {
   Init(world *World) 
   Update(world *World) 
   GetType() string
+  GetCollider() physics.Collider
 }
 
 

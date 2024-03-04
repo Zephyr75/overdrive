@@ -10,7 +10,10 @@ type Sphere struct {
   Radius float32
 }
 
-func (Sphere) Collider() string { return "Sphere" }
+// func (Sphere) Collider() string { return "Sphere" }
+
+func (s *Sphere) GetVerlet() *Verlet { return &s.Verlet }
+
 
 
 func NewSphere(pos mgl32.Vec3, radius float32) *Sphere {
@@ -24,14 +27,13 @@ func NewSphereFromMesh(mesh *scene.Mesh) *Sphere {
 }
 
 func (s *Sphere) Collide(c Collider) {
-  switch c.(type) {
-  case Sphere:
-    s.sphereCollide(c.(Sphere))
-  case Plane:
-    s.planeCollide(c.(Plane))
-  // case Box:
-  //   s.boxCollide(c.(Box))
+  switch collider := c.(type) {
+  case *Sphere:
+    s.sphereCollide(*collider)
+  case *Plane:
+    s.planeCollide(*collider)
   }
+  
 }
 
 func (s *Sphere) sphereCollide(s2 Sphere) {

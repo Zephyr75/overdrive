@@ -6,10 +6,10 @@ import (
 )
 
 type Collider interface {
-  // Collide(c Collider) mgl32.Vec3
-  // getVerlet() Verlet
+  Collide(c Collider) 
+  GetVerlet() *Verlet
 
-	Collider() string
+	// Collider() string
 }
 
 type Verlet struct {
