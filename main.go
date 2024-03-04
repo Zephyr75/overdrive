@@ -9,35 +9,50 @@ import (
 
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/go-gl/mathgl/mgl32"
+  // "fmt"
 )
 
 /////////////
 
+type StaticCollider struct {
+  physics.Collider
+}
+
+func (s *StaticCollider) Init(world *ecs.World) { }
+func (s *StaticCollider) Update(world *ecs.World) { }
+func (s *StaticCollider) GetType() string { return "StaticCollider" }
+func (s *StaticCollider) GetCollider() physics.Collider { return s.Collider }
+
+
+
 type Sphere struct {
-  name string
   *physics.Sphere
   *scene.Mesh
-  ground *Plane
 }
 
 func (s *Sphere) Init(world *ecs.World) { }
 
 func (s *Sphere) Update(world *ecs.World) {
   s.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
+  // fmt.Println("Sphere.Update", s.Pos)
   s.Mesh.MoveTo(s.Pos)
-  // s.Collide(s.ground.Plane)
-  // s.Collide(*s.cube.Box)
-  // s.UpdatePosition(1.0 / 60.0)
-  spheres := world.GetEntities("Sphere")
-  for _, sphere := range spheres {
-    // println(sphere.(*Sphere).name)
-    sphere.(*Sphere).name = "Alice"
-  }
 }
 
 func (s *Sphere) GetType() string { return "Sphere" }
 
 func (s *Sphere) GetCollider() physics.Collider { return s.Sphere }
+
+type Sphere2 struct {
+  name string
+  *physics.Sphere
+  *scene.Mesh
+}
+
+func (s *Sphere2) Init(world *ecs.World) { }
+func (s *Sphere2) Update(world *ecs.World) { }
+func (s *Sphere2) GetType() string { return "Sphere2" }
+func (s *Sphere2) GetCollider() physics.Collider { return s.Sphere }
+
 
 
 type Plane struct {
@@ -64,20 +79,23 @@ func main() {
 
 func createWorld(scene *scene.Scene) *ecs.World {
   ground := Plane{
-    physics.NewPlaneFromMesh(scene.GetMesh("Ground")),
+    physics.NewPlaneFromMesh(scene.GetMesh("Ground"), true),
   }
 
   sphereMesh := scene.GetMesh("Sphere")
 
   s1 := Sphere{
-    "Bob",
-    physics.NewSphereFromMesh(sphereMesh),
+    physics.NewSphereFromMesh(sphereMesh, false),
     sphereMesh,
-    &ground,
+  }
+
+  s2 := StaticCollider{
+    physics.NewSphereFromMesh(scene.GetMesh("Sphere2"), true),
   }
 
 	world := ecs.World{}
   world.AddEntities(&s1)
+  world.AddEntities(&s2)
   world.AddEntities(&ground)
   world.Init()
   return &world

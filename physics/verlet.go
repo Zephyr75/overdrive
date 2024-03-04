@@ -16,14 +16,18 @@ type Verlet struct {
   Pos mgl32.Vec3
   PrevPos mgl32.Vec3
   Accel mgl32.Vec3
+  Fixed bool
 }
 
-func NewVerlet(pos mgl32.Vec3) Verlet {
-  return Verlet{pos, pos, mgl32.Vec3{0.0, 0.0, 0.0}}
+func NewVerlet(pos mgl32.Vec3, fixed bool) Verlet {
+  return Verlet{pos, pos, mgl32.Vec3{0.0, 0.0, 0.0}, fixed}
 }
 
 // Run Verlet integration
 func (v *Verlet) UpdatePosition(dt float32) {
+  if v.Fixed {
+    return
+  }
   velocity := v.Pos.Sub(v.PrevPos)
   v.PrevPos = v.Pos
   v.Pos = v.Pos.Add(velocity).Add(v.Accel.Mul(dt * dt))

@@ -16,14 +16,16 @@ func (s *Sphere) GetVerlet() *Verlet { return &s.Verlet }
 
 
 
-func NewSphere(pos mgl32.Vec3, radius float32) *Sphere {
-  verlet := NewVerlet(pos)
+func NewSphere(pos mgl32.Vec3, radius float32, fixed bool) *Sphere {
+  verlet := NewVerlet(pos, fixed)
   return &Sphere{verlet, radius}
 }
 
-func NewSphereFromMesh(mesh *scene.Mesh) *Sphere {
+func NewSphereFromMesh(mesh *scene.Mesh, fixed bool) *Sphere {
   radius := mesh.Vertices[0].Sub(mesh.Position).Len()
-  return &Sphere{NewVerlet(mesh.Position), radius}
+  println("radius", radius)
+  println("pos", mesh.Position[0], mesh.Position[1], mesh.Position[2])
+  return &Sphere{NewVerlet(mesh.Position, fixed), radius}
 }
 
 func (s *Sphere) Collide(c Collider) {
@@ -43,9 +45,7 @@ func (s *Sphere) sphereCollide(s2 Sphere) {
   if colDist < dist {
     n := colAxis.Mul(1.0 / colDist)
     delta := (dist - colDist) * 0.5
-    println("delta", delta)
     s.Pos = s.Pos.Add(n.Mul(delta))
-    return 
   }
 }
 
@@ -58,7 +58,6 @@ func (s *Sphere) planeCollide(p Plane) {
     if distMain > -p.MainHalf && distMain < p.MainHalf {
       if distCross > -p.CrossHalf && distCross < p.CrossHalf {
         s.Pos = s.Pos.Add(p.Normal.Mul(s.Radius - distNormal))
-        return
       }
     }
   }

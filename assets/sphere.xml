@@ -2,7 +2,7 @@
 <scene>
 	<camera name="Camera">
 		<type>persp</type>
-		<position>15.305257797241211,-14.032649040222168,11.820826530456543</position>
+		<position>12.749269485473633,-12.178304672241211,6.7780842781066895</position>
 		<front>-0.7227974534034729,0.646436333656311,-0.24430295825004578</front>
 		<up>-0.18209953606128693,0.1628609597682953,0.969698965549469</up>
 		<yaw>48.19203893442577</yaw>
@@ -38,6 +38,12 @@
 		<rotation>0.0,0.0,0.0</rotation>
 		<obj>Ground.obj</obj>
 		<mtl>Ground.mtl</mtl>
+	</mesh>
+	<mesh name="Sphere2">
+		<position>-0.7517609000205994,2.6515262126922607,0.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Sphere2.obj</obj>
+		<mtl>Sphere2.mtl</mtl>
 	</mesh>
 	<light name="Point">
 		<type>point</type>

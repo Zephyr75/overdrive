@@ -17,24 +17,24 @@ type Plane struct {
 }
 
 
-func NewPlaneFromMesh(mesh *scene.Mesh) *Plane {
+func NewPlaneFromMesh(mesh *scene.Mesh, fixed bool) *Plane {
   fmt.Println(
     mesh.Vertices[0],
     mesh.Vertices[1],
     mesh.Vertices[2],
     mesh.Vertices[3],
     )
-  return NewPlane(mesh.Vertices[0], mesh.Vertices[1], mesh.Vertices[3], mesh.Vertices[2])
+  return NewPlane(mesh.Vertices[0], mesh.Vertices[1], mesh.Vertices[3], mesh.Vertices[2], fixed)
 }
 
 
 
-func NewPlane(p1 mgl32.Vec3, p2 mgl32.Vec3, p3 mgl32.Vec3, p4 mgl32.Vec3) *Plane {
+func NewPlane(p1 mgl32.Vec3, p2 mgl32.Vec3, p3 mgl32.Vec3, p4 mgl32.Vec3, fixed bool) *Plane {
   mainAxis := p2.Sub(p1)
   crossAxis := p4.Sub(p1)
   center := p1.Add(mainAxis.Mul(0.5)).Add(crossAxis.Mul(0.5))
   normal := mainAxis.Cross(crossAxis).Normalize()
-  verlet := NewVerlet(center)
+  verlet := NewVerlet(center, fixed)
 
   // fmt.Println("NewPlane",normal, mainAxis, crossAxis, mainAxis.Len() * 0.5, crossAxis.Len() * 0.5, center)
 
