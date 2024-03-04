@@ -17,7 +17,6 @@ import (
 type StaticCollider struct {
   physics.Collider
 }
-
 func (s *StaticCollider) Init(world *ecs.World) { }
 func (s *StaticCollider) Update(world *ecs.World) { }
 func (s *StaticCollider) GetType() string { return "StaticCollider" }
@@ -34,7 +33,6 @@ func (s *Sphere) Init(world *ecs.World) { }
 
 func (s *Sphere) Update(world *ecs.World) {
   s.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
-  // fmt.Println("Sphere.Update", s.Pos)
   s.Mesh.MoveTo(s.Pos)
 }
 
@@ -53,17 +51,6 @@ func (s *Sphere2) Update(world *ecs.World) { }
 func (s *Sphere2) GetType() string { return "Sphere2" }
 func (s *Sphere2) GetCollider() physics.Collider { return s.Sphere }
 
-
-
-type Plane struct {
-  *physics.Plane
-}
-func (p *Plane) Init(world *ecs.World) { }
-func (p *Plane) Update(world *ecs.World) { }
-func (p *Plane) GetType() string { return "Plane" }
-func (p *Plane) GetCollider() physics.Collider { return p.Plane }
-
-
 func main() {
 
 	app := core.NewApp("Gutter", 1920, 1080, true, nil, nil)
@@ -72,30 +59,28 @@ func main() {
 
   world := createWorld(&scene)
 
-	app.Run(&scene, MainWindow, world)
+	app.Run(&scene, nil, world)
 	// app.Run(nil, nil)
   
 }
 
 func createWorld(scene *scene.Scene) *ecs.World {
-  ground := Plane{
+  ground := StaticCollider{
     physics.NewPlaneFromMesh(scene.GetMesh("Ground"), true),
+  }
+  ball := StaticCollider{
+    physics.NewSphereFromMesh(scene.GetMesh("Sphere2"), true),
   }
 
   sphereMesh := scene.GetMesh("Sphere")
-
   s1 := Sphere{
     physics.NewSphereFromMesh(sphereMesh, false),
     sphereMesh,
   }
 
-  s2 := StaticCollider{
-    physics.NewSphereFromMesh(scene.GetMesh("Sphere2"), true),
-  }
-
 	world := ecs.World{}
   world.AddEntities(&s1)
-  world.AddEntities(&s2)
+  world.AddEntities(&ball)
   world.AddEntities(&ground)
   world.Init()
   return &world
