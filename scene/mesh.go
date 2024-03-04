@@ -273,10 +273,13 @@ func (m *Mesh) setup() {
     gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(face)*4, gl.Ptr(face), gl.STATIC_DRAW)
 
     // Define Vertex Attrib to be used by the shader
+    // Vertex position
     gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
     gl.EnableVertexAttribArray(0)
+    // Vertex normal
     gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(3*4))
     gl.EnableVertexAttribArray(1)
+    // Vertex texture coordinates
     gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, gl.PtrOffset(6*4))
     gl.EnableVertexAttribArray(2)
 

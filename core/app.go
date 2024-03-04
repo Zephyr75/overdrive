@@ -18,12 +18,14 @@ import (
 	"github.com/Zephyr75/overdrive/utils"
 
 	"github.com/Zephyr75/gutter/ui"
+
 )
 
 type App struct {
   Name string
   Width int
   Height int
+  Debug bool
   Window *glfw.Window
   InputHandler func(window *glfw.Window, deltaTime float32)
   MouseCallback func(window *glfw.Window, x float64, y float64)
@@ -38,12 +40,13 @@ func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
-func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App {
+func NewApp(name string, width int, height int, debug bool, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App {
 
   app := App{
     Name: name,
     Width: width,
     Height: height,
+    Debug: debug,
     MouseCallback: mouseCallback,
     InputHandler: inputHandler,
   }
@@ -183,14 +186,15 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 
       // gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
 
-      s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
-      
       s.RenderSkybox(skyboxProgram)
+
+      s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
+
+      // draw a circle
+           
     }
 
-    if widget != nil {
-      renderUI(app, app.Window, widget, uiProgram)
-    }
+    renderUI(app, app.Window, widget, uiProgram, world)
 
 		// Time management
 		i++
@@ -207,3 +211,6 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		glfw.PollEvents()
 	}
 }
+
+
+

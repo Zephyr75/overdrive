@@ -9,8 +9,13 @@ import (
 
 	"github.com/Zephyr75/overdrive/settings"
 	"github.com/Zephyr75/overdrive/utils"
+  "github.com/Zephyr75/overdrive/ecs"
 
 	"github.com/Zephyr75/gutter/ui"
+
+  "image/color"
+
+  "math"
 )
 
 
@@ -23,7 +28,7 @@ var (
   generatedTexture bool = false
 )
 
-func renderUI(app App, window *glfw.Window, widget func(app App) ui.UIElement, uiProgram uint32) {
+func renderUI(app App, window *glfw.Window, widget func(app App) ui.UIElement, uiProgram uint32, world *ecs.World) {
   // Create texture
   if !generatedTexture {
     generatedTexture = true
@@ -38,7 +43,10 @@ func renderUI(app App, window *glfw.Window, widget func(app App) ui.UIElement, u
 
   // Initialize image
   var img = image.NewRGBA(image.Rect(0, 0, settings.WindowWidth, settings.WindowHeight))
-  instance := widget(app)
+  var instance ui.UIElement = nil
+  if widget != nil {
+    instance = widget(app)
+  }
   equal := true
   for _, area := range areas {
     if ui.MouseInBounds(window, area) != lastMap[area.ToString()] {
@@ -49,22 +57,41 @@ func renderUI(app App, window *glfw.Window, widget func(app App) ui.UIElement, u
     }
   }
 
-  // Only redraw if the UI has changed
-  if lastInstance != instance.ToString() || !equal {
-    lastInstance = instance.ToString()
-    areas = instance.Draw(img, window)
-    newAreas := []ui.Area{}
-    for _, area := range areas {
-      if area.Left != 0 || area.Right != 0 || area.Top != 0 || area.Bottom != 0 {
-        newAreas = append(newAreas, area)
-      }
+  // Draw debug information
+  // iterate over all entities to find physics objects
+  for _, entity := range world.Entities {
+    if entity.HasComponent("Physics") {
+      physics := entity.GetComponent("Physics").(*ecs.Physics)
+      if physics != nil {
+  if app.Debug {
+    radius := 50
+    for i := 0; i < 360; i++ {
+      x := int(float64(radius) * math.Cos(float64(i)))
+      y := int(float64(radius) * math.Sin(float64(i)))
+      img.SetRGBA(settings.WindowWidth / 2 + x, settings.WindowHeight / 2 + y, color.RGBA{255, 255, 255, 255})
     }
-    areas = newAreas
-    flippedImg = imaging.FlipV(img)
   }
-  for _, area := range areas {
-    lastMap[area.ToString()] = ui.MouseInBounds(window, area)
+
+  if instance != nil {
+    // Only redraw if the UI has changed
+    if lastInstance != instance.ToString() || !equal {
+      lastInstance = instance.ToString()
+      areas = instance.Draw(img, window)
+      
+      newAreas := []ui.Area{}
+      for _, area := range areas {
+        if area.Left != 0 || area.Right != 0 || area.Top != 0 || area.Bottom != 0 {
+          newAreas = append(newAreas, area)
+        }
+      }
+      areas = newAreas
+    }
+    for _, area := range areas {
+      lastMap[area.ToString()] = ui.MouseInBounds(window, area)
+    }
   }
+
+  flippedImg = imaging.FlipV(img)
 
   // Bind image to OpenGL texture
   gl.BindTexture(gl.TEXTURE_2D, texture)

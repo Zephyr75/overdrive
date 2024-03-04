@@ -47,13 +47,13 @@ func (p *Plane) Update(world *ecs.World) { }
 
 func main() {
 
-	app := core.NewApp("Gutter", 1920, 1080, nil, nil)
+	app := core.NewApp("Gutter", 1920, 1080, true, nil, nil)
 
   scene := scene.NewScene("assets/sphere.xml")
 
   world := createWorld(&scene)
 
-	app.Run(&scene, nil, world)
+	app.Run(&scene, MainWindow, world)
 	// app.Run(nil, nil)
   
 }

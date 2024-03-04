@@ -6,6 +6,7 @@
 - [ ] Integrate skybox reflection nicely to the color computation
 - [X] Make it usable from a simple ECS script
 - [X] Get colliders position, size and rotation from Blender scene
+- [ ] Debug mode
 - [ ] Add multiple lights of the same type
 - [ ] Add proper box colliders
 

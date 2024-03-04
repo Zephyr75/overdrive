@@ -89,6 +89,8 @@ window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
 ## Storing triangles : EBO
 
+> Element Buffer Object stores indices
+
 `var EBO uint32` declare ID
 
 `gl.GenBuffers(1, &EBO)` create buffer and store its ID
@@ -198,6 +200,8 @@ glBindVertexArray(0)
 `gl.GetProgramiv(program, gl.LINK_STATUS, &status)` get program information and errors
 
 ## Framebuffer
+
+> Framebuffer Object stores color, depth and stencil buffers
 
 `var FBO uint32` declare ID
 
