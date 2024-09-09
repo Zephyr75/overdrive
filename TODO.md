@@ -9,6 +9,7 @@
 - [ ] Debug mode
 - [ ] Add multiple lights of the same type
 - [ ] Add proper box colliders
+- [ ] Add audio support
 
 [Cubemap from HDRI](https://matheowis.github.io/HDRI-to-CubeMap/)
 
@@ -21,7 +22,7 @@
 - [ ] Add blend (transparency)
 - [ ] Add geometry shader for fur
 - [ ] Add normal mapping
-- [ ] Add framebuffers (post-proc + gutter)
+- [X] Add framebuffers (post-proc + gutter)
 - [ ] Add instancing
 - [ ] Add HDR to fix too much light
 
