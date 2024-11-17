@@ -7,77 +7,69 @@ import (
 )
 
 type World struct {
-  entities []Entity
+	entities []Entity
 }
 
 func (w *World) AddEntities(entities ...Entity) {
-  w.entities = append(w.entities, entities...)
+	w.entities = append(w.entities, entities...)
 }
 
 func (w *World) Init() {
-  for _, entity := range w.entities {
-    entity.Init(w)
-  }
+	for _, entity := range w.entities {
+		entity.Init(w)
+	}
 }
 
 func (w *World) Update(timeInterval time.Duration) {
-  for _, entity := range w.entities {
-    entity.Update(w)
-  }
+	for _, entity := range w.entities {
+		entity.Update(w)
+	}
 
-  // Handle collisions
-  for i, entity := range w.entities {
-    for j, otherEntity := range w.entities {
-      if i != j {
-        entity.GetCollider().Collide(otherEntity.GetCollider())
-      }
-    }
-  }
-  for _, entity := range w.entities {
-    entity.GetCollider().GetVerlet().UpdatePosition(1.0 / 60.0)
-  }
+	// Handle collisions
+	for i, entity := range w.entities {
+		for j, otherEntity := range w.entities {
+			if i != j {
+				entity.GetCollider().Collide(otherEntity.GetCollider())
+			}
+		}
+	}
+	for _, entity := range w.entities {
+		entity.GetCollider().GetVerlet().UpdatePosition(1.0 / 60.0)
+	}
 
-
-  // for {
-  //   for _, entity := range w.entities {
-  //     entity.Update(w)
-  //   }
-  //   time.Sleep(timeInterval)
-  // }
+	// for {
+	//   for _, entity := range w.entities {
+	//     entity.Update(w)
+	//   }
+	//   time.Sleep(timeInterval)
+	// }
 }
 
 func (w *World) GetEntities(entityType string) []Entity {
-  var entities []Entity
-  for _, entity := range w.entities {
-    if entity.GetType() == entityType {
-      entities = append(entities, entity)
-    }
-  }
-  return entities
+	var entities []Entity
+	for _, entity := range w.entities {
+		if entity.GetType() == entityType {
+			entities = append(entities, entity)
+		}
+	}
+	return entities
 }
 
 func (w *World) GetEntity(entityType string) Entity {
-  for _, entity := range w.entities {
-    if entity.GetType() == entityType {
-      return entity
-    }
-  }
-  return nil
+	for _, entity := range w.entities {
+		if entity.GetType() == entityType {
+			return entity
+		}
+	}
+	return nil
 }
-
 
 type Entity interface {
-  Init(world *World) 
-  Update(world *World) 
-  GetType() string
-  GetCollider() physics.Collider
+	Init(world *World)
+	Update(world *World)
+	GetType() string
+	GetCollider() physics.Collider
 }
-
-
-
-
-
-
 
 // type Sphere struct {
 //   *physics.Sphere
