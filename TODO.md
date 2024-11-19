@@ -25,6 +25,15 @@
 - [X] Add framebuffers (post-proc + gutter)
 - [ ] Add instancing
 - [ ] Add HDR to fix too much light
+- [ ] Ray tracing on specific objects?
+- [ ] Ray marching for basic shapes?
+- [ ] Bushes
+- [ ] Grass
+- [ ] Wave Function Collapse
+- [ ] Isotropic remeshing
+- [ ] Noise terrain
+- [ ] Navmesh
+- [ ] Bezier paths
 
 
 GOPROXY=proxy.golang.org go list -m github.com/Zephyr75/gutter@v0.1.2

@@ -1,39 +1,38 @@
 package main
 
 import (
-	"image/color"
 	"github.com/Zephyr75/overdrive/core"
 	"github.com/Zephyr75/overdrive/ecs"
 	"github.com/Zephyr75/overdrive/physics"
 	"github.com/Zephyr75/overdrive/scene"
+	"image/color"
 
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/go-gl/mathgl/mgl32"
-  // "fmt"
+	// "fmt"
 )
 
 /////////////
 
 type StaticCollider struct {
-  physics.Collider
+	physics.Collider
 }
-func (s *StaticCollider) Init(world *ecs.World) { }
-func (s *StaticCollider) Update(world *ecs.World) { }
-func (s *StaticCollider) GetType() string { return "StaticCollider" }
+
+func (s *StaticCollider) Init(world *ecs.World)         {}
+func (s *StaticCollider) Update(world *ecs.World)       {}
+func (s *StaticCollider) GetType() string               { return "StaticCollider" }
 func (s *StaticCollider) GetCollider() physics.Collider { return s.Collider }
 
-
-
 type Sphere struct {
-  *physics.Sphere
-  *scene.Mesh
+	*physics.Sphere
+	*scene.Mesh
 }
 
-func (s *Sphere) Init(world *ecs.World) { }
+func (s *Sphere) Init(world *ecs.World) {}
 
 func (s *Sphere) Update(world *ecs.World) {
-  s.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
-  s.Mesh.MoveTo(s.Pos)
+	s.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
+	s.Mesh.MoveTo(s.Pos)
 }
 
 func (s *Sphere) GetType() string { return "Sphere" }
@@ -41,49 +40,49 @@ func (s *Sphere) GetType() string { return "Sphere" }
 func (s *Sphere) GetCollider() physics.Collider { return s.Sphere }
 
 type Sphere2 struct {
-  name string
-  *physics.Sphere
-  *scene.Mesh
+	name string
+	*physics.Sphere
+	*scene.Mesh
 }
 
-func (s *Sphere2) Init(world *ecs.World) { }
-func (s *Sphere2) Update(world *ecs.World) { }
-func (s *Sphere2) GetType() string { return "Sphere2" }
+func (s *Sphere2) Init(world *ecs.World)         {}
+func (s *Sphere2) Update(world *ecs.World)       {}
+func (s *Sphere2) GetType() string               { return "Sphere2" }
 func (s *Sphere2) GetCollider() physics.Collider { return s.Sphere }
 
 func main() {
 
 	app := core.NewApp("Gutter", 1920, 1080, true, nil, nil)
 
-  scene := scene.NewScene("assets/sphere.xml")
+	scene := scene.NewScene("assets/sphere.xml")
 
-  world := createWorld(&scene)
+	world := createWorld(&scene)
 
-	app.Run(&scene, nil, world)
+	app.Run(&scene, MainWindow, world)
 	// app.Run(nil, nil)
-  
+
 }
 
 func createWorld(scene *scene.Scene) *ecs.World {
-  ground := StaticCollider{
-    physics.NewPlaneFromMesh(scene.GetMesh("Ground"), true),
-  }
-  ball := StaticCollider{
-    physics.NewSphereFromMesh(scene.GetMesh("Sphere2"), true),
-  }
+	ground := StaticCollider{
+		physics.NewPlaneFromMesh(scene.GetMesh("Ground"), true),
+	}
+	ball := StaticCollider{
+		physics.NewSphereFromMesh(scene.GetMesh("Sphere2"), true),
+	}
 
-  sphereMesh := scene.GetMesh("Sphere")
-  s1 := Sphere{
-    physics.NewSphereFromMesh(sphereMesh, false),
-    sphereMesh,
-  }
+	sphereMesh := scene.GetMesh("Sphere")
+	s1 := Sphere{
+		physics.NewSphereFromMesh(sphereMesh, false),
+		sphereMesh,
+	}
 
 	world := ecs.World{}
-  world.AddEntities(&s1)
-  world.AddEntities(&ball)
-  world.AddEntities(&ground)
-  world.Init()
-  return &world
+	world.AddEntities(&s1)
+	world.AddEntities(&ball)
+	world.AddEntities(&ground)
+	world.Init()
+	return &world
 }
 
 var (
@@ -217,8 +216,6 @@ func MainWindow(app core.App) ui.UIElement {
 		},
 	}
 }
-
-
 
 var (
 	green       = color.RGBA{158, 206, 106, 255}
