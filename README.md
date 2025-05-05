@@ -14,6 +14,17 @@ Currently implemented:
 - Entity system
 - Particle-based physics system based on Verlet integration
 
+In progress:
+- Normal mapping
+- Procedural terrain generation
+- Environment shaders (clouds, water, vegetation, ...)
+
+Planned:
+- Audio support
+- Bloom
+- Instancing
+- NavMesh
+
 ## Getting started
 
 ```go
