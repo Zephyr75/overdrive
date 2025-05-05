@@ -77,6 +77,7 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	gl.Init()
 	gl.Enable(gl.DEPTH_TEST)
 	gl.Enable(gl.CULL_FACE)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 	gl.Enable(gl.BLEND)
 	// Anti-aliasing
 	// gl.Enable(gl.MULTISAMPLE)
@@ -87,7 +88,10 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) {
 
 	// Declare main shader programs
-	cubesProgram, err := opengl.CreateProgram("cubes", false)
+	// TODO restore
+	// cubesProgram, err := opengl.CreateProgram("cubes", false)
+	cubesProgram, err := opengl.CreateProgram("clouds", false)
+	// cubesProgram, err := opengl.CreateProgram("water", false)
 	utils.HandleError(err)
 
 	// Declare directional depth shader programs

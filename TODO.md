@@ -1,6 +1,7 @@
 # V1
 
 - [X] Overlay Gutter on Overdrive
+- [ ] Fix Gutter on Overdrive
 - [X] Add support for multiple shadows
 - [X] Clean up fragment shader 
 - [ ] Integrate skybox reflection nicely to the color computation
@@ -26,7 +27,8 @@
 - [ ] Add instancing
 - [ ] Add HDR to fix too much light
 - [ ] Ray tracing on specific objects?
-- [ ] Ray marching for basic shapes?
+- [x] Ray marching for basic shapes?
+- [x] Ray marching for clouds?
 - [ ] Bushes
 - [ ] Grass
 - [ ] Wave Function Collapse

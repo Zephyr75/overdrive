@@ -3,11 +3,17 @@ package scene
 import (
 	"encoding/xml"
 	"fmt"
+	"io"
+	"os"
+	"time"
+
 	"github.com/Zephyr75/overdrive/settings"
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
-	"io"
-	"os"
+)
+
+var (
+	startTime = time.Now().UnixMilli()
 )
 
 type SceneXml struct {
@@ -135,6 +141,10 @@ func (s Scene) RenderScene(cubesProgram uint32, lightSpaceMatrix mgl32.Mat4, far
 
 	farPlaneLoc := gl.GetUniformLocation(cubesProgram, gl.Str("farPlane\x00"))
 	gl.Uniform1f(farPlaneLoc, farPlane)
+
+	// TODO remove
+	timeLoc := gl.GetUniformLocation(cubesProgram, gl.Str("time\x00"))
+	gl.Uniform1f(timeLoc, float32(time.Now().UnixMilli()-startTime)/1000)
 
 	for i := 0; i < len(s.Meshes); i++ {
 		s.Meshes[i].draw(cubesProgram, &s)

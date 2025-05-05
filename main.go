@@ -58,7 +58,8 @@ func main() {
 
 	world := createWorld(&scene)
 
-	app.Run(&scene, MainWindow, world)
+	app.Run(&scene, nil, world)
+	// app.Run(&scene, MainWindow, world)
 	// app.Run(nil, nil)
 
 }
