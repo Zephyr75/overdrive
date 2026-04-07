@@ -1,0 +1,126 @@
+<?xml version="1.0" ?>
+<scene>
+	<camera name="Camera">
+		<type>persp</type>
+		<position>12.0,-14.0,8.0</position>
+		<front>-0.6247,-0.6938,-0.3584</front>
+		<up>-0.2357,-0.2619,0.9336</up>
+		<yaw>228.0</yaw>
+		<pitch>69.0</pitch>
+		<fov>60.0</fov>
+	</camera>
+
+	<!-- Ground plane -->
+	<mesh name="Ground">
+		<position>0.0,0.0,0.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Ground.obj</obj>
+		<mtl>Ground.mtl</mtl>
+	</mesh>
+
+	<!-- Central Suzanne head elevated on a pedestal cube -->
+	<mesh name="Pedestal">
+		<position>0.0,0.0,0.5</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Cube.obj</obj>
+		<mtl>Cube.mtl</mtl>
+	</mesh>
+	<mesh name="Suzanne">
+		<position>0.0,0.0,2.5</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Suzanne.obj</obj>
+		<mtl>Suzanne.mtl</mtl>
+	</mesh>
+
+	<!-- Left Suzanne variant -->
+	<mesh name="Suzanne.001">
+		<position>-4.0,0.0,1.8</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Suzanne.001.obj</obj>
+		<mtl>Suzanne.001.mtl</mtl>
+	</mesh>
+
+	<!-- Right Suzanne variant -->
+	<mesh name="Suzanne.002">
+		<position>4.0,0.0,1.8</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Suzanne.002.obj</obj>
+		<mtl>Suzanne.002.mtl</mtl>
+	</mesh>
+
+	<!-- Row of spheres in the background -->
+	<mesh name="Sphere">
+		<position>-6.0,-4.0,1.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Sphere.obj</obj>
+		<mtl>Sphere.mtl</mtl>
+	</mesh>
+	<mesh name="Sphere.001">
+		<position>0.0,-6.0,1.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Sphere.001.obj</obj>
+		<mtl>Sphere.001.mtl</mtl>
+	</mesh>
+	<mesh name="Sphere2">
+		<position>6.0,-4.0,1.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Sphere2.obj</obj>
+		<mtl>Sphere2.mtl</mtl>
+	</mesh>
+
+	<!-- Scattered cubes at various heights -->
+	<mesh name="Cube.001">
+		<position>-7.0,2.0,0.5</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Cube.001.obj</obj>
+		<mtl>Cube.001.mtl</mtl>
+	</mesh>
+	<mesh name="Cube.002">
+		<position>7.0,2.0,1.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Cube.002.obj</obj>
+		<mtl>Cube.002.mtl</mtl>
+	</mesh>
+	<mesh name="Cube.003">
+		<position>-3.0,5.0,0.75</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Cube.003.obj</obj>
+		<mtl>Cube.003.mtl</mtl>
+	</mesh>
+	<mesh name="Cube.004">
+		<position>3.0,5.0,0.75</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Cube.004.obj</obj>
+		<mtl>Cube.004.mtl</mtl>
+	</mesh>
+
+	<!-- Text floating above the scene -->
+	<mesh name="Text">
+		<position>0.0,-2.0,5.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Text.obj</obj>
+		<mtl>Text.mtl</mtl>
+	</mesh>
+
+	<!-- Warm point light near the center, elevated -->
+	<light name="PointCenter">
+		<type>point</type>
+		<position>0.0,1.0,6.0</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.0,0.85,0.6</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>80.0</intensity>
+	</light>
+
+	<!-- Cool blue-tinted sun light from upper-left -->
+	<light name="Sun">
+		<type>sun</type>
+		<position>-8.0,6.0,12.0</position>
+		<direction>0.5,-0.4,-0.77</direction>
+		<color>0.7,0.8,1.0</color>
+		<diffuse>0.6</diffuse>
+		<specular>0.4</specular>
+		<intensity>2.0</intensity>
+	</light>
+</scene>

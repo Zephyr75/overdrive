@@ -13,7 +13,7 @@ bl_info = {
     "name": "Export Overdrive scenes format",
     "author": "Zephyr",
     "version": (0, 1),
-    "blender": (3, 6, 0),
+    "blender": (4, 0, 0),
     "location": "File > Export > Overdrive scene [xml]",
     "description": "Export scene using Overdrive format [xml]",
     "warning": "",
@@ -163,9 +163,10 @@ class OverdriveWriter:
         mtl_name = mesh.name + ".mtl"
         obj_path = os.path.join(self.working_dir, 'meshes', obj_name)
         mesh.select_set(True)
-        bpy.ops.export_scene.obj(filepath=obj_path, check_existing=False,
-                                    use_selection=True, use_edges=False, use_smooth_groups=False,
-                                    use_materials=True, use_triangles=True, use_mesh_modifiers=True)
+        bpy.ops.wm.obj_export(filepath=obj_path, check_existing=False,
+                              export_selected_objects=True, export_smooth_groups=False,
+                              export_materials=True, export_triangulated_mesh=True,
+                              apply_modifiers=True)
         mesh.select_set(False)
 
         # Add the corresponding entry to the xml
@@ -201,8 +202,8 @@ class OverdriveWriter:
         dir = vec
 
         color = light.data.color
-        specular = light.data.specular_factor
-        diffuse = light.data.diffuse_factor
+        specular = getattr(light.data, 'specular_factor', 1.0)
+        diffuse = getattr(light.data, 'diffuse_factor', 1.0)
         intensity = light.data.energy
 
         type_element = self.create_xml_element("type", {})
