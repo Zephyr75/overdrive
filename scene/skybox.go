@@ -70,12 +70,12 @@ func (s *Skybox) setup() {
 	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))
 
 	s.Texture = opengl.CreateCubemap([]string{
-		"/home/zeph/GitHub/overdrive/textures/skybox/right.png",
-		"/home/zeph/GitHub/overdrive/textures/skybox/left.png",
-		"/home/zeph/GitHub/overdrive/textures/skybox/top.png",
-		"/home/zeph/GitHub/overdrive/textures/skybox/bottom.png",
-		"/home/zeph/GitHub/overdrive/textures/skybox/front.png",
-		"/home/zeph/GitHub/overdrive/textures/skybox/back.png",
+		"./textures/skybox/right.png",
+		"./textures/skybox/left.png",
+		"./textures/skybox/top.png",
+		"./textures/skybox/bottom.png",
+		"./textures/skybox/front.png",
+		"./textures/skybox/back.png",
 	})
 }
 

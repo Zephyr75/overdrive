@@ -1,8 +1,6 @@
 package physics
 
 import (
-	"fmt"
-
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/go-gl/mathgl/mgl32"
 )
@@ -17,12 +15,6 @@ type Plane struct {
 }
 
 func NewPlaneFromMesh(mesh *scene.Mesh, fixed bool) *Plane {
-	fmt.Println(
-		mesh.Vertices[0],
-		mesh.Vertices[1],
-		mesh.Vertices[2],
-		mesh.Vertices[3],
-	)
 	return NewPlane(mesh.Vertices[0], mesh.Vertices[1], mesh.Vertices[3], mesh.Vertices[2], fixed)
 }
 

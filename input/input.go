@@ -18,22 +18,22 @@ func DefaultInput(window *glfw.Window, deltaTime float32) {
 	}
 
 	if window.GetKey(glfw.KeyW) == glfw.Press {
-		S.Cam.Pos = S.Cam.Pos.Add(S.Cam.Front.Mul(cameraSpeed))
+		s.Cam.Pos = s.Cam.Pos.Add(s.Cam.Front.Mul(cameraSpeed))
 	}
 	if window.GetKey(glfw.KeyS) == glfw.Press {
-		S.Cam.Pos = S.Cam.Pos.Sub(S.Cam.Front.Mul(cameraSpeed))
+		s.Cam.Pos = s.Cam.Pos.Sub(s.Cam.Front.Mul(cameraSpeed))
 	}
 	if window.GetKey(glfw.KeyA) == glfw.Press {
-		S.Cam.Pos = S.Cam.Pos.Sub((S.Cam.Front.Cross(S.Cam.Up).Normalize()).Mul(cameraSpeed))
+		s.Cam.Pos = s.Cam.Pos.Sub((s.Cam.Front.Cross(s.Cam.Up).Normalize()).Mul(cameraSpeed))
 	}
 	if window.GetKey(glfw.KeyD) == glfw.Press {
-		S.Cam.Pos = S.Cam.Pos.Add((S.Cam.Front.Cross(S.Cam.Up).Normalize()).Mul(cameraSpeed))
+		s.Cam.Pos = s.Cam.Pos.Add((s.Cam.Front.Cross(s.Cam.Up).Normalize()).Mul(cameraSpeed))
 	}
 	if window.GetKey(glfw.KeyQ) == glfw.Press {
-		S.Cam.Pos = S.Cam.Pos.Add(S.Cam.Up.Mul(cameraSpeed))
+		s.Cam.Pos = s.Cam.Pos.Add(s.Cam.Up.Mul(cameraSpeed))
 	}
 	if window.GetKey(glfw.KeyE) == glfw.Press {
-		S.Cam.Pos = S.Cam.Pos.Sub(S.Cam.Up.Mul(cameraSpeed))
+		s.Cam.Pos = s.Cam.Pos.Sub(s.Cam.Up.Mul(cameraSpeed))
 	}
 
 	if window.GetKey(glfw.KeyTab) == glfw.Press {

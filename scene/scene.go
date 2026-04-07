@@ -52,8 +52,8 @@ func EmptyScene() Scene {
 
 func (s *Scene) UpdateMeshes() {
 	if s != nil {
-		for _, mesh := range s.Meshes {
-			mesh.updateVertices()
+		for i := range s.Meshes {
+			s.Meshes[i].updateVertices()
 		}
 	}
 }
@@ -96,7 +96,10 @@ func LoadScene(path string) Scene {
 
 	var sceneXml SceneXml
 
-	xml.Unmarshal(xmlData, &sceneXml)
+	if err := xml.Unmarshal(xmlData, &sceneXml); err != nil {
+		fmt.Println("Error parsing scene XML:", err)
+		return Scene{}
+	}
 
 	var s Scene
 

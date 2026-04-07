@@ -115,10 +115,10 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 	utils.HandleError(err)
 
 	if s != nil {
-		input.S = s
+		input.SetScene(s)
 	} else {
 		emptyScene := scene.EmptyScene()
-		input.S = &emptyScene
+		input.SetScene(&emptyScene)
 	}
 
 	// Time init
@@ -132,16 +132,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 
 		world.Update(time.Second / 60)
 
-		// update every mesh
 		s.UpdateMeshes()
-		// println(scene.GetMesh("Suzanne").Positions[0].X())
-		// var mesh *scene.Mesh
-
-		// mesh = app.Scene.GetMesh("Suzanne")
-		// mesh.Move(0.01, 0, 0)
-		// println("1", scene)
-		// scene.GetMesh(("Suzanne")).Move(0.01, 0, 0)
-		// println(app.Scene.GetLight("Light.003").Pos.X())
 
 		// Process input
 		if app.InputHandler != nil {
@@ -161,39 +152,16 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 			s.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, s)
 			lightSpaceMatrix := s.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, s)
 
-			// println(s.Lights[0].Type)
-			// println(s.Lights[1].Type)
-			// println()
-
 			// Clear buffers
 			gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
 			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
 
-			// Render shadow map
-
-			// gl.UseProgram(depthDebugProgram)
-			// nearPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("near_plane\x00"))
-			// gl.Uniform1f(nearPlaneLoc, nearPlane)
-			// farPlaneLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("farPlane\x00"))
-			// gl.Uniform1f(farPlaneLoc, farPlane)
-			// depthMapLoc := gl.GetUniformLocation(depthDebugProgram, gl.Str("depthMap\x00"))
-			// gl.Uniform1i(depthMapLoc, 0)
-			// gl.ActiveTexture(gl.TEXTURE0)
-			// gl.BindTexture(gl.TEXTURE_2D, s.Lights[1].DepthMap)
-			// utils.RenderQuad()
-
-			// gl.PolygonMode(gl.FRONT_AND_BACK, gl.LINE)
-
 			s.RenderSkybox(skyboxProgram)
 
 			s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
-
-			// draw a circle
-
 		}
 
-		var window *glfw.Window = app.Window
-		renderUI(app, window, widget, uiProgram)
+		renderUI(app, app.Window, widget, uiProgram)
 
 		// Time management
 		i++

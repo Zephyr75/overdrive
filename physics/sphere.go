@@ -21,8 +21,6 @@ func NewSphere(pos mgl32.Vec3, radius float32, fixed bool) *Sphere {
 
 func NewSphereFromMesh(mesh *scene.Mesh, fixed bool) *Sphere {
 	radius := mesh.Vertices[0].Sub(mesh.Position).Len()
-	println("radius", radius)
-	println("pos", mesh.Position[0], mesh.Position[1], mesh.Position[2])
 	return &Sphere{NewVerlet(mesh.Position, fixed), radius}
 }
 

@@ -196,8 +196,9 @@ func (mXml MeshXml) toMesh() Mesh {
 	//   fmt.Println(m.Materials[i])
 	// }
 
-	// TODO: find better place for this
-	white = opengl.CreateTexture("textures/white.png")
+	if white == 0 {
+		white = opengl.CreateTexture("textures/white.png")
+	}
 
 	return m
 }
@@ -304,54 +305,68 @@ func (m *Mesh) updateVertices() {
 }
 
 func (m *Mesh) draw(program uint32, scene *Scene) {
+	// Uniforms that are the same for every face group of this mesh.
+
+	// Light properties
+	for i, light := range scene.Lights {
+		lightTypeLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].type\x00", i)))
+		gl.Uniform1i(lightTypeLoc, int32(light.Type))
+
+		lightConstantLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].constant\x00", i)))
+		gl.Uniform1f(lightConstantLoc, 1.0)
+
+		lightLinearLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].linear\x00", i)))
+		gl.Uniform1f(lightLinearLoc, 0.09)
+
+		lightQuadraticLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].quadratic\x00", i)))
+		gl.Uniform1f(lightQuadraticLoc, 0.032)
+
+		lightCutoffLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].cutoff\x00", i)))
+		gl.Uniform1f(lightCutoffLoc, float32(math.Cos(math.Pi/4)))
+
+		lightColorLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].color\x00", i)))
+		gl.Uniform3f(lightColorLoc, light.Color.X(), light.Color.Y(), light.Color.Z())
+
+		lightIntensityLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].intensity\x00", i)))
+		gl.Uniform1f(lightIntensityLoc, light.Intensity)
+
+		lightDiffuseLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].diffuse\x00", i)))
+		gl.Uniform1f(lightDiffuseLoc, light.Diffuse)
+
+		lightSpecularLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].specular\x00", i)))
+		gl.Uniform1f(lightSpecularLoc, light.Specular)
+
+		lightPosLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].position\x00", i)))
+		gl.Uniform3f(lightPosLoc, light.Pos.X(), light.Pos.Y(), light.Pos.Z())
+
+		lightDirLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].direction\x00", i)))
+		gl.Uniform3f(lightDirLoc, light.Dir.X(), light.Dir.Y(), light.Dir.Z())
+	}
+
+	// Camera position
+	viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
+	gl.Uniform3f(viewPosLoc, scene.Cam.Pos.X(), scene.Cam.Pos.Y(), scene.Cam.Pos.Z())
+
+	// Sampler texture units
+	gl.Uniform1i(gl.GetUniformLocation(program, gl.Str("shadowMap\x00")), 0)
+	gl.Uniform1i(gl.GetUniformLocation(program, gl.Str("ourTexture\x00")), 1)
+	gl.Uniform1i(gl.GetUniformLocation(program, gl.Str("shadowCubeMap\x00")), 2)
+	gl.Uniform1i(gl.GetUniformLocation(program, gl.Str("skybox\x00")), 3)
+
+	// Shadow textures
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, scene.Lights[1].depthMap)
+
+	gl.ActiveTexture(gl.TEXTURE2)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Lights[0].depthCubeMap)
+
+	gl.ActiveTexture(gl.TEXTURE3)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Skybox.Texture)
+
+	// Per-face-group draw: material and diffuse texture vary per group.
 	for i, face := range m.openGLFaces {
 		mat := m.Materials[i]
 
-		// Define light properties
-		for i, light := range scene.Lights {
-			// fmt.Println(light.Dir)
-
-			lightTypeLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].type\x00", i)))
-			gl.Uniform1i(lightTypeLoc, int32(light.Type))
-
-			lightConstantLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].constant\x00", i)))
-			gl.Uniform1f(lightConstantLoc, 1.0)
-
-			lightLinearLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].linear\x00", i)))
-			gl.Uniform1f(lightLinearLoc, 0.09)
-
-			lightQuadraticLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].quadratic\x00", i)))
-			gl.Uniform1f(lightQuadraticLoc, 0.032)
-
-			lightCutoffLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].cutoff\x00", i)))
-			gl.Uniform1f(lightCutoffLoc, float32(math.Cos(math.Pi/4)))
-
-			lightColorLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].color\x00", i)))
-			gl.Uniform3f(lightColorLoc, light.Color.X(), light.Color.Y(), light.Color.Z())
-
-			lightIntensityLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].intensity\x00", i)))
-			gl.Uniform1f(lightIntensityLoc, light.Intensity)
-
-			lightDiffuseLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].diffuse\x00", i)))
-			gl.Uniform1f(lightDiffuseLoc, light.Diffuse)
-
-			lightSpecularLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].specular\x00", i)))
-			gl.Uniform1f(lightSpecularLoc, light.Specular)
-
-			lightPosLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].position\x00", i)))
-			gl.Uniform3f(lightPosLoc, light.Pos.X(), light.Pos.Y(), light.Pos.Z())
-			// gl.Uniform3f(lightPosLoc, Cam.Pos.X(), Cam.Pos.Y(), Cam.Pos.Z())
-
-			lightDirLoc := gl.GetUniformLocation(program, gl.Str(fmt.Sprintf("lights[%d].direction\x00", i)))
-			gl.Uniform3f(lightDirLoc, light.Dir.X(), light.Dir.Y(), light.Dir.Z())
-
-			// fmt.Println(light.Dir)
-		}
-
-		viewPosLoc := gl.GetUniformLocation(program, gl.Str("viewPos\x00"))
-		gl.Uniform3f(viewPosLoc, scene.Cam.Pos.X(), scene.Cam.Pos.Y(), scene.Cam.Pos.Z())
-
-		// Define material properties
 		matAmbientLoc := gl.GetUniformLocation(program, gl.Str("material.ambient\x00"))
 		gl.Uniform3f(matAmbientLoc, mat.Ambient.X(), mat.Ambient.Y(), mat.Ambient.Z())
 
@@ -364,50 +379,15 @@ func (m *Mesh) draw(program uint32, scene *Scene) {
 		matShineLoc := gl.GetUniformLocation(program, gl.Str("material.shininess\x00"))
 		gl.Uniform1f(matShineLoc, mat.Shininess)
 
-		shadowMapLoc := gl.GetUniformLocation(program, gl.Str("shadowMap\x00"))
-		gl.Uniform1i(shadowMapLoc, 0)
-
-		ourTextureLoc := gl.GetUniformLocation(program, gl.Str("ourTexture\x00"))
-		gl.Uniform1i(ourTextureLoc, 1)
-
-		shadowCubeMapLoc := gl.GetUniformLocation(program, gl.Str("shadowCubeMap\x00"))
-		gl.Uniform1i(shadowCubeMapLoc, 2)
-
-		skyboxLoc := gl.GetUniformLocation(program, gl.Str("skybox\x00"))
-		gl.Uniform1i(skyboxLoc, 3)
-
-		gl.ActiveTexture(gl.TEXTURE0)
-		gl.BindTexture(gl.TEXTURE_2D, scene.Lights[1].depthMap)
-
 		gl.ActiveTexture(gl.TEXTURE1)
-		gl.BindTexture(gl.TEXTURE_2D, white)
 		if mat.Texture != 0 {
-			gl.ActiveTexture(gl.TEXTURE1)
 			gl.BindTexture(gl.TEXTURE_2D, mat.Texture)
+		} else {
+			gl.BindTexture(gl.TEXTURE_2D, white)
 		}
-
-		gl.ActiveTexture(gl.TEXTURE2)
-		gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Lights[0].depthCubeMap)
-
-		gl.ActiveTexture(gl.TEXTURE3)
-		gl.BindTexture(gl.TEXTURE_CUBE_MAP, scene.Skybox.Texture)
-
-		// if mat.NormalMap != 0 {
-		//   gl.BindTexture(gl.TEXTURE_2D, mat.NormalMap)
-		// }
-
-		// faces := m.OpenGLFaces[i]
-		// if len(m.OpenGLFaces) > 1 {
-		//   faces = append(faces, m.OpenGLFaces[1]...)
-		// }
-
-		// fmt.Println("vertices: ", m.OpenGLVertices)
-		// fmt.Println("faces: ", m.OpenGLFaces)
 
 		gl.BindVertexArray(m.vao[i])
 		gl.DrawElements(gl.TRIANGLES, int32(len(face)), gl.UNSIGNED_INT, gl.PtrOffset(0))
 		gl.BindVertexArray(0)
-
 	}
-
 }
