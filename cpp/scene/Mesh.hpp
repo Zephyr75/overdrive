@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-#include <glad/gl.h>
+#include <glad/glad.h>
 #include <glm/glm.hpp>
 #include "Material.hpp"
 

@@ -1,6 +1,6 @@
 #pragma once
 #include <string>
-#include <glad/gl.h>
+#include <glad/glad.h>
 #include <glm/glm.hpp>
 
 class Scene;

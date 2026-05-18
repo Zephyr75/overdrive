@@ -1,7 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-#include <glad/gl.h>
+#include <glad/glad.h>
 
 namespace Texture {
     // Load 2D texture from file. Returns 0 on failure.

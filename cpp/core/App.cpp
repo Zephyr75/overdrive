@@ -52,8 +52,7 @@ void App::initGLFW(const std::string& title, int width, int height) {
 }
 
 void App::initGL() {
-    int version = gladLoadGL(glfwGetProcAddress);
-    if (!version) {
+    if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
         std::cerr << "glad init failed\n";
         return;
     }
