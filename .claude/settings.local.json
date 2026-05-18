@@ -3,7 +3,10 @@
     "allow": [
       "Bash(go build:*)",
       "Bash(Remove-Item -Recurse -Force \"C:\\\\Users\\\\antoi\\\\Documents\\\\GitHub\\\\overdrive\\\\cpp\\\\build\" -ErrorAction SilentlyContinue)",
-      "Bash(Write-Host \"build dir cleared\")"
+      "Bash(Write-Host \"build dir cleared\")",
+      "Bash(xargs cat)",
+      "Bash(cmake -S . -B build)",
+      "Bash(cmake --build build)"
     ]
   }
 }
