@@ -1,27 +1,28 @@
 #pragma once
+#include "Camera.hpp"
+#include "Light.hpp"
+#include "Mesh.hpp"
+#include "Skybox.hpp"
 #include <string>
 #include <vector>
-#include "Camera.hpp"
-#include "Mesh.hpp"
-#include "Light.hpp"
-#include "Skybox.hpp"
 
 class Shader;
 
 class Scene {
 public:
-    Camera            camera;
-    std::vector<Mesh> meshes;
-    std::vector<Light> lights;
-    Skybox            skybox;
+  Camera camera;
+  std::vector<Mesh> meshes;
+  std::vector<Light> lights;
+  Skybox skybox;
 
-    explicit Scene(const std::string& xmlPath);
-    ~Scene();
+  explicit Scene(const std::string &xmlPath);
+  ~Scene();
 
-    void renderScene(const Shader& shader, const glm::mat4& lightSpaceMatrix, float farPlane) const;
-    void renderSkybox(const Shader& shader) const;
-    void updateMeshes();
+  void renderScene(const Shader &shader, const glm::mat4 &lightSpaceMatrix,
+                   float farPlane) const;
+  void renderSkybox(const Shader &shader) const;
+  void updateMeshes();
 
-    Mesh*  getMesh (const std::string& name);
-    Light* getLight(const std::string& name);
+  Mesh *getMesh(const std::string &name);
+  Light *getLight(const std::string &name);
 };

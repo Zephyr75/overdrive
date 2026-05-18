@@ -52,11 +52,11 @@ void main()
     for (int i = 0; i < NR_LIGHTS; i++) {
         switch (lights[i].type) {
             case 0:
-                result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculation(FragPosLightSpace));
-                break;
+            result += CalcDirLight(lights[i], norm, viewDir) * (1.0 - ShadowCalculation(FragPosLightSpace));
+            break;
             case 1:
-                result += CalcPointLight(lights[i], norm, FragPos, viewDir) * (1.0 - ShadowCalculationCube(FragPos));
-                break;
+            result += CalcPointLight(lights[i], norm, FragPos, viewDir) * (1.0 - ShadowCalculationCube(FragPos));
+            break;
         }
     }
 
@@ -72,12 +72,12 @@ void main()
 }
 
 vec3 gridSamplingDisk[20] = vec3[](
-    vec3(1, 1,  1), vec3( 1, -1,  1), vec3(-1, -1,  1), vec3(-1, 1,  1),
-    vec3(1, 1, -1), vec3( 1, -1, -1), vec3(-1, -1, -1), vec3(-1, 1, -1),
-    vec3(1, 1,  0), vec3( 1, -1,  0), vec3(-1, -1,  0), vec3(-1, 1,  0),
-    vec3(1, 0,  1), vec3(-1,  0,  1), vec3( 1,  0, -1), vec3(-1, 0, -1),
-    vec3(0, 1,  1), vec3( 0, -1,  1), vec3( 0, -1, -1), vec3( 0, 1, -1)
-);
+        vec3(1, 1, 1), vec3(1, -1, 1), vec3(-1, -1, 1), vec3(-1, 1, 1),
+        vec3(1, 1, -1), vec3(1, -1, -1), vec3(-1, -1, -1), vec3(-1, 1, -1),
+        vec3(1, 1, 0), vec3(1, -1, 0), vec3(-1, -1, 0), vec3(-1, 1, 0),
+        vec3(1, 0, 1), vec3(-1, 0, 1), vec3(1, 0, -1), vec3(-1, 0, -1),
+        vec3(0, 1, 1), vec3(0, -1, 1), vec3(0, -1, -1), vec3(0, 1, -1)
+    );
 
 float ShadowCalculationCube(vec3 fragPos)
 {
@@ -125,8 +125,8 @@ vec3 CalcDirLight(Light light, vec3 normal, vec3 viewDir)
     float diff = max(dot(normal, lightDir), 0.0);
     vec3 halfwayDir = normalize(lightDir + viewDir);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), material.shininess + 0.0001);
-    vec3 ambient  = light.color * material.ambient;
-    vec3 diffuse  = light.color * light.diffuse  * diff * material.diffuse;
+    vec3 ambient = light.color * material.ambient;
+    vec3 diffuse = light.color * light.diffuse * diff * material.diffuse;
     vec3 specular = light.color * light.specular * spec * material.specular;
     return (ambient + diffuse + specular) * light.intensity / 5.0;
 }
@@ -137,13 +137,13 @@ vec3 CalcPointLight(Light light, vec3 normal, vec3 fragPos, vec3 viewDir)
     float diff = max(dot(normal, lightDir), 0.0);
     vec3 halfwayDir = normalize(lightDir + viewDir);
     float spec = pow(max(dot(normal, halfwayDir), 0.0), material.shininess + 0.0001);
-    float distance    = length(light.position - fragPos);
+    float distance = length(light.position - fragPos);
     float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));
-    vec3 ambient  = light.color * material.ambient;
-    vec3 diffuse  = light.color * light.diffuse  * diff * material.diffuse;
+    vec3 ambient = light.color * material.ambient;
+    vec3 diffuse = light.color * light.diffuse * diff * material.diffuse;
     vec3 specular = light.color * light.specular * spec * material.specular;
-    ambient  *= attenuation;
-    diffuse  *= attenuation;
+    ambient *= attenuation;
+    diffuse *= attenuation;
     specular *= attenuation;
     return (ambient + diffuse + specular) * light.intensity / 5.0;
 }
