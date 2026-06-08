@@ -3,9 +3,11 @@
 #include "Light.hpp"
 #include "Mesh.hpp"
 #include "Skybox.hpp"
+#include <glm/glm.hpp>
 #include <string>
 #include <vector>
 
+class Backend;
 class Shader;
 
 class Scene {
@@ -15,7 +17,7 @@ public:
   std::vector<Light> lights;
   Skybox skybox;
 
-  explicit Scene(const std::string &xmlPath);
+  explicit Scene(const std::string &xmlPath, Backend &backend);
   ~Scene();
 
   void renderScene(const Shader &shader, const glm::mat4 &lightSpaceMatrix,

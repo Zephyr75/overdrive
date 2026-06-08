@@ -87,7 +87,6 @@ void scrollCallback(GLFWwindow* /*window*/, double /*xoffset*/, double yoffset) 
 void framebufferSizeCallback(GLFWwindow* /*window*/, int width, int height) {
     Settings::windowWidth  = width;
     Settings::windowHeight = height;
-    glViewport(0, 0, width, height);
 }
 
 } // namespace Input

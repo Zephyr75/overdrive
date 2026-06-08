@@ -14,6 +14,7 @@ file(GLOB_RECURSE SOURCES
     core/*.cpp
     input/*.cpp
     opengl/*.cpp
+    renderer/*.cpp
     scene/*.cpp
     settings/*.cpp
 )

@@ -5,8 +5,8 @@
 #include <iostream>
 #include <sstream>
 
-Shader::Shader(const std::string &vertPath, const std::string &fragPath,
-               const std::string &geoPath) {
+GLShader::GLShader(const std::string &vertPath, const std::string &fragPath,
+                   const std::string &geoPath) {
   GLuint vert = compileShader(vertPath, GL_VERTEX_SHADER);
   GLuint frag = compileShader(fragPath, GL_FRAGMENT_SHADER);
   GLuint geo = 0;
@@ -34,31 +34,31 @@ Shader::Shader(const std::string &vertPath, const std::string &fragPath,
     glDeleteShader(geo);
 }
 
-Shader::~Shader() {
+GLShader::~GLShader() {
   if (id)
     glDeleteProgram(id);
 }
 
-void Shader::use() const { glUseProgram(id); }
+void GLShader::use() const { glUseProgram(id); }
 
-void Shader::setInt(const std::string &name, int value) const {
+void GLShader::setInt(const std::string &name, int value) const {
   glUniform1i(glGetUniformLocation(id, name.c_str()), value);
 }
 
-void Shader::setFloat(const std::string &name, float value) const {
+void GLShader::setFloat(const std::string &name, float value) const {
   glUniform1f(glGetUniformLocation(id, name.c_str()), value);
 }
 
-void Shader::setVec3(const std::string &name, const glm::vec3 &v) const {
+void GLShader::setVec3(const std::string &name, const glm::vec3 &v) const {
   glUniform3fv(glGetUniformLocation(id, name.c_str()), 1, glm::value_ptr(v));
 }
 
-void Shader::setMat4(const std::string &name, const glm::mat4 &m) const {
+void GLShader::setMat4(const std::string &name, const glm::mat4 &m) const {
   glUniformMatrix4fv(glGetUniformLocation(id, name.c_str()), 1, GL_FALSE,
                      glm::value_ptr(m));
 }
 
-GLuint Shader::compileShader(const std::string &path, GLenum type) {
+GLuint GLShader::compileShader(const std::string &path, GLenum type) {
   std::ifstream file(path);
   if (!file.is_open()) {
     std::cerr << "Cannot open shader: " << path << "\n";

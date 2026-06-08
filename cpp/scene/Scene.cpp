@@ -1,5 +1,6 @@
 #include "Scene.hpp"
-#include "opengl/Shader.hpp"
+#include "renderer/Backend.hpp"
+#include "renderer/Shader.hpp"
 #include "settings/Settings.hpp"
 
 #include <cmath>
@@ -26,7 +27,7 @@ static glm::vec3 blenderToGL(glm::vec3 v) {
 
 // ---------- construction / destruction ---------------------------------------
 
-Scene::Scene(const std::string &xmlPath) {
+Scene::Scene(const std::string &xmlPath, Backend &backend) {
   pugi::xml_document doc;
   auto result = doc.load_file(xmlPath.c_str());
   if (!result) {
@@ -53,7 +54,6 @@ Scene::Scene(const std::string &xmlPath) {
     camera.fov = fov;
     camera.up = {0.0f, 1.0f, 0.0f};
 
-    // Compute front from yaw/pitch (matches Go camera.go)
     float pitchRad = glm::radians(pitch);
     float yawRad = glm::radians(yaw);
     camera.front = glm::normalize(
@@ -65,7 +65,6 @@ Scene::Scene(const std::string &xmlPath) {
   for (auto meshNode : sceneNode.children("mesh")) {
     std::string name = meshNode.attribute("name").as_string();
     std::string obj = meshNode.child_value("obj");
-    std::string mtl = meshNode.child_value("mtl");
     glm::vec3 pos = parseVec3(meshNode.child_value("position"));
     pos = blenderToGL(pos);
 
@@ -73,7 +72,7 @@ Scene::Scene(const std::string &xmlPath) {
     Mesh mesh;
     mesh.name = name;
     mesh.load(meshDir + obj, meshDir, pos);
-    mesh.setup();
+    mesh.setup(backend);
     meshes.push_back(std::move(mesh));
   }
 
@@ -88,7 +87,7 @@ Scene::Scene(const std::string &xmlPath) {
     glm::vec3 pos = parseVec3(lightNode.child_value("position"));
     glm::vec3 dir = parseVec3(lightNode.child_value("direction"));
     pos = blenderToGL(pos);
-    dir = glm::vec3{-dir.x, -dir.z, dir.y}; // matches Go's dir transform
+    dir = glm::vec3{-dir.x, -dir.z, dir.y};
 
     light.pos = pos;
     light.dir = dir;
@@ -100,14 +99,16 @@ Scene::Scene(const std::string &xmlPath) {
     if (light.type == LightType::Point)
       light.intensity /= 1000.0f;
 
-    light.setup();
+    light.setup(backend);
     lights.push_back(std::move(light));
   }
 
-  skybox.setup();
+  skybox.setup(backend);
 }
 
 Scene::~Scene() {
+  for (auto &m : meshes)
+    m.destroy();
   for (auto &l : lights)
     l.destroy();
   skybox.destroy();

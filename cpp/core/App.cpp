@@ -1,9 +1,10 @@
 #include "App.hpp"
 #include "input/Input.hpp"
-#include "opengl/Shader.hpp"
+#include "renderer/Backend.hpp"
 #include "scene/Scene.hpp"
 #include "settings/Settings.hpp"
 
+#include <glad/glad.h>
 #include <cstdio>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -11,7 +12,6 @@
 
 App::App(const std::string &title, int width, int height) {
   initGLFW(title, width, height);
-  initGL();
 }
 
 App::~App() {
@@ -41,6 +41,12 @@ void App::initGLFW(const std::string &title, int width, int height) {
   }
 
   glfwMakeContextCurrent(window);
+
+  if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+    std::cerr << "glad init failed\n";
+    return;
+  }
+
   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
   glfwSetFramebufferSizeCallback(window, Input::framebufferSizeCallback);
@@ -51,29 +57,23 @@ void App::initGLFW(const std::string &title, int width, int height) {
   Settings::windowHeight = height;
 }
 
-void App::initGL() {
-  if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-    std::cerr << "glad init failed\n";
-    return;
-  }
-
-  glEnable(GL_DEPTH_TEST);
-  glEnable(GL_CULL_FACE);
-  glEnable(GL_BLEND);
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-}
-
 void App::run(const std::string &scenePath) {
-  Scene scene(scenePath);
+  auto backend = createBackend();
+  backend->init();
+
+  Scene scene(scenePath, *backend);
   Input::setCamera(&scene.camera);
 
-  Shader forwardShader("shaders/forward.vert.glsl",
-                       "shaders/forward.frag.glsl");
-  Shader depthShader("shaders/depth.vert.glsl", "shaders/depth.frag.glsl");
-  Shader depthCubeShader("shaders/depth_cube.vert.glsl",
-                         "shaders/depth_cube.frag.glsl",
-                         "shaders/depth_cube.geo.glsl");
-  Shader skyboxShader("shaders/skybox.vert.glsl", "shaders/skybox.frag.glsl");
+  auto forwardShader = backend->createShader("shaders/forward.vert.glsl",
+                                             "shaders/forward.frag.glsl");
+  auto depthShader =
+      backend->createShader("shaders/depth.vert.glsl", "shaders/depth.frag.glsl");
+  auto depthCubeShader =
+      backend->createShader("shaders/depth_cube.vert.glsl",
+                            "shaders/depth_cube.frag.glsl",
+                            "shaders/depth_cube.geo.glsl");
+  auto skyboxShader = backend->createShader("shaders/skybox.vert.glsl",
+                                            "shaders/skybox.frag.glsl");
 
   float lastFrame = 0.0f;
   float fpsTimer = 0.0f;
@@ -99,24 +99,24 @@ void App::run(const std::string &scenePath) {
 
     scene.updateMeshes();
 
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    backend->setClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    backend->clear(true, true);
 
-    // Shadow passes — iterate all lights, track directional light space matrix
+    // Shadow passes
     glm::mat4 lightSpaceMatrix(1.0f);
     for (auto &light : scene.lights) {
-      glm::mat4 mat = light.renderLight(nearPlane, farPlane, depthShader,
-                                        depthCubeShader, scene);
+      glm::mat4 mat = light.renderLight(nearPlane, farPlane, *depthShader,
+                                        *depthCubeShader, scene);
       if (light.type == LightType::Sun)
         lightSpaceMatrix = mat;
     }
 
     // Main pass
-    glViewport(0, 0, Settings::windowWidth, Settings::windowHeight);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    backend->setViewport(0, 0, Settings::windowWidth, Settings::windowHeight);
+    backend->clear(true, true);
 
-    scene.renderSkybox(skyboxShader);
-    scene.renderScene(forwardShader, lightSpaceMatrix, farPlane);
+    scene.renderSkybox(*skyboxShader);
+    scene.renderScene(*forwardShader, lightSpaceMatrix, farPlane);
 
     glfwSwapBuffers(window);
     glfwPollEvents();

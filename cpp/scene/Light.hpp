@@ -1,8 +1,9 @@
 #pragma once
-#include <glad/glad.h>
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <string>
 
+class Backend;
 class Scene;
 class Shader;
 
@@ -18,20 +19,20 @@ struct Light {
   float specular = 1.0f;
   float intensity = 1.0f;
 
-  // GPU resources
-  GLuint depthMapFBO = 0;
-  GLuint depthMap = 0;     // 2D (directional)
-  GLuint depthCubeMap = 0; // cubemap (point)
+  uint32_t depthMapFBO = 0;
+  uint32_t depthMap = 0;
+  uint32_t depthCubeMap = 0;
 
-  void setup();
+  void setup(Backend &backend);
   void destroy();
 
-  // Returns lightSpaceMatrix (useful for directional); identity for point
-  // lights.
   glm::mat4 renderLight(float nearPlane, float farPlane,
                         const Shader &depthShader,
                         const Shader &depthCubeShader,
                         const Scene &scene) const;
 
   void move(glm::vec3 delta) { pos += delta; }
+
+private:
+  Backend *backend = nullptr;
 };

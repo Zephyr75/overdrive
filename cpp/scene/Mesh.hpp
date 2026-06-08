@@ -1,15 +1,16 @@
 #pragma once
 #include "Material.hpp"
-#include <glad/glad.h>
+#include <cstdint>
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
 
-class Scene; // forward declaration to avoid circular include
+class Backend;
+class Scene;
 class Shader;
 
 struct SubMesh {
-  GLuint vao = 0, vbo = 0, ebo = 0;
+  uint32_t vao = 0, ebo = 0;
   std::vector<uint32_t> indices;
   int materialIndex = 0;
 };
@@ -24,7 +25,8 @@ public:
 
   void load(const std::string &objPath, const std::string &mtlDir,
             glm::vec3 pos);
-  void setup();
+  void setup(Backend &backend);
+  void destroy();
   void draw(const Shader &shader, const Scene &scene) const;
   void moveTo(glm::vec3 dest);
   void moveBy(glm::vec3 delta);
@@ -38,7 +40,8 @@ private:
   };
 
   std::vector<RawVertex> rawVertices;
-  GLuint sharedVbo = 0;
+  Backend *backend = nullptr;
+  uint32_t sharedVbo = 0;
   bool needsUpdate = false;
 
   void rebuildAndUpload();

@@ -3,9 +3,8 @@
 
 #include "Mesh.hpp"
 #include "Scene.hpp"
-#include "opengl/Shader.hpp"
-#include "opengl/Texture.hpp"
-#include "settings/Settings.hpp"
+#include "renderer/Backend.hpp"
+#include "renderer/Shader.hpp"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -36,7 +35,7 @@ void Mesh::load(const std::string &objPath, const std::string &mtlDir,
   auto &shapes = reader.GetShapes();
   auto &mats = reader.GetMaterials();
 
-  // Load materials
+  // Load materials — store paths; GPU upload happens in setup()
   for (auto &m : mats) {
     Material mat;
     mat.ambient = {m.ambient[0], m.ambient[1], m.ambient[2]};
@@ -45,14 +44,13 @@ void Mesh::load(const std::string &objPath, const std::string &mtlDir,
     mat.shininess = m.shininess > 0.0f ? m.shininess : 32.0f;
     mat.alpha = m.dissolve;
     if (!m.diffuse_texname.empty())
-      mat.texture = Texture::load(mtlDir + m.diffuse_texname);
+      mat.texturePath = mtlDir + m.diffuse_texname;
     if (!m.bump_texname.empty())
-      mat.normalMap = Texture::load(mtlDir + m.bump_texname);
+      mat.normalMapPath = mtlDir + m.bump_texname;
     materials.push_back(mat);
   }
 
   // Expand vertices and group by material ID
-  // matVertices[matId] = flat list of RawVertex
   std::unordered_map<int, std::vector<RawVertex>> matVertices;
 
   for (auto &shape : shapes) {
@@ -103,11 +101,11 @@ void Mesh::load(const std::string &objPath, const std::string &mtlDir,
 
 // ---- GPU setup --------------------------------------------------------------
 
-void Mesh::setup() {
+void Mesh::setup(Backend &b) {
+  backend = &b;
   if (rawVertices.empty())
     return;
 
-  // Build interleaved float buffer with position offset applied
   glm::vec3 offset = position - initialPosition;
   std::vector<float> buf;
   buf.reserve(rawVertices.size() * 8);
@@ -123,36 +121,43 @@ void Mesh::setup() {
     buf.push_back(rv.texcoord.y);
   }
 
-  // Shared VBO
-  glGenBuffers(1, &sharedVbo);
-  glBindBuffer(GL_ARRAY_BUFFER, sharedVbo);
-  glBufferData(GL_ARRAY_BUFFER, buf.size() * sizeof(float), buf.data(),
-               GL_DYNAMIC_DRAW);
+  sharedVbo = b.createBuffer(buf.data(), buf.size() * sizeof(float), true);
 
-  // Per-submesh: VAO + EBO
+  for (auto &sm : submeshes)
+    b.createMesh(sharedVbo, sm.indices.data(), sm.indices.size(), sm.vao,
+                 sm.ebo);
+
+  for (auto &mat : materials) {
+    if (!mat.texturePath.empty())
+      mat.texture = b.loadTexture(mat.texturePath);
+    if (!mat.normalMapPath.empty())
+      mat.normalMap = b.loadTexture(mat.normalMapPath);
+  }
+}
+
+// ---- cleanup ----------------------------------------------------------------
+
+void Mesh::destroy() {
+  if (!backend)
+    return;
   for (auto &sm : submeshes) {
-    glGenVertexArrays(1, &sm.vao);
-    glGenBuffers(1, &sm.ebo);
-
-    glBindVertexArray(sm.vao);
-    glBindBuffer(GL_ARRAY_BUFFER, sharedVbo);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sm.ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sm.indices.size() * sizeof(uint32_t),
-                 sm.indices.data(), GL_STATIC_DRAW);
-
-    // pos(3) + normal(3) + texcoord(2) = 8 floats stride
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float),
-                          (void *)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float),
-                          (void *)(3 * sizeof(float)));
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float),
-                          (void *)(6 * sizeof(float)));
-    glEnableVertexAttribArray(2);
-
-    glBindVertexArray(0);
+    if (sm.vao)
+      backend->destroyMesh(sm.vao, sm.ebo);
+    sm.vao = sm.ebo = 0;
+  }
+  if (sharedVbo) {
+    backend->destroyBuffer(sharedVbo);
+    sharedVbo = 0;
+  }
+  for (auto &mat : materials) {
+    if (mat.texture) {
+      backend->destroyTexture(mat.texture);
+      mat.texture = 0;
+    }
+    if (mat.normalMap) {
+      backend->destroyTexture(mat.normalMap);
+      mat.normalMap = 0;
+    }
   }
 }
 
@@ -173,8 +178,7 @@ void Mesh::rebuildAndUpload() {
     buf.push_back(rv.texcoord.x);
     buf.push_back(rv.texcoord.y);
   }
-  glBindBuffer(GL_ARRAY_BUFFER, sharedVbo);
-  glBufferSubData(GL_ARRAY_BUFFER, 0, buf.size() * sizeof(float), buf.data());
+  backend->updateBuffer(sharedVbo, buf.data(), buf.size() * sizeof(float));
 }
 
 void Mesh::updateVertices() {
@@ -197,7 +201,6 @@ void Mesh::moveBy(glm::vec3 delta) {
 // ---- draw -------------------------------------------------------------------
 
 void Mesh::draw(const Shader &shader, const Scene &scene) const {
-  // Set light uniforms
   for (int i = 0; i < (int)scene.lights.size(); i++) {
     auto &l = scene.lights[i];
     std::string base = "lights[" + std::to_string(i) + "].";
@@ -216,25 +219,19 @@ void Mesh::draw(const Shader &shader, const Scene &scene) const {
 
   shader.setVec3("viewPos", scene.camera.pos);
 
-  // Shadow textures
   shader.setInt("shadowMap", 0);
   shader.setInt("ourTexture", 1);
   shader.setInt("shadowCubeMap", 2);
   shader.setInt("skybox", 3);
 
   // lights[1] = directional → 2D shadow map
-  if (scene.lights.size() > 1) {
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, scene.lights[1].depthMap);
-  }
+  if (scene.lights.size() > 1)
+    backend->bindTexture2D(0, scene.lights[1].depthMap);
   // lights[0] = point → cubemap shadow
-  if (!scene.lights.empty()) {
-    glActiveTexture(GL_TEXTURE2);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, scene.lights[0].depthCubeMap);
-  }
+  if (!scene.lights.empty())
+    backend->bindCubemap(2, scene.lights[0].depthCubeMap);
   // Skybox cubemap
-  glActiveTexture(GL_TEXTURE3);
-  glBindTexture(GL_TEXTURE_CUBE_MAP, scene.skybox.texture);
+  backend->bindCubemap(3, scene.skybox.texture);
 
   for (auto &sm : submeshes) {
     int mi = sm.materialIndex;
@@ -246,12 +243,7 @@ void Mesh::draw(const Shader &shader, const Scene &scene) const {
     shader.setVec3("material.specular", mat.specular);
     shader.setFloat("material.shininess", mat.shininess);
 
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, mat.texture ? mat.texture : Texture::white());
-
-    glBindVertexArray(sm.vao);
-    glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(sm.indices.size()),
-                   GL_UNSIGNED_INT, 0);
-    glBindVertexArray(0);
+    backend->bindTexture2D(1, mat.texture ? mat.texture : backend->whiteTexture());
+    backend->drawMesh(sm.vao, sm.indices.size());
   }
 }

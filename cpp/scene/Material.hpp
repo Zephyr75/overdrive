@@ -1,6 +1,7 @@
 #pragma once
-#include <glad/glad.h>
+#include <cstdint>
 #include <glm/glm.hpp>
+#include <string>
 
 struct Material {
   glm::vec3 ambient = {0.2f, 0.2f, 0.2f};
@@ -8,6 +9,8 @@ struct Material {
   glm::vec3 specular = {0.5f, 0.5f, 0.5f};
   float shininess = 32.0f;
   float alpha = 1.0f;
-  GLuint texture = 0;
-  GLuint normalMap = 0;
+  uint32_t texture = 0;
+  uint32_t normalMap = 0;
+  std::string texturePath;
+  std::string normalMapPath;
 };
