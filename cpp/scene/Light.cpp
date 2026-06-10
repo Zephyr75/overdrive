@@ -38,9 +38,8 @@ glm::mat4 Light::renderLight(float nearPlane, float farPlane,
   glm::mat4 model(1.0f);
   glm::mat4 lightSpaceMatrix(1.0f);
 
-  backend->setViewport(0, 0, Settings::SHADOW_WIDTH, Settings::SHADOW_HEIGHT);
-  backend->bindFramebuffer(depthMapFBO);
-  backend->clearDepth();
+  backend->beginPass(depthMapFBO, Settings::SHADOW_WIDTH,
+                     Settings::SHADOW_HEIGHT, false);
 
   if (type == LightType::Sun) {
     glm::mat4 proj =
@@ -83,6 +82,6 @@ glm::mat4 Light::renderLight(float nearPlane, float farPlane,
       mesh.draw(depthCubeShader, scene);
   }
 
-  backend->bindFramebuffer(0);
+  backend->endPass();
   return lightSpaceMatrix;
 }

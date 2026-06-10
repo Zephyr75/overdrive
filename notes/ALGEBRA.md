@@ -1,116 +1,210 @@
-<!-- TODO: tout -->
+# Vectors
 
-Inverse matrix
+A vector is an arrow rooted at the origin, fully described by its coordinates
 
-Eigenvectors 
+$\vec{v} = \begin{bmatrix} x \\ y \end{bmatrix}$ means: walk $x$ along $\hat{i}$, then $y$ along $\hat{j}$
 
-Eigenvalues
+`Vector addition` chain the arrows tip to tail
 
-Cross-product
+`Scalar multiplication` stretch ($|s| > 1$), squish ($|s| < 1$) or flip ($s < 0$) the arrow
 
-Determinant
+# Span, basis, linear independence
 
-Kernel
+`Linear combination` $a\vec{v} + b\vec{w}$ with $a, b$ scalars
 
-SVD
+`Span` set of all linear combinations of a set of vectors
 
-# Change of basis
+`Basis` set of linearly independent vectors that span the full space
 
-To change to basis 
-$\begin{bmatrix}
-   3 \\ 0 
-\end{bmatrix}$,
-$\begin{bmatrix}
-   1 \\ 2 
-\end{bmatrix}$,
-the transformation matrix is 
-$\begin{bmatrix}
-   3 & 1 \\ 0 & 2 
-\end{bmatrix}$,
+A set of vectors is linearly `dependent` if there is a nontrivial linear combination of the vectors that equals $\vec{0}$ (one vector is redundant, it lives in the span of the others)
 
-# Eigenvalues and eigenvectors
+> Two vectors in 2D span the whole plane unless they are aligned (dependent), then they span a line
 
-`Eigenvectors` are the vectors that remain on the same line when going through a linear transformation
+# Linear transformations
 
-`Eigenvalues` are the factors by which these vectors' length is multiplied
+A transformation is `linear` if grid lines remain parallel and evenly spaced, and the origin stays fixed
+
+A linear transformation is fully described by where it sends the basis vectors. Those landing spots are the **columns of the matrix**
+
+$\begin{bmatrix} a & b \\ c & d \end{bmatrix}$ means $\hat{i} \rightarrow \begin{bmatrix} a \\ c \end{bmatrix}$ and $\hat{j} \rightarrow \begin{bmatrix} b \\ d \end{bmatrix}$
+
+Matrix-vector product = applying the transformation:
+
+$\begin{bmatrix} a & b \\ c & d \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = x \begin{bmatrix} a \\ c \end{bmatrix} + y \begin{bmatrix} b \\ d \end{bmatrix}$
+
+> Read it as: the output is a linear combination of the columns, weighted by the input coordinates
+
+## Common 2D transformations
+
+$\begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}$ rotation 90° counterclockwise
+
+$\begin{bmatrix} 1 & 1 \\ 0 & 1 \end{bmatrix}$ shear ($\hat{j}$ tilts right, $\hat{i}$ stays)
+
+$\begin{bmatrix} s & 0 \\ 0 & s \end{bmatrix}$ uniform scale by $s$
+
+# Matrix multiplication
+
+`Matrix product` = composition of transformations, **applied right to left**
+
+$M_2 M_1$ means: first apply $M_1$, then apply $M_2$
+
+> Order matters: $M_2 M_1 \neq M_1 M_2$ in general (rotate-then-shear ≠ shear-then-rotate)
+
+Composition is associative: $(AB)C = A(BC)$ (applying the same transformations in the same order)
+
+Computation: column $i$ of $M_2 M_1$ = $M_2$ applied to column $i$ of $M_1$
+
+# Determinant
+
+`Determinant` factor by which the transformation scales areas (2D) or volumes (3D)
+
+$det(A) = 0$ the transformation squishes space into a lower dimension (plane → line or point), columns are linearly dependent
+
+$det(A) < 0$ orientation is flipped (2D: the plane is mirrored; 3D: right-handed becomes left-handed)
+
+$det(AB) = det(A)\,det(B)$
 
 ## Computation
 
-$A\vec{v} = \lambda\vec{v}$ with $A$ the **transformation matrix**, $\vec{v}$ an **eigenvector** and $\lambda$ the associated **eigenvalue**
+2×2: $det\begin{bmatrix} a & b \\ c & d \end{bmatrix} = ad - bc$
 
-=> $(A - \lambda I)\vec{v} = \vec{0}$
+> $a d$ = scaled unit square area, $bc$ = how much it gets sheared away
 
-> If $\vec{v}$ is the zero vector, we have a trivial solution
+n×n: expand along a row, alternate signs, recurse on minors:
 
-To get the non-zero eigenvectors, we need to solve the equation when $(A - \lambda I)$ is `singular` (does not have a multiplicative inverse), which means $det(A - \lambda I) = 0$
+$det\begin{bmatrix} a & b & c \\ d & e & f \\ g & h & i \end{bmatrix} = a\,det\begin{bmatrix} e & f \\ h & i \end{bmatrix} - b\,det\begin{bmatrix} d & f \\ g & i \end{bmatrix} + c\,det\begin{bmatrix} d & e \\ g & h \end{bmatrix}$
 
-> If $(A - \lambda I)$ was invertible, we would have $(A - \lambda I)^{-1}(A - \lambda I)\vec{v} = 0 \rightarrow I\vec{v} = 0$ 
+# Inverse matrix
 
-# Kernel
+`Inverse` $A^{-1}$ the transformation that undoes $A$: $A^{-1}A = I$
 
-The `kernel` of a linear map is the linear subspace of the domain of the map which is mapped to the zero vector
+Solve $A\vec{x} = \vec{v}$ by $\vec{x} = A^{-1}\vec{v}$ (play the transformation backwards)
 
-# Definitions
+    The inverse exists iff det(A) ≠ 0
 
-A set of vectors is linearly `dependent` if there is a nontrivial linear combination of the vectors that equals 0
+> If $det(A) = 0$, space was squished into a lower dimension: you cannot un-squish a line back into a plane with a function
 
-# Properties
+## Computation
 
-    The inverse of a matrix exists iff the determinant is non-zero
+Start with the augmented matrix $[A \mid I]$, reduce the left part to $I$ with Gaussian elimination, the right part becomes $A^{-1}$
+
+`Gaussian elimination` allowed row operations:
+- Swap two rows
+- Multiply a row by a nonzero number
+- Add a multiple of one row to another row
+
+# Rank, column space, kernel
+
+`Column space` span of the columns = set of all possible outputs $A\vec{v}$
+
+`Rank` dimension of the column space = number of linearly independent columns
+
+> Full rank = rank equals input dimension = nothing gets squished = invertible (if square)
+
+`Kernel` (null space) set of all vectors mapped to $\vec{0}$
+
+> When the transformation squishes dimensions, a whole line/plane of vectors lands on the origin: that is the kernel. Full rank ⇒ kernel = $\{\vec{0}\}$
+
+Compute rank: reduce with Gaussian elimination, count nonzero rows (pivots)
+
+## Nonsquare matrices
+
+A 3×2 matrix maps 2D → 3D (2 columns = 2 input basis vectors, 3 rows = 3 output coordinates)
+
+A 2×3 matrix maps 3D → 2D (projection-like, necessarily has a nontrivial kernel)
+
+# Dot product
+
+$\vec{v} \cdot \vec{w} = v_x w_x + v_y w_y + \dots = |\vec{v}|\,|\vec{w}|\cos\theta$
+
+- $> 0$ pointing the same general direction
+- $= 0$ perpendicular (`orthogonal` = 90° angle)
+- $< 0$ pointing away from each other
+
+Geometric reading: length of the projection of $\vec{w}$ onto $\vec{v}$, times $|\vec{v}|$
+
+> Duality: dotting with $\vec{v}$ is the same as applying the 1×n matrix $[v_x\ v_y]$, i.e. a linear map to the number line
+
+# Cross product
+
+$\vec{v} \times \vec{w}$ vector perpendicular to both, length = area of the parallelogram they span
+
+Direction given by the right-hand rule ($\hat{i} \times \hat{j} = \hat{k}$)
+
+$\vec{v} \times \vec{w} = -(\vec{w} \times \vec{v})$ antisymmetric
+
+## Computation
+
+$\begin{bmatrix} v_1 \\ v_2 \\ v_3 \end{bmatrix} \times \begin{bmatrix} w_1 \\ w_2 \\ w_3 \end{bmatrix} = \begin{bmatrix} v_2 w_3 - v_3 w_2 \\ v_3 w_1 - v_1 w_3 \\ v_1 w_2 - v_2 w_1 \end{bmatrix}$
+
+Mnemonic: $det\begin{bmatrix} \hat{i} & v_1 & w_1 \\ \hat{j} & v_2 & w_2 \\ \hat{k} & v_3 & w_3 \end{bmatrix}$
+
+> The determinant connection is no accident: the cross product's component along any $\vec{p}$ measures the volume of the parallelepiped spanned by $\vec{p}, \vec{v}, \vec{w}$
+
+# Change of basis
+
+A basis is a choice of language for describing vectors; the same vector has different coordinates in different bases
+
+To translate **from** basis $\vec{b_1} = \begin{bmatrix} 3 \\ 0 \end{bmatrix}$, $\vec{b_2} = \begin{bmatrix} 1 \\ 2 \end{bmatrix}$ **to** our standard basis, multiply by the matrix whose columns are the new basis vectors:
+
+$B = \begin{bmatrix} 3 & 1 \\ 0 & 2 \end{bmatrix}$
+
+$B^{-1}$ translates the other way (our language → their language)
+
+Apply a transformation $A$ (expressed in our basis) to a vector expressed in their basis:
+
+$B^{-1} A B$
+
+> Read right to left: translate to our language, transform, translate back. An expression like $B^{-1}AB$ is "the same transformation, seen from another basis"
+
+# Eigenvectors and eigenvalues
+
+`Eigenvectors` vectors that stay on their own span (same line through origin) through a transformation
+
+`Eigenvalues` factor by which the eigenvector is stretched ($\lambda < 0$ = flipped)
+
+> Example: a 3D rotation's eigenvector with $\lambda = 1$ is its rotation axis
+
+## Computation
+
+$A\vec{v} = \lambda\vec{v}$ with $A$ the **transformation matrix**, $\vec{v}$ an **eigenvector**, $\lambda$ the associated **eigenvalue**
+
+$\Rightarrow (A - \lambda I)\vec{v} = \vec{0}$
+
+A nonzero $\vec{v}$ mapped to $\vec{0}$ means $(A - \lambda I)$ squishes space: it must be `singular` (no inverse)
+
+$\Rightarrow det(A - \lambda I) = 0$ solve this polynomial for $\lambda$
+
+> If $(A - \lambda I)$ were invertible, then $(A - \lambda I)^{-1}(A - \lambda I)\vec{v} = \vec{0} \Rightarrow \vec{v} = \vec{0}$: only the trivial solution
+
+Then for each $\lambda$, solve $(A - \lambda I)\vec{v} = \vec{0}$ for the eigenvectors (= kernel of $A - \lambda I$)
+
+> Not every real matrix has real eigenvalues: a 90° rotation has none ($\lambda = \pm i$, no vector stays on its span)
+
+## Diagonalization (eigenbasis)
+
+If the eigenvectors span the space, change basis to them: $E^{-1} A E$ is **diagonal**, with eigenvalues on the diagonal
+
+> Diagonal matrices are trivial to work with: $D^n$ = raise each diagonal entry to the $n$. To compute $A^{100}$: $A^{100} = E D^{100} E^{-1}$
+
+# SVD
+
+Singular Value Decomposition: any matrix $A = U \Sigma V^T$
+
+- $U$ orthogonal, columns $\vec{u_i}$ = eigenvectors of $AA^T$ ($U^TU = I$)
+- $V$ orthogonal, columns $\vec{v_i}$ = eigenvectors of $A^TA$ ($V^TV = I$)
+- $\Sigma$ diagonal, entries $\sigma_i$ = `singular values` = square roots of the eigenvalues of $AA^T$ (or $A^TA$)
+
+Equivalent reading: sum of rank-1 matrices, ordered by importance:
+
+$A = \sum_i \sigma_i\, \vec{u_i} \vec{v_i}^T$
+
+> Truncating the sum after $k$ terms gives the best rank-$k$ approximation of $A$ = lossy compression. "Data-driven generalization of the Fourier transform"
+
+# Misc
+
+`Permutation matrix` square binary matrix with exactly one 1 in each row and each column; multiplying with it permutes rows
+
+`Degenerate (singular) matrix` example: every element in a row is the same → squishes plane to a line, $det = 0$
 
     If A is a square matrix with linearly dependent columns, then A is not invertible
-
-
-# Linear Algebra
-
-Determinant defines the area spanned by the transformation vectors
-Eigenvectors define axis that remain in place after applying transformation
-Eigenvalues define how much stretching is applied to a given vector on this axis during the transformation
-Compute eigenvalues :
-$(A - \lambda I) v = 0$
-<=> $det(A - \lambda I) = 0$
-since we want the vector to stay on the same line and thus to generate an area of 0
-Solve $A v = \lambda v$ to get the corresponding eigenvectors
-
-Compute determinant :
-2x2 => ad - bc with matrix ((a b)(c d))
-
-> 2x2 =>
-(a b c d) =>   a det ((f g h)(j k l)(n o p))
-(e f g h)	 - b det ((e g h)(i k l)(m o p))
-(i j k l)	 + c det ((e f h)(i j l)(m n p))
-(m n o p)	 - d det ((e f g)(i j k)(m n o))
-> 
-
-Rank of A = maximal number of linearly independent columns of A
-
-Gaussian elimination =
-
-- Swapping two rows,
-- Multiplying a row by a nonzero number,
-- Adding a multiple of one row to another row. (subtraction can be achieved by multiplying one row with -1 and adding the result to another row)
-
-Computing inverse of a matrix :
-Start with A | I and convert the left part to I, the right part becomes I^{-1}
-
-Compute matrix rank :
-Reduce matrix with Gaussian elimination
-Count independent columns
-
-Permutation matrix = square binary matrix with exactly one entry of 1 in each row and each column and 0s elsewhere, it results in permuting the rows when mutilplied with another matrix
-
-Degenerate matrix example :
-Every element in a row is the same => turns plane to line
-
-SVD : Data-Driven Generalization of the Fourier Transform
-Sum of rank 1 matrices => incomplete sum = approximation = compression
-U = Each column is Ui
-E = Each diagonal element is singular value Ei
-V = Each row is Vi
-Sum all Ei*UixVi
-UTU = I / VTV = I
-U = eigenvectors of $AA^T$
-V = eigenvectors of $A^TA$
-E = square roots of eigenvalues of $AA^T$ or $A^TA$ = singular values of A
-
-Orthogonal = making a 90 degrees angle

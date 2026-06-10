@@ -5,14 +5,29 @@
 #include <string>
 #include <vector>
 
+struct GLFWwindow;
+
 class Backend {
 public:
   virtual ~Backend() = default;
 
-  virtual void init() = 0;
-  virtual void setClearColor(float r, float g, float b, float a) = 0;
-  virtual void clear(bool color, bool depth) = 0;
-  virtual void setViewport(int x, int y, int w, int h) = 0;
+  // Called after glfwInit() but before glfwCreateWindow(): sets the
+  // API-specific window hints (GL context version, or GLFW_NO_API for Vulkan).
+  virtual void configureWindow() = 0;
+  // Called once after window creation: context/device/swapchain setup.
+  virtual void init(GLFWwindow *window) = 0;
+
+  virtual void beginFrame() = 0;
+  // Submits the frame and presents it (GL: swap buffers).
+  virtual void endFrame() = 0;
+
+  // framebuffer == 0 targets the backbuffer/swapchain. Depth is always
+  // cleared; color only when clearColor is set.
+  virtual void beginPass(uint32_t framebuffer, int w, int h, bool clearColor,
+                         float r = 0, float g = 0, float b = 0,
+                         float a = 1) = 0;
+  virtual void endPass() = 0;
+
   virtual void setCullFace(bool front) = 0;
   virtual void setDepthFunc(bool lequal) = 0;
 
@@ -49,8 +64,6 @@ public:
   virtual void createShadowCubemap(int w, int h, uint32_t &fbo,
                                    uint32_t &cube) = 0;
   virtual void destroyFramebuffer(uint32_t fbo) = 0;
-  virtual void bindFramebuffer(uint32_t fbo) = 0;
-  virtual void clearDepth() = 0;
 };
 
 std::unique_ptr<Backend> createBackend();

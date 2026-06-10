@@ -3,10 +3,16 @@
 
 class GLBackend final : public Backend {
 public:
-  void init() override;
-  void setClearColor(float r, float g, float b, float a) override;
-  void clear(bool color, bool depth) override;
-  void setViewport(int x, int y, int w, int h) override;
+  void configureWindow() override;
+  void init(GLFWwindow *window) override;
+
+  void beginFrame() override;
+  void endFrame() override;
+
+  void beginPass(uint32_t framebuffer, int w, int h, bool clearColor, float r,
+                 float g, float b, float a) override;
+  void endPass() override;
+
   void setCullFace(bool front) override;
   void setDepthFunc(bool lequal) override;
 
@@ -42,9 +48,8 @@ public:
   void createShadowCubemap(int w, int h, uint32_t &fbo,
                            uint32_t &cube) override;
   void destroyFramebuffer(uint32_t fbo) override;
-  void bindFramebuffer(uint32_t fbo) override;
-  void clearDepth() override;
 
 private:
+  GLFWwindow *window = nullptr;
   uint32_t whiteTex = 0;
 };

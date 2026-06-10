@@ -1,40 +1,33 @@
-# Getting Started with Vulkan (for OpenGL devs)
+# Vulkan (for OpenGL devs)
 
-A longer walkthrough based on *How to Vulkan in 2026* (Sascha Willems). Assumes you know OpenGL, GLSL, matrices, lighting, depth testing, etc. I skip anything that carries over unchanged and instead dwell on what's genuinely different or non-obvious.
+Based on [How to Vulkan in 2026](https://howtovulkan.com) (Sascha Willems). Assumes OpenGL knowledge: only what is different is covered.
 
----
+OpenGL = giant state machine + smart driver doing memory/sync/state management behind your back. Vulkan exposes all of it as explicit objects: predictable performance, multithreadable command generation, ~1000 lines for a triangle.
 
-## 1. Why Vulkan looks the way it does
+> Everywhere Vulkan feels verbose, it's exposing something OpenGL was secretly doing for you
 
-OpenGL is a giant state machine with a very smart driver. You set blend modes, bind textures, call `glDrawElements`, and the driver figures out memory, synchronization, format conversions, shader recompilation, etc. That convenience has a cost: the driver has to assume worst-case behavior, and a lot of optimization happens at runtime behind your back. Two consequences:
+## Baseline: Vulkan 1.3
 
-- Performance is inconsistent and opaque. The same code behaves differently across vendors.
-- The driver is huge, hard to maintain, and full of game-specific hacks.
+Target **Vulkan 1.3**, enable these core features on the device (each kills a category of boilerplate):
 
-Vulkan inverts this. It exposes a thin, explicit interface to what the GPU actually does. You manage memory, layouts, synchronization, and state as explicit objects. In exchange, the driver becomes much simpler, performance is predictable, and you can multithread command generation.
+- `dynamicRendering` no more render pass + framebuffer objects: describe attachments at draw time
+- `bufferDeviceAddress` buffers become raw 64-bit pointers in shaders: no buffer descriptors
+- `descriptorIndexing` one giant bindless texture array: no per-material descriptor sets
+- `synchronization2` cleaner barrier API, harder to misuse
 
-The price is verbosity. A basic triangle is ~1000 lines of setup. But almost every line corresponds to something OpenGL was secretly doing for you.
+> "Core" still means opt-in: enable via `VkPhysicalDeviceVulkan1{2,3}Features` chained into device creation. Forgetting them causes confusing "extension not enabled" validation errors
 
-Keep this mental model: **everywhere Vulkan feels verbose, it's exposing something that existed in OpenGL too, you just weren't aware of it.**
+# Libraries
 
----
+- **Volk** loads Vulkan function pointers (the GLAD equivalent)
+- **VMA** (Vulkan Memory Allocator) memory management, basically mandatory
+- **SDL** window + surface creation (broadest platform support; GLFW also works)
+- **GLM** math
+- **Slang** shader language → SPIR-V
+- **KTX-Software** GPU texture format loading
+- **tinyobjloader** mesh loading
 
-## 2. Vulkan 1.3 is effectively a different API than Vulkan 1.0
-
-A lot of older tutorials teach Vulkan 1.0 idioms that are genuinely painful. Target **Vulkan 1.3** and enable these features on the logical device — each one eliminates a category of boilerplate:
-
-- **Dynamic rendering.** Render passes and framebuffers are gone. You describe attachments at draw time with `vkCmdBeginRendering`.
-- **Buffer device address (BDA).** Buffers become raw 64-bit pointers inside shaders. Uniform/storage buffer descriptors become unnecessary for most use cases.
-- **Descriptor indexing.** One giant array of textures, indexed in the shader ("bindless"). No more recreating descriptor sets per material.
-- **Synchronization2.** Cleaner barrier API with stages and access flags consolidated. Harder to misuse than the original.
-
-Without these four, you write roughly twice the code and deal with coupling you don't need. With them, Vulkan becomes tractable.
-
-Vulkan 1.3 covers essentially everything made in the last several years on desktop and most recent mobile. Check `vulkan.gpuinfo.org` to verify for specific targets.
-
----
-
-## 3. The object hierarchy — with the "why"
+# Object hierarchy
 
 ```
 Instance  ← process-wide connection to the Vulkan loader
@@ -55,148 +48,176 @@ Instance  ← process-wide connection to the Vulkan loader
       Images, Buffers, ImageViews, Samplers
 ```
 
-Three things are easy to miss:
+# Instance and device
 
-**Instance vs Device.** The instance knows about *Vulkan* — which loader is present, what instance extensions are installed (surface creation, debug utilities). The device knows about *your GPU* — what features it supports, what queues it has. Instance extensions are global; device extensions live on a specific GPU.
+## Instance
 
-**PhysicalDevice vs Device.** The physical device is a read-only handle you query capabilities from. The logical device is what you actually create with the feature set and queues you want. You can in principle create multiple logical devices from one physical device, though you rarely need to.
+`vkCreateInstance(&createInfo, nil, &instance)` create instance: app info + instance extensions + layers
 
-**Queue families.** A GPU exposes several queues grouped into families. Each family advertises what it supports: graphics, compute, transfer, video, presentation. On most desktop GPUs, family 0 supports all of the above and that's the one you use. On some hardware (mobile especially) you have to pick carefully. You submit command buffers to a queue, and queues in the same family are equivalent.
+> **Instance** knows about *Vulkan* (loader, surface extensions, debug utils). **Device** knows about *your GPU* (features, queues). Instance extensions are global; device extensions live on a GPU
 
----
+## Physical device selection
 
-## 4. Memory: types, heaps, and why VMA is basically mandatory
+`vkEnumeratePhysicalDevices(instance, &count, devices)` list GPUs
 
-In OpenGL, you call `glBufferData` and the driver picks where memory goes. In Vulkan, you pick. A GPU exposes several **memory heaps** (physical pools: VRAM, system RAM) and several **memory types** (logical properties of chunks within those heaps).
+`vkGetPhysicalDeviceProperties(physicalDevice, &props)` name, type (discrete/integrated), limits, API version
 
-The relevant properties:
+`vkGetPhysicalDeviceFeatures2(physicalDevice, &features)` query supported features (chain 1.2/1.3 feature structs)
 
-- **`DEVICE_LOCAL`** — lives in VRAM, fast for the GPU, potentially inaccessible from the CPU.
-- **`HOST_VISIBLE`** — the CPU can `memcpy` into it.
-- **`HOST_COHERENT`** — writes from the CPU are automatically visible to the GPU (no flush needed).
-- **`HOST_CACHED`** — reading back from it is fast on the CPU.
+> PhysicalDevice = read-only capability handle. Device (logical) = created with the features + queues you want. Check `vulkan.gpuinfo.org` for real-world feature support
 
-Historically the rule was: vertex data, textures, depth buffers live in `DEVICE_LOCAL` only, and you need a staging buffer (a `HOST_VISIBLE` scratch area) to upload. Small per-frame data like uniforms live in `HOST_VISIBLE | HOST_COHERENT` so you can write them directly each frame.
+## Queues
 
-Modern systems with ReBAR/SAM expose a memory type that is *both* `DEVICE_LOCAL` and `HOST_VISIBLE` — VRAM that the CPU can also map. VMA picks this automatically when you let it.
+GPU exposes queues grouped into **families**; each family advertises support: graphics, compute, transfer, present
 
-**Why use VMA:**
+`vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &count, families)` list families
 
-- It picks the right memory type from your usage flags.
-- It sub-allocates from large chunks instead of one allocation per resource (allocations are expensive and limited — sometimes to 4096 total per device).
-- It handles persistent mapping, defragmentation hooks, and the auto-fallback between memory types.
-- It has first-class support for buffer device address.
+`vkGetDeviceQueue(device, familyIndex, 0, &queue)` get queue handle after device creation
 
-The mental model you want:
+> On most desktop GPUs family 0 supports everything: use it. Queues in the same family are equivalent. Command pools are tied to one family
+
+## Logical device
+
+`vkCreateDevice(physicalDevice, &createInfo, nil, &device)` create with queue create infos + device extensions (`VK_KHR_swapchain`) + enabled features
 
 ```c
+// FULL FEATURE CHAIN
+VkPhysicalDeviceVulkan13Features f13 { .sType = ..., .dynamicRendering = VK_TRUE, .synchronization2 = VK_TRUE };
+VkPhysicalDeviceVulkan12Features f12 { .sType = ..., .pNext = &f13,
+    .descriptorIndexing = VK_TRUE, .bufferDeviceAddress = VK_TRUE, .scalarBlockLayout = VK_TRUE };
+VkDeviceCreateInfo ci { .sType = ..., .pNext = &f12, ... };
+```
+
+# Memory : VMA
+
+GPU exposes **memory heaps** (physical pools: VRAM, system RAM) containing **memory types** (logical properties):
+
+- `DEVICE_LOCAL` in VRAM, fast for GPU, possibly CPU-inaccessible
+- `HOST_VISIBLE` CPU can map and memcpy into it
+- `HOST_COHERENT` CPU writes visible to GPU without explicit flush
+- `HOST_CACHED` fast CPU readback
+
+Classic rule: meshes/textures/depth in `DEVICE_LOCAL` (upload via staging buffer), per-frame uniforms in `HOST_VISIBLE | HOST_COHERENT`
+
+> ReBAR/SAM systems expose `DEVICE_LOCAL + HOST_VISIBLE` (mappable VRAM); VMA picks it automatically
+
+Why VMA: picks the right memory type from usage flags, sub-allocates from big chunks (allocation count limited, sometimes 4096 per device), persistent mapping, BDA support
+
+```c
+// THE ALLOCATION PATTERN TO REMEMBER
 VmaAllocationCreateInfo ci {
     .flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
-           | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT
-           | VMA_ALLOCATION_CREATE_MAPPED_BIT,
+           | VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT  // silent staging fallback
+           | VMA_ALLOCATION_CREATE_MAPPED_BIT,                             // permanent memcpy pointer
     .usage = VMA_MEMORY_USAGE_AUTO
 };
+vmaCreateBuffer(allocator, &bufferCI, &ci, &buffer, &allocation, &allocInfo);
 ```
 
-`AUTO` + describing your access pattern lets VMA pick. `MAPPED_BIT` gives you a pointer you can `memcpy` into forever. `ALLOW_TRANSFER_INSTEAD_BIT` tells VMA: if the ideal memory isn't host-visible on this GPU, fall back to a staging buffer silently.
+# Surface and swapchain
 
----
+`SDL_Vulkan_CreateSurface(window, instance, &surface)` platform-specific window connection (SDL handles per-OS differences)
 
-## 5. Synchronization — the actually hard part
+`vkCreateSwapchainKHR(device, &createInfo, nil, &swapchain)` create ring of presentable images
 
-This is where beginners drown. Three primitives, each for a different job:
+`vkGetSwapchainImagesKHR(device, swapchain, &count, images)` retrieve the images (driver decides the count)
 
-### Fences — GPU signals CPU
+**Present modes:**
+- `FIFO_KHR` v-sync, guaranteed available, start here
+- `MAILBOX_KHR` uncapped, tear-free, latest frame wins
+- `IMMEDIATE_KHR` tears, fastest
 
-"Is the GPU done with this batch of work yet?" A fence is created in either signaled or unsignaled state. You pass it to `vkQueueSubmit`; the GPU signals it when that submission completes. The CPU waits on it with `vkWaitForFences`.
+`VK_ERROR_OUT_OF_DATE_KHR` (from acquire/present) surface resized: recreate swapchain, skip this frame
 
-You use fences to know when it's safe to reuse a resource the GPU was reading/writing. Most commonly: "before I overwrite this frame's uniform buffer, wait for the fence from two frames ago."
+> Always pass the previous swapchain as `oldSwapchain` in the create info when recreating: avoids hitches and wasted memory
 
-### Semaphores — GPU signals GPU
+> **imageIndex ≠ frameIndex.** Swapchain image count (2-4, driver's choice) and frames in flight (your choice, usually 2) are different numbers. The compositor returns image indices in any order (0, 2, 1, 0...). Index per-image resources by `imageIndex`, per-frame resources by `frameIndex`
 
-"Is the GPU done with stage A before stage B begins?" Binary semaphores can only be waited on inside queue submissions — the CPU cannot wait on them. They enforce ordering between GPU-side operations.
+# Images and layouts
 
-Primary use: gating presentation. You acquire a swapchain image with a `presentSem`, tell `vkQueueSubmit` to wait on `presentSem` before doing color attachment output, have it signal `renderSem` when done, and tell `vkQueuePresentKHR` to wait on `renderSem` before showing the image.
+Every `VkImage` has a **layout**: abstract state describing how the image is arranged in memory and what operations are legal. GPUs physically reorder texels (tiling, compression) per use case; layout transitions tell the driver to reshuffle
 
-Timeline semaphores (a newer variant) replace fences + binary semaphores with a single counter-based object. They're cleaner but not universal, so most tutorials stick with the binary form.
-
-### Pipeline barriers — ordering within a command buffer
-
-"Before this work in this command buffer can read/write X, wait for the previous work in this command buffer to finish." Barriers are commands you record (`vkCmdPipelineBarrier2`), not objects.
-
-Every barrier has four critical fields:
-
-- **`srcStageMask`** — which pipeline stages need to finish first.
-- **`srcAccessMask`** — what kind of memory access from those stages needs to be flushed to be **available**.
-- **`dstStageMask`** — which pipeline stages need to wait.
-- **`dstAccessMask`** — what kind of memory access in those stages needs those writes to be **visible**.
-
-"Available" and "visible" sound synonymous but are distinct. Available means "drained from the writer's cache to the shared memory system." Visible means "loaded from the shared memory system into the reader's cache." Both must happen, and they're modeled separately because GPUs have tiered caches.
-
-Image memory barriers additionally transition the **image layout** (see next section).
-
-**The beginner shortcut:** when in doubt, pick broader stages and access masks. `ALL_COMMANDS_BIT` + `MEMORY_READ | MEMORY_WRITE` works but serializes the pipeline. You tighten it later for performance.
-
-**Use validation.** Vulkan Configurator has a *synchronization validation* preset that catches the majority of sync bugs, including ones that happen to work on your GPU but break on others. Run with it on at least once per feature.
-
----
-
-## 6. Image layouts explained
-
-Every `VkImage` has a current **layout** — an abstract state describing how the image is currently arranged in memory and what operations are legal on it. The GPU may physically reorder texels (tiled layouts, compression metadata) depending on how the image is being used, and layout transitions are how you tell the driver to reshuffle.
-
-The layouts that matter in practice:
-
-- **`UNDEFINED`** — contents are garbage. Valid as a source for transitions when you don't care about the previous data. Always the starting state after creation.
-- **`ATTACHMENT_OPTIMAL`** — being written to as a color or depth attachment. (Vulkan 1.3 unified color and depth attachment layouts into this one.)
-- **`SHADER_READ_ONLY_OPTIMAL`** / **`READ_ONLY_OPTIMAL`** — sampled in a shader.
-- **`TRANSFER_SRC_OPTIMAL`** / **`TRANSFER_DST_OPTIMAL`** — a `vkCmdCopy*` source or destination.
-- **`PRESENT_SRC_KHR`** — ready to be handed to the presentation engine.
-
-A typical texture's lifetime:
+- `UNDEFINED` contents garbage; valid transition source when previous data doesn't matter; always the state after creation
+- `ATTACHMENT_OPTIMAL` written as color/depth attachment (1.3 unified color + depth)
+- `SHADER_READ_ONLY_OPTIMAL` sampled in shader
+- `TRANSFER_SRC/DST_OPTIMAL` copy source / destination
+- `PRESENT_SRC_KHR` ready for the presentation engine
 
 ```
+// TEXTURE LIFETIME
 Create  → UNDEFINED
-        → (barrier) → TRANSFER_DST_OPTIMAL     # to receive the upload
+        → (barrier) → TRANSFER_DST_OPTIMAL      // receive upload
         → vkCmdCopyBufferToImage
-        → (barrier) → SHADER_READ_ONLY_OPTIMAL # for sampling
+        → (barrier) → SHADER_READ_ONLY_OPTIMAL  // sample forever
+
+// SWAPCHAIN IMAGE, EVERY FRAME
+Acquire → UNDEFINED (discard old contents)
+        → (barrier) → ATTACHMENT_OPTIMAL        // render
+        → (barrier) → PRESENT_SRC_KHR           // hand to compositor
 ```
 
-A swapchain image each frame:
+> Forgotten layout transition = #1 cause of "works on my GPU, breaks on yours". Validation catches it
+
+`vkCreateImageView(device, &createInfo, nil, &view)` images are never used raw: views select format, mip range, layers
+
+# Synchronization
+
+Three primitives, three different jobs:
+
+## Fences : GPU signals CPU
+
+`vkQueueSubmit(queue, 1, &submit, fence)` GPU signals fence when this submission completes
+
+`vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX)` CPU blocks until signaled
+
+`vkResetFences(device, 1, &fence)` back to unsignaled
+
+> Use: "is the GPU done with frame N-2's resources so I can reuse them?" Create with `SIGNALED_BIT` so frame 0 doesn't deadlock
+
+## Semaphores : GPU signals GPU
+
+Binary semaphores order GPU work against GPU work; CPU cannot wait on them
+
+Use: gate presentation. Submit waits on `presentSem` (image acquired) and signals `renderSem` (rendering done); present waits on `renderSem`
+
+> **The two-semaphore indexing trap:** `presentSemaphores[frameIndex]` (acquire doesn't know the image index yet) but `renderSemaphores[imageIndex]` (present does). Using frameIndex for both = subtle race
+
+> Timeline semaphores replace fences + binary semaphores with one counter object: cleaner, less universal
+
+## Pipeline barriers : ordering within command buffers
+
+`vkCmdPipelineBarrier2(cb, &dependencyInfo)` recorded command, not an object. Also performs image layout transitions
+
+Four critical fields per barrier:
+- `srcStageMask` which stages must finish first
+- `srcAccessMask` which writes must become **available** (drained from writer's cache)
+- `dstStageMask` which stages must wait
+- `dstAccessMask` which reads need writes **visible** (loaded into reader's cache)
+
+> Beginner shortcut: `ALL_COMMANDS_BIT` + `MEMORY_READ | MEMORY_WRITE` everywhere is correct but serializes the pipeline; tighten later
+
+> Run with **synchronization validation** (vkconfig preset) at least once per feature: catches bugs that happen to work on your GPU
+
+# Buffers
+
+`vmaCreateBuffer(...)` create buffer + allocation in one call (see VMA pattern above)
+
+Usage flags: `VERTEX_BUFFER_BIT`, `INDEX_BUFFER_BIT`, `TRANSFER_SRC/DST_BIT`, `SHADER_DEVICE_ADDRESS_BIT`
+
+**Staging upload** (for DEVICE_LOCAL data):
 
 ```
-Acquire → UNDEFINED (we discard the old contents)
-        → (barrier) → ATTACHMENT_OPTIMAL        # for rendering
-        → rendering commands
-        → (barrier) → PRESENT_SRC_KHR           # for the compositor
+create staging buffer (HOST_VISIBLE) + destination buffer (DEVICE_LOCAL)
+memcpy data into staging's mapped pointer
+one-time command buffer: vkCmdCopyBuffer(cb, staging, dst, 1, &region)
+submit + wait fence, destroy staging
 ```
 
-Forgetting a layout transition is the #1 cause of "it works on my GPU, crashes on yours." Validation catches it.
+## Buffer device address (BDA)
 
----
+`vkGetBufferDeviceAddress(device, &info)` get buffer's 64-bit GPU address
 
-## 7. Descriptors — and how to mostly skip them
-
-Descriptors are handles that describe shader resources (buffers, images, samplers) to the pipeline. In vanilla Vulkan 1.0 you'd deal with:
-
-- **Descriptor set layouts** — the *interface*: "slot 0 is a uniform buffer, slot 1 is a sampled image."
-- **Descriptor pools** — pre-allocated memory from which sets are drawn.
-- **Descriptor sets** — the *instance*: actual buffer handle for slot 0, actual image handle for slot 1.
-
-You bind a descriptor set before drawing, and the shader reads the resources through it. Conceptually a lot like UBO binding points in OpenGL but much more verbose.
-
-**Two 1.3 features make descriptors mostly vestigial:**
-
-### Buffer device address (for buffers)
-
-Instead of referencing a uniform buffer through a descriptor, you get its 64-bit GPU address:
-
-```c
-VkBufferDeviceAddressInfo info{ .buffer = myBuffer, ... };
-VkDeviceAddress addr = vkGetBufferDeviceAddress(device, &info);
-```
-
-You pass `addr` to the shader (most commonly via a push constant), and in the shader you just dereference it:
+Pass the address via push constant, dereference in the shader like a C pointer: no descriptor sets, no bindings for buffers
 
 ```slang
 [shader("vertex")]
@@ -206,214 +227,39 @@ VSOutput main(VSInput input, uniform ShaderData *shaderData) {
 }
 ```
 
-No descriptor sets, no bindings, no slot management. The one gotcha: struct layouts on the CPU and GPU must match. Slang/GLSL default to `std140`-ish rules with awkward padding. The simplest fix is to enable `VK_EXT_scalar_block_layout` (Vulkan 1.2 core) and write structs that look identical on both sides.
+> Gotcha: CPU and GPU struct layouts must match. Enable `scalarBlockLayout` (1.2 core) and write identical structs on both sides; otherwise std140-ish padding rules bite (especially vec3 and arrays)
 
-### Descriptor indexing (for textures)
+# Descriptors
 
-You still need descriptors for images (there's no "image device address" equivalent yet), but descriptor indexing turns them into a single large array:
+Handles describing shader resources to a pipeline. Vanilla Vulkan trio:
+- **DescriptorSetLayout** the interface ("slot 0 = uniform buffer, slot 1 = sampled image")
+- **DescriptorPool** memory the sets are allocated from
+- **DescriptorSet** the instance (actual handles), bound before drawing
+
+> With BDA handling buffers, descriptors only remain necessary for **textures** (no "image device address" yet)
+
+## Descriptor indexing (bindless)
+
+One big descriptor set with N texture slots, filled once, bound once per frame; per-draw you pass an index (push constant, instance attribute...)
 
 ```slang
-Sampler2D textures[];  // unbounded array, bindless
-...
+Sampler2D textures[];  // unbounded array
 float3 color = textures[NonUniformResourceIndex(materialIndex)].Sample(uv).rgb;
 ```
 
-You allocate one big descriptor set with N slots, fill it once with all your textures, and bind it once per frame. Per-draw you just pass an index (push constant, per-instance attribute, storage buffer field, whatever).
+`NonUniformResourceIndex` required when threads in a warp may use different indices (e.g. index from per-fragment data)
 
-`NonUniformResourceIndex` tells the driver that threads in the same warp may index different elements — required when the index comes from per-fragment data.
+# Shaders : SPIR-V and Slang
 
-With BDA for buffers and indexing for textures, descriptor sets become a background detail rather than the center of your renderer.
+Vulkan consumes **SPIR-V** (binary IR), generated from GLSL (`glslc`), HLSL (DXC), or **Slang**
 
----
-
-## 8. Pipelines — frozen state objects
-
-A **graphics pipeline** bundles:
-
-- Vertex input layout (attribute formats, stride, binding rate)
-- Input assembly (triangle list, strip, etc.)
-- Vertex + fragment shaders (and others if used)
-- Viewport/scissor (can be dynamic)
-- Rasterization state (cull mode, polygon mode, line width)
-- Multisample state
-- Depth/stencil state
-- Color blend state
-- Pipeline layout (descriptor set layouts + push constant ranges)
-- Attachment formats (with dynamic rendering)
-
-All of this is baked into one immutable object at `vkCreateGraphicsPipelines` time. The driver can then optimize aggressively — compile shaders with full knowledge of the surrounding state, specialize for the specific vertex layout, etc.
-
-**Consequence:** if you want a different blend mode, you create a different pipeline. A real renderer ends up with hundreds or thousands of them. This is why pipeline caches and pipeline libraries exist.
-
-**What can be dynamic** without creating a new pipeline: viewport, scissor (always). Line width, depth bias, blend constants (with flags). A much larger list with `VK_EXT_extended_dynamic_state3` and `VK_EXT_shader_object`, which make Vulkan feel closer to OpenGL's state-machine ergonomics — but those are optional and we're skipping them here.
-
-**Pipeline layout** is a separate object because multiple pipelines often share the same resource interface. It lists the descriptor set layouts and push constant ranges the pipeline will use.
-
-**Push constants** are a small block of data (guaranteed at least 128 bytes) that you inline into the command buffer with `vkCmdPushConstants`. They're the cheapest way to pass per-draw parameters. Perfect for BDA pointers, instance indices, material IDs — anything small that changes per draw call.
-
----
-
-## 9. Command buffers: CPU timeline vs GPU timeline
-
-This distinction trips people up constantly.
-
-**CPU timeline:** code you write runs in order. `vkCmdBindPipeline` returns immediately — it has *recorded* the command, not executed it.
-
-**GPU timeline:** the work described by your commands happens later, when the command buffer is submitted and the GPU gets around to it.
-
-Anything prefixed `vkCmd*` is a record-for-later operation. Everything else (`vkCreate*`, `vkAllocate*`, `vkGet*`, `vkQueue*`) happens on the CPU timeline and may or may not interact with the GPU timeline depending on the call.
-
-### Command buffer lifecycle
-
-```
-Initial → (begin) → Recording → (end) → Executable → (submit) → Pending
-                                             ↑                       ↓
-                                          (reset) ←── (work complete)
-```
-
-You must:
-- Not record into a command buffer in the Pending state (the GPU is still using it).
-- Reset it (explicitly or via `VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT` + `vkBeginCommandBuffer`) before re-recording.
-- Know when the GPU is done — that's what the fence is for.
-
-### Why command pools exist
-
-Allocating command buffers is a hot path, so Vulkan uses pools for cheap block allocation. Each pool is tied to a queue family and can only be used on one thread at a time. For multithreaded recording, use one pool per thread.
-
----
-
-## 10. The swapchain in slow motion
-
-The swapchain is a ring of images owned by the operating system compositor. Your job is to acquire one, render into it, and give it back. Subtleties that matter:
-
-**Image count vs frames in flight — these are different numbers.** The swapchain might have 2, 3, or 4 images depending on the present mode and driver. Frames in flight is how many frames of CPU-side resources (command buffers, uniform buffers) you keep live. They're related but not equal.
-
-**Acquisition is asynchronous.** `vkAcquireNextImageKHR` returns an image index immediately, but the image may not be ready for the GPU yet — the compositor might still be reading from it. That's what the `presentSem` is for: the GPU waits on it before touching the image.
-
-**Image index is not sequential.** The compositor may give you images 0, 2, 1, 0, 2 in any pattern. This is why you index some resources by `imageIndex` (per-image) and others by `frameIndex` (per-frame-in-flight).
-
-**The two-semaphore pattern:** there's a subtle synchronization trap people fall into. A clean formulation:
-
-- **`presentSemaphores[frameIndex]`** — one per frame in flight. Used to gate command buffer submission on image acquisition.
-- **`renderSemaphores[imageIndex]`** — one per swapchain image. Used to gate presentation on rendering.
-
-Why the asymmetry? `vkAcquireNextImageKHR` hasn't told us the image index yet when we need to pick a semaphore to pass in — so that one is indexed by `frameIndex`. `vkQueuePresentKHR` already knows the image index — so that one is indexed by `imageIndex`. Using `frameIndex` for both creates a subtle race where presentation can wait on a semaphore that hasn't been signaled yet. Just copy the pattern; the Vulkan Guide has the long version.
-
-**Present modes:**
-- `FIFO_KHR` — v-sync, guaranteed available. Start here.
-- `MAILBOX_KHR` — uncapped but tear-free; latest frame wins.
-- `IMMEDIATE_KHR` — tears, fastest.
-
-**`VK_ERROR_OUT_OF_DATE_KHR`** — the surface changed size/orientation. Recreate the swapchain, bail out of this frame.
-
----
-
-## 11. Frames in flight, fleshed out
-
-The OpenGL mental model is "one frame at a time, driver handles everything." Vulkan exposes the pipelined reality.
-
-If `maxFramesInFlight = 2`, then while the GPU renders frame N, the CPU prepares frame N+1. While the GPU renders N+1, the CPU prepares N+2 *and* the monitor displays N. Three things going on at once.
-
-You duplicate resources that CPU and GPU both touch:
-
-- Command buffers (CPU records, GPU reads)
-- Uniform / shader-data buffers (CPU writes, GPU reads)
-- Fences for completion signaling
-- Present semaphores (per-frame, see above)
-
-You **don't** duplicate resources only the GPU touches:
-
-- Depth buffer — GPU writes and reads it, but entirely within one frame
-- Textures — read-only from shader
-- Vertex/index buffers (after upload)
-- The pipeline itself
-
-**Higher `maxFramesInFlight` trades latency for throughput.** Two is a sweet spot. Three is common when you want to smooth frame time spikes. More than three mostly adds input latency.
-
-**The fence wait that gates it all** happens at the *start* of each frame. You're asking: "Is the GPU done with frame N-2's resources, so I can reuse them for frame N?" If the GPU is keeping up, the wait is zero. If the GPU is behind, this is where the CPU naturally throttles.
-
----
-
-## 12. The render loop, with commentary
-
-```c
-while (!quit) {
-    // (1) Throttle: wait for frame N-MAX_FIF's GPU work to complete.
-    vkWaitForFences(device, 1, &fences[frameIndex], VK_TRUE, UINT64_MAX);
-    vkResetFences(device, 1, &fences[frameIndex]);
-
-    // (2) Ask the OS for a swapchain image. Signal presentSem when it's ours.
-    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
-                          presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
-
-    // (3) Safe to write per-frame CPU-side data now — the GPU is done with it.
-    updateShaderData();
-    memcpy(shaderDataBuffers[frameIndex].mapped, &shaderData, sizeof(shaderData));
-
-    // (4) Record the command buffer for this frame.
-    VkCommandBuffer cb = commandBuffers[frameIndex];
-    vkResetCommandBuffer(cb, 0);
-    vkBeginCommandBuffer(cb, &bi);
-
-    // (4a) Layout transitions: UNDEFINED -> ATTACHMENT_OPTIMAL
-    vkCmdPipelineBarrier2(cb, &preRenderBarriers);
-
-    // (4b) Start dynamic rendering — no render pass object.
-    vkCmdBeginRendering(cb, &renderingInfo);
-        vkCmdSetViewport(cb, 0, 1, &vp);
-        vkCmdSetScissor(cb, 0, 1, &scissor);
-        vkCmdBindPipeline(cb, GRAPHICS, pipeline);
-        vkCmdBindDescriptorSets(cb, ...);       // bindless textures
-        vkCmdBindVertexBuffers(cb, ...);
-        vkCmdBindIndexBuffer(cb, ...);
-        vkCmdPushConstants(cb, ..., &bdaPointer); // address of per-frame UBO
-        vkCmdDrawIndexed(cb, indexCount, instanceCount, 0, 0, 0);
-    vkCmdEndRendering(cb);
-
-    // (4c) Layout transition: ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR
-    vkCmdPipelineBarrier2(cb, &presentBarrier);
-    vkEndCommandBuffer(cb);
-
-    // (5) Submit: wait on presentSem, signal renderSem, signal fence.
-    vkQueueSubmit(queue, 1, &submitInfo, fences[frameIndex]);
-
-    // (6) Hand image back to compositor after renderSem is signaled.
-    vkQueuePresentKHR(queue, &presentInfo);
-
-    frameIndex = (frameIndex + 1) % maxFramesInFlight;
-    pollEvents();
-    if (resized) recreateSwapchain();
-}
-```
-
-Things worth staring at:
-
-- The fence wait (1) is how the CPU throttles naturally. Without it you'd pile up unbounded frames.
-- The shader data write (3) is safe *only because* we waited on the fence. Skip the fence and you may be writing into a buffer the GPU is still reading.
-- The pre-render barrier (4a) transitions *from* `UNDEFINED` because we don't care about the previous content of the swapchain image — it might be N-2's frame, which we're about to overwrite anyway.
-- The present barrier (4c) is what lets the compositor use the image. Omit it and you'll see validation errors and possibly nothing on screen.
-- Submit signals both the fence (for CPU throttling next iteration) and the render semaphore (for presentation). The same GPU work completion event is observed by both.
-
----
-
-## 13. Shaders: SPIR-V, Slang, and why it's better now
-
-Vulkan doesn't consume GLSL directly. It consumes **SPIR-V**, a binary intermediate representation. You can generate SPIR-V from:
-
-- **GLSL** — via `glslang` or `glslc`. Familiar but dated.
-- **HLSL** — via DXC. Useful if you share shaders with a D3D12 backend.
-- **Slang** — Khronos's modern shading language. Single file for all stages, module system, generics, automatic differentiation, better error messages.
-
-**Why Slang specifically:**
-
-- All stages in one file with `[shader("vertex")]` / `[shader("fragment")]` attributes — no more duplicated struct definitions across `.vert` and `.frag`.
-- Pointers are first-class — plays perfectly with BDA.
-- Can emit SPIR-V, HLSL, GLSL, Metal, CUDA — portable if you target multiple APIs.
-- You can integrate the compiler as a library and recompile on file change for hot reload.
-
-A minimal Slang module with both stages:
+Why Slang:
+- All stages in one file: `[shader("vertex")]` / `[shader("fragment")]` attributes, shared struct definitions
+- First-class pointers → perfect fit for BDA
+- Emits SPIR-V/HLSL/GLSL/Metal/CUDA; embeddable as a library for hot reload
 
 ```slang
+// FULL MINIMAL MODULE
 struct VSInput { float3 Pos; float3 Normal; float2 UV; };
 struct VSOutput { float4 Pos : SV_POSITION; float3 Normal; float2 UV; };
 
@@ -440,106 +286,184 @@ float4 fsmain(VSOutput in, uint iid : SV_VulkanInstanceID) {
 }
 ```
 
-The `uniform ShaderData *sd` parameter is the BDA pointer — passed from the application as a push constant, dereferenced as if it were a C pointer.
+> `uniform ShaderData *sd` = the BDA pointer, passed from the app as a push constant
 
----
+`vkCreateShaderModule(device, &createInfo, nil, &module)` wrap SPIR-V blob for pipeline creation
 
-## 14. Textures and why KTX beats PNG/JPEG
+# Pipelines
 
-You *can* load a PNG, decode it to RGBA8 on the CPU, upload it via a staging buffer, and generate mipmaps with `vkCmdBlitImage`. It works. It's slow and wastes memory.
+`vkCreateGraphicsPipelines(device, cache, 1, &createInfo, nil, &pipeline)` bake everything into one immutable object:
 
-**KTX2 + Basis Universal** is better for every real use case:
+- Vertex input layout, input assembly (topology)
+- Shader stages
+- Rasterization (cull, polygon mode), multisample, depth/stencil, blend state
+- Pipeline layout (descriptor set layouts + push constant ranges)
+- Attachment formats (replaces render pass with dynamic rendering)
 
-- Stores natively compressed formats (BCn, ASTC, ETC) — 4-8× less VRAM.
-- Mipmaps are baked in — no blit dance.
-- You `memcpy` the file straight into a staging buffer, no decode.
-- The libktx library decides the best GPU format per device (transcoding Basis Universal if needed).
+> Frozen state = driver can fully specialize shaders. Consequence: different blend mode = different pipeline; real renderers have hundreds (hence pipeline caches/libraries)
 
-**Upload flow, once:**
+**Dynamic without a new pipeline:** viewport, scissor (always); more with `VK_EXT_extended_dynamic_state3` / `VK_EXT_shader_object`
+
+`vkCreatePipelineLayout(...)` separate object because many pipelines share one resource interface
+
+`vkCmdPushConstants(cb, layout, stages, offset, size, data)` inline ≥128 bytes of per-draw data into the command buffer: cheapest parameter path, perfect for BDA pointers / instance indices / material IDs
+
+# Command buffers
+
+> **CPU timeline vs GPU timeline:** every `vkCmd*` call *records* work, it doesn't execute it. Execution happens after submit, when the GPU gets to it
+
+`vkCreateCommandPool(device, &createInfo, nil, &pool)` pool = cheap block allocator, tied to one queue family, **one thread at a time** (one pool per recording thread)
+
+`vkAllocateCommandBuffers(device, &allocInfo, &cb)` get command buffer from pool
+
+`vkBeginCommandBuffer(cb, &beginInfo)` start recording (implicitly resets with the right pool flag)
+
+`vkEndCommandBuffer(cb)` finish recording
+
+`vkQueueSubmit(queue, 1, &submitInfo, fence)` submit for execution
 
 ```
-Create image (UNDEFINED) + staging buffer (HOST_VISIBLE)
-memcpy file data into staging
-begin one-time command buffer:
-    barrier: UNDEFINED -> TRANSFER_DST_OPTIMAL
-    vkCmdCopyBufferToImage (one region per mip level)
-    barrier: TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
-end + submit + wait fence
-free staging
+// LIFECYCLE
+Initial → (begin) → Recording → (end) → Executable → (submit) → Pending
+                                             ↑                      ↓
+                                          (reset) ←──── (work complete, fence knows)
 ```
 
-**Samplers are separate objects.** A `VkSampler` encapsulates filtering mode, addressing mode, anisotropy, LOD clamps. One sampler can be used by many images — you don't need a sampler per texture.
+> Never re-record a Pending command buffer (GPU still reading it): that's what the per-frame fence wait guarantees
 
-For the descriptor array, you combine them (`VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER`) for simplicity. A real renderer often separates them (`SAMPLED_IMAGE` + `SAMPLER`) to avoid duplicating sampler state per texture.
+# Textures : KTX
 
-**Format caveat:** 3-channel formats (RGB) are often unsupported. Use RGBA. On OpenGL the driver silently padded; on Vulkan it simply fails.
+PNG decode + blit-generated mipmaps works but is slow and wastes VRAM. **KTX2 + Basis Universal**:
 
----
+- Stores natively compressed GPU formats (BCn/ASTC/ETC): 4-8× less VRAM
+- Mipmaps baked in, file memcpys straight into staging
+- libktx transcodes to the best format per device
 
-## 15. Validation layers — use them obsessively
+`ktxTexture2_CreateFromNamedFile(...)` + `ktxTexture2_TranscodeBasis(...)` load + pick GPU format
 
-Validation layers ship with the SDK and enable via `vkconfig` or an env var. They check:
+Upload = staging buffer + `vkCmdCopyBufferToImage` (one region per mip) + the two barriers (see image layouts)
 
-- Spec violations (wrong struct type, missing required field, null pointer)
-- Undefined behavior (uninitialized descriptor, wrong image layout)
-- Synchronization hazards (write-after-read, race conditions — *with the synchronization preset*)
-- Best-practice warnings (redundant barriers, suboptimal usage)
-- Shader correctness (out-of-bounds access, uninitialized reads)
+`vkCreateSampler(device, &createInfo, nil, &sampler)` filtering, addressing, anisotropy, LOD clamps: **separate object**, one sampler serves many images
 
-Errors print to stderr / `OutputDebugString` / logcat. Enable `VK_EXT_debug_utils` and pass a callback to get them in your own log with severity filtering.
+> 3-channel (RGB) formats often unsupported: use RGBA. OpenGL silently padded; Vulkan just fails
 
-**Turn on synchronization validation periodically.** It's expensive so people leave it off, but it catches the class of bugs that are most likely to bite you when shipping to different GPUs.
+# Frames in flight
 
-**When validation is clean and rendering is still wrong,** it's a logic bug (bad matrix, wrong vertex attribute offset, shader math). That's when you reach for RenderDoc — pixel-level GPU state inspection.
+While GPU renders frame N, CPU records frame N+1, monitor shows frame N-1. `maxFramesInFlight = 2` is the sweet spot (3 smooths spikes, more = input latency)
 
----
+**Duplicate per frame in flight** (CPU and GPU both touch):
+- Command buffers, uniform/shader-data buffers, fences, present semaphores
 
-## 16. Beginner mistakes and how to avoid them
+**Don't duplicate** (GPU-only):
+- Depth buffer, textures, vertex/index buffers, pipelines
 
-- **Forgetting an image layout transition.** Validation screams. Always transition swapchain images from `UNDEFINED` to `ATTACHMENT_OPTIMAL` at the start of rendering and to `PRESENT_SRC_KHR` at the end.
-- **Calling a `vkCmd*` outside `vkBeginCommandBuffer`/`vkEndCommandBuffer`.** Segfaults, no validation help.
-- **Submitting a command buffer before the previous submission's fence was signaled.** The command buffer is still in Pending state. Validation will tell you.
-- **Updating a per-frame uniform buffer without waiting on the fence first.** Produces flicker or corruption that vanishes under a debugger.
-- **Not checking `vkAcquireNextImageKHR` / `vkQueuePresentKHR` return codes.** They return `VK_SUBOPTIMAL_KHR` or `VK_ERROR_OUT_OF_DATE_KHR` on resize; you need to recreate the swapchain.
-- **Mismatched CPU/GPU struct layout.** Enable `VK_EXT_scalar_block_layout` or carefully match `std140` rules. Symptoms: garbage values in shaders, especially with `vec3` and arrays.
-- **Recreating the swapchain without `oldSwapchain`.** Causes visible hitches and wastes GPU memory. Always pass the previous swapchain into the create info.
-- **Forgetting to enable Vulkan 1.3 core features** (`dynamicRendering`, `synchronization2`, `bufferDeviceAddress`, `descriptorIndexing`). You need to explicitly opt in via `VkPhysicalDeviceVulkan1{2,3}Features` even though they're "core." Missing these causes confusing validation errors like "extension not enabled."
-- **Treating `imageIndex` and `frameIndex` as the same thing.** They're not. Semaphore indexing depends on which.
+> The frame-start fence wait is the natural CPU throttle: zero wait if GPU keeps up, blocks if it doesn't
 
----
+# Render loop
 
-## 17. A suggested learning order
+```c
+while (!quit) {
+    // (1) Throttle: wait for this slot's previous GPU work to complete.
+    vkWaitForFences(device, 1, &fences[frameIndex], VK_TRUE, UINT64_MAX);
+    vkResetFences(device, 1, &fences[frameIndex]);
 
-Don't try to absorb the whole object graph at once. Build up:
+    // (2) Ask the OS for a swapchain image. Signal presentSem when it's ours.
+    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX,
+                          presentSemaphores[frameIndex], VK_NULL_HANDLE, &imageIndex);
 
-1. **Instance + device + queue.** Print the GPU name. Verify Vulkan 1.3 is active.
-2. **Swapchain + clear color.** Transition swapchain image to `ATTACHMENT_OPTIMAL`, use dynamic rendering with `LOAD_OP_CLEAR`, transition to `PRESENT_SRC_KHR`, present. One clear, no shaders, no vertex buffer. This alone is ~500 lines and teaches you 60% of Vulkan.
-3. **Hardcoded triangle.** A pipeline, a Slang shader with positions in the shader code. No vertex buffers.
-4. **Vertex + index buffer via VMA.** Mesh from `tinyobjloader`. Now you have the basic draw shape.
-5. **Per-frame uniform buffer via BDA + push constants.** Animate the triangle. First time you deal with frames in flight and fence throttling.
-6. **Depth buffer.** Simple scene with overlapping geometry.
-7. **Textures via KTX.** Staging buffer, layout transitions, samplers.
-8. **Descriptor indexing.** Multiple textures in a bindless array, indexed from shader.
-9. **Resize handling.** Recreate swapchain + depth image on `VK_ERROR_OUT_OF_DATE_KHR`.
-10. **Proper synchronization with sync2 barriers.** Go back and tighten barriers from "everything everywhere" to the minimum needed. Turn on synchronization validation.
-11. **A second pipeline, a second mesh.** Multi-draw-per-frame. This is where you stress-test whether your abstractions hold up.
+    // (3) Safe to write per-frame CPU-side data now — the GPU is done with it.
+    updateShaderData();
+    memcpy(shaderDataBuffers[frameIndex].mapped, &shaderData, sizeof(shaderData));
 
-Past that, you're into engine territory: pipeline caching, render graphs, GPU-driven rendering, bindless descriptor strategies, mesh shaders, raytracing.
+    // (4) Record the command buffer for this frame.
+    VkCommandBuffer cb = commandBuffers[frameIndex];
+    vkResetCommandBuffer(cb, 0);
+    vkBeginCommandBuffer(cb, &bi);
 
----
+    // (4a) Layout transition: UNDEFINED -> ATTACHMENT_OPTIMAL
+    vkCmdPipelineBarrier2(cb, &preRenderBarriers);
 
-## 18. Resources
+    // (4b) Start dynamic rendering — no render pass object.
+    vkCmdBeginRendering(cb, &renderingInfo);
+        vkCmdSetViewport(cb, 0, 1, &vp);
+        vkCmdSetScissor(cb, 0, 1, &scissor);
+        vkCmdBindPipeline(cb, GRAPHICS, pipeline);
+        vkCmdBindDescriptorSets(cb, ...);         // bindless textures
+        vkCmdBindVertexBuffers(cb, ...);
+        vkCmdBindIndexBuffer(cb, ...);
+        vkCmdPushConstants(cb, ..., &bdaPointer); // address of per-frame shader data
+        vkCmdDrawIndexed(cb, indexCount, instanceCount, 0, 0, 0);
+    vkCmdEndRendering(cb);
 
-- **Vulkan Docs Site** — combined spec, Khronos tutorial, samples index.
-- **Sascha Willems' samples repo** — canonical reference implementations; the tutorial this summary is based on lives there.
-- **vkguide.dev** — another modern Vulkan tutorial, complementary style. Worth reading in parallel.
-- **vulkan.gpuinfo.org** — verify feature/format/limit support across real hardware.
-- **RenderDoc** — frame debugger. Capture a frame, inspect every draw call, pipeline state, buffer contents.
-- **vkconfig** — SDK GUI for validation layer configuration.
-- **Arseny Kapoulkine — "Writing an Efficient Vulkan Renderer"** — when you're ready to think about performance.
+    // (4c) Layout transition: ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR
+    vkCmdPipelineBarrier2(cb, &presentBarrier);
+    vkEndCommandBuffer(cb);
 
----
+    // (5) Submit: wait on presentSem, signal renderSem[imageIndex], signal fence.
+    vkQueueSubmit(queue, 1, &submitInfo, fences[frameIndex]);
 
-## Bottom line
+    // (6) Hand image back to compositor once renderSem is signaled.
+    vkQueuePresentKHR(queue, &presentInfo);
 
-Vulkan rewards patience. The first triangle takes an afternoon, the next one takes ten minutes, and from then on you're writing a real renderer. Almost everything painful in Vulkan 1.0 has been smoothed over by 1.3 core features — if you target that baseline and use VMA + Slang + SDL + Volk, the gap between "I know OpenGL" and "I ship Vulkan" is weeks, not months. Most of the graphics knowledge transfers directly; you're just learning a more honest plumbing layer underneath.
+    frameIndex = (frameIndex + 1) % maxFramesInFlight;
+    pollEvents();
+    if (resized) recreateSwapchain();
+}
+```
+
+Worth staring at:
+- (1) without the fence wait, frames pile up unbounded and (3) would overwrite a buffer the GPU is reading
+- (4a) transitions *from* `UNDEFINED` because the old swapchain contents are about to be overwritten anyway
+- (5) one GPU completion event observed twice: fence (CPU throttle) + renderSem (presentation gate)
+
+# Cleanup
+
+`vkDeviceWaitIdle(device)` wait for all GPU work before destroying anything
+
+Destroy in reverse creation order; every `vkCreate*`/`vmaCreate*` has a matching destroy. Swapchain-dependent resources (views, depth image) also die on every recreate
+
+# Validation layers
+
+Enable via `vkconfig` (SDK GUI) or env var; check spec violations, wrong layouts, sync hazards, shader OOB access
+
+`VK_EXT_debug_utils` + callback route messages into your own log with severity filtering
+
+> Validation clean but render wrong = logic bug (bad matrix, wrong attribute offset): reach for **RenderDoc** (per-draw GPU state inspection)
+
+# Beginner mistakes
+
+- Forgetting an image layout transition (validation screams)
+- `vkCmd*` outside begin/end: segfault, no validation help
+- Re-recording a Pending command buffer (fence not waited)
+- Writing per-frame uniforms before the fence wait: flicker/corruption that vanishes under a debugger
+- Ignoring `VK_SUBOPTIMAL_KHR` / `VK_ERROR_OUT_OF_DATE_KHR` return codes on acquire/present
+- Mismatched CPU/GPU struct layout (garbage in shaders, especially vec3/arrays) → `scalarBlockLayout`
+- Recreating the swapchain without `oldSwapchain`
+- Not enabling the 1.3 feature structs at device creation
+- Treating `imageIndex` and `frameIndex` as the same thing
+
+# Learning order
+
+1. Instance + device + queue: print the GPU name, verify 1.3
+2. Swapchain + clear color (no shaders): ~500 lines, teaches 60% of Vulkan
+3. Hardcoded triangle (positions in shader, no vertex buffer)
+4. Vertex + index buffer via VMA, mesh from tinyobjloader
+5. Per-frame shader data via BDA + push constants: first contact with frames in flight
+6. Depth buffer
+7. Textures via KTX (staging, transitions, sampler)
+8. Descriptor indexing: bindless texture array
+9. Resize handling (swapchain + depth recreation)
+10. Tighten barriers from "everything everywhere" to minimal; run sync validation
+11. Second pipeline + second mesh: stress-test your abstractions
+
+Past that: pipeline caching, render graphs, GPU-driven rendering, mesh shaders, raytracing
+
+# Resources
+
+- **Vulkan Docs Site** combined spec + Khronos tutorial + samples index
+- **Sascha Willems' samples repo** canonical reference implementations
+- **vkguide.dev** complementary modern tutorial
+- **vulkan.gpuinfo.org** real-hardware feature/format/limit database
+- **RenderDoc** frame debugger
+- **vkconfig** validation layer GUI
+- **Arseny Kapoulkine, "Writing an Efficient Vulkan Renderer"** when performance time comes

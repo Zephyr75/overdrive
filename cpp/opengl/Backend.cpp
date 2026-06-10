@@ -2,35 +2,58 @@
 #include "Shader.hpp"
 #include "Texture.hpp"
 #include <glad/glad.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+#include <iostream>
 #include <memory>
 
 std::unique_ptr<Backend> createBackend() {
   return std::make_unique<GLBackend>();
 }
 
-void GLBackend::init() {
+void GLBackend::configureWindow() {
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GLFW_TRUE);
+#endif
+  glfwWindowHint(GLFW_SAMPLES, 4);
+}
+
+void GLBackend::init(GLFWwindow *win) {
+  window = win;
+  glfwMakeContextCurrent(window);
+
+  if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+    std::cerr << "glad init failed\n";
+    return;
+  }
+
   glEnable(GL_DEPTH_TEST);
   glEnable(GL_CULL_FACE);
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
-void GLBackend::setClearColor(float r, float g, float b, float a) {
-  glClearColor(r, g, b, a);
-}
+void GLBackend::beginFrame() {}
 
-void GLBackend::clear(bool color, bool depth) {
-  GLbitfield mask = 0;
-  if (color)
+void GLBackend::endFrame() { glfwSwapBuffers(window); }
+
+void GLBackend::beginPass(uint32_t framebuffer, int w, int h, bool clearColor,
+                          float r, float g, float b, float a) {
+  glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
+  glViewport(0, 0, w, h);
+
+  GLbitfield mask = GL_DEPTH_BUFFER_BIT;
+  if (clearColor) {
+    glClearColor(r, g, b, a);
     mask |= GL_COLOR_BUFFER_BIT;
-  if (depth)
-    mask |= GL_DEPTH_BUFFER_BIT;
+  }
   glClear(mask);
 }
 
-void GLBackend::setViewport(int x, int y, int w, int h) {
-  glViewport(x, y, w, h);
-}
+void GLBackend::endPass() { glBindFramebuffer(GL_FRAMEBUFFER, 0); }
 
 void GLBackend::setCullFace(bool front) {
   glCullFace(front ? GL_FRONT : GL_BACK);
@@ -202,9 +225,3 @@ void GLBackend::createShadowCubemap(int w, int h, uint32_t &fbo,
 void GLBackend::destroyFramebuffer(uint32_t fbo) {
   glDeleteFramebuffers(1, &fbo);
 }
-
-void GLBackend::bindFramebuffer(uint32_t fbo) {
-  glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-}
-
-void GLBackend::clearDepth() { glClear(GL_DEPTH_BUFFER_BIT); }

@@ -1,7 +1,9 @@
 #pragma once
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
+#include <memory>
 #include <string>
+
+struct GLFWwindow;
+class Backend;
 
 class App {
 public:
@@ -14,4 +16,6 @@ public:
 
 private:
   void initGLFW(const std::string &title, int width, int height);
+
+  std::unique_ptr<Backend> backend;
 };

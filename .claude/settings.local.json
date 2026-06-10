@@ -6,7 +6,22 @@
       "Bash(Write-Host \"build dir cleared\")",
       "Bash(xargs cat)",
       "Bash(cmake -S . -B build)",
-      "Bash(cmake --build build)"
+      "Bash(cmake --build build)",
+      "WebFetch(domain:learnopengl.com)",
+      "WebFetch(domain:howtovulkan.com)",
+      "Bash(cmake -B build -S . -DCMAKE_BUILD_TYPE=Release)",
+      "Bash(cmake --build build -j)",
+      "Read(//usr/include/**)",
+      "Read(//home/zeph/**)",
+      "Bash(pacman -Q glm glfw pugixml tinyobjloader cmake)",
+      "Bash(git clone *)",
+      "Bash(curl -sL -o /tmp/tiny_obj_loader.h https://raw.githubusercontent.com/tinyobjloader/tinyobjloader/release/tiny_obj_loader.h)",
+      "Read(//tmp/glm/glm/**)",
+      "Read(//tmp/**)",
+      "Bash(mkdir -p /tmp/odbuild)",
+      "Bash(g++ -std=c++17 -I. -Iinclude -I/tmp/glm -I/tmp main.cpp core/*.cpp input/*.cpp opengl/*.cpp scene/*.cpp settings/*.cpp src/glad.c -o /tmp/odbuild/overdrive -lglfw -lpugixml -lGL -ldl)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(cmake -B build)"
     ]
   }
 }

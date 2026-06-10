@@ -4,13 +4,15 @@
 #include "scene/Scene.hpp"
 #include "settings/Settings.hpp"
 
-#include <glad/glad.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
 #include <cstdio>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 
 App::App(const std::string &title, int width, int height) {
+  backend = createBackend();
   initGLFW(title, width, height);
 }
 
@@ -25,25 +27,12 @@ void App::initGLFW(const std::string &title, int width, int height) {
     return;
   }
 
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
-  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-#ifdef __APPLE__
-  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
-#endif
-  glfwWindowHint(GLFW_SAMPLES, 4);
+  backend->configureWindow();
 
   window = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
   if (!window) {
     std::cerr << "Window creation failed\n";
     glfwTerminate();
-    return;
-  }
-
-  glfwMakeContextCurrent(window);
-
-  if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-    std::cerr << "glad init failed\n";
     return;
   }
 
@@ -58,8 +47,7 @@ void App::initGLFW(const std::string &title, int width, int height) {
 }
 
 void App::run(const std::string &scenePath) {
-  auto backend = createBackend();
-  backend->init();
+  backend->init(window);
 
   Scene scene(scenePath, *backend);
   Input::setCamera(&scene.camera);
@@ -99,8 +87,7 @@ void App::run(const std::string &scenePath) {
 
     scene.updateMeshes();
 
-    backend->setClearColor(0.1f, 0.1f, 0.1f, 1.0f);
-    backend->clear(true, true);
+    backend->beginFrame();
 
     // Shadow passes
     glm::mat4 lightSpaceMatrix(1.0f);
@@ -112,13 +99,15 @@ void App::run(const std::string &scenePath) {
     }
 
     // Main pass
-    backend->setViewport(0, 0, Settings::windowWidth, Settings::windowHeight);
-    backend->clear(true, true);
+    backend->beginPass(0, Settings::windowWidth, Settings::windowHeight, true,
+                       0.1f, 0.1f, 0.1f, 1.0f);
 
     scene.renderSkybox(*skyboxShader);
     scene.renderScene(*forwardShader, lightSpaceMatrix, farPlane);
 
-    glfwSwapBuffers(window);
+    backend->endPass();
+    backend->endFrame();
+
     glfwPollEvents();
   }
 }
