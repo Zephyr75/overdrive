@@ -29,16 +29,62 @@ opengl/
   Shader.hpp/.cpp — GLShader : Shader (OpenGL implementation)
   Backend.hpp/.cpp — GLBackend : Backend (OpenGL implementation, defines createBackend())
   Texture.hpp/.cpp — GL texture helpers used internally by GLBackend
+
+vulkan/
+  Shader.hpp/.cpp — VKShader : Shader (uniform emulation over a BDA block)
+  Backend.hpp/.cpp — VKBackend : Backend (Vulkan 1.3 implementation)
+  Uniforms.hpp    — CPU mirror of the shader uniform block + name->offset maps
+  ThirdParty.cpp  — VMA + stb_image implementation TU
+
+shaders/         — OpenGL GLSL
+shaders/vulkan/  — Vulkan GLSL (compiled to .spv by CMake via glslc)
 ```
 
-## Adding a new backend (e.g. Vulkan)
+## Selecting a backend
 
-1. Create `vulkan/` directory with `VKShader` and `VKBackend` implementing the abstract interfaces.
-2. Define `createBackend()` in `vulkan/Backend.cpp` returning `std::make_unique<VKBackend>()`.
-3. Update `CMakeLists.txt`: replace `opengl/*.cpp` with `vulkan/*.cpp` in `SOURCES` (or add a CMake option to select between them).
-4. Write Vulkan-specific SPIR-V shaders.
+Only one backend is compiled at a time; `createBackend()` is defined by whichever is built. The scene layer (`Mesh`, `Light`, `Skybox`, `Scene`) contains no graphics API calls.
 
-Only one backend is compiled at a time. The scene layer (`Mesh`, `Light`, `Skybox`, `Scene`) contains no graphics API calls.
+```sh
+cmake -B build                      # OpenGL (default)
+cmake -B build-vk -DUSE_VULKAN=ON   # Vulkan
+cmake --build build-vk -j
+./build-vk/overdrive                # run from cpp/
+```
+
+Vulkan build requirements: `vulkan-headers`, `vulkan-memory-allocator`, `shaderc` (glslc), and `vulkan-validation-layers` (enabled automatically when installed; messages go to stderr).
+
+## How the Vulkan backend implements the interface
+
+Targets Vulkan 1.3 with `dynamicRendering`, `synchronization2`, `bufferDeviceAddress`, `scalarBlockLayout` and descriptor indexing (see notes/VULKAN.md).
+
+- **Uniforms** — the GL-style named setters write into a single CPU-side block
+  (`VKUniformBlock`, scalar layout, shared by all shaders). Each draw snapshots
+  the block into a per-frame host-visible ring buffer and passes its GPU
+  address as a push constant; shaders read it through a `buffer_reference`
+  pointer. No descriptor sets for buffers.
+- **Textures** — one bindless descriptor set: `sampler2D[256]` + `samplerCube[64]`,
+  partially bound, update-after-bind. Texture handles resolve to array slots at
+  draw time; sampler uniforms keep their GL "texture unit" meaning. 2D slot 0 is
+  a white pixel (= the engine's `whiteTexture()`/"no texture" handle 0).
+- **Pipelines** — built lazily per (shader, pass type, vertex layout); cull mode
+  and depth compare are dynamic state (core 1.3), so `setCullFace`/`setDepthFunc`
+  map directly.
+- **GL conventions** — the main pass renders with a negative-height viewport,
+  which also cancels Vulkan's y-down winding flip, so the main pass keeps GL's
+  counter-clockwise front face; shadow passes use a positive viewport (so the
+  shadow-map memory layout matches GL and lookup math is unchanged) and
+  therefore declare a clockwise front face. Vertex shaders remap clip-space z
+  from GL's [-w,w] to Vulkan's [0,w].
+- **Shadow passes** — depth-only dynamic rendering; the cube pass renders all 6
+  faces in one go via the geometry shader and `layerCount = 6`. Image layout
+  transitions happen in `beginPass`/`endPass`.
+- **Frames in flight** — 2; per-frame command buffer, fence, acquire semaphore
+  and uniform ring; per-image render-finished semaphores.
+
+Known simplifications: no MSAA (GL build uses 4x), no texture mipmaps
+(GL generates them), and `updateBuffer` drains the GPU before writing
+(mesh moves are rare; switch to per-frame buffers or a model matrix if that
+changes).
 
 ## Key changes from the original
 
