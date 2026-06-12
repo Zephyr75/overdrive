@@ -2,7 +2,7 @@
 
 A vector is an arrow rooted at the origin, fully described by its coordinates. The coordinates are *instructions*: how far to walk along each axis to get from the origin to the tip
 
-$\vec{v} = \begin{bmatrix} x \\ y \end{bmatrix}$ means: walk $x$ along $\hat{i}$, then $y$ along $\hat{j}$
+$`\vec{v} = \begin{bmatrix} x \\ y \end{bmatrix}`$ means: walk $x$ along $\hat{i}$, then $y$ along $\hat{j}$
 
 In 3D, add a $z$-axis perpendicular to both and a third unit vector $\hat{k}$: every ordered triplet picks out exactly one arrow in space, and every arrow has exactly one triplet
 
@@ -32,11 +32,13 @@ A transformation is a function on vectors: input arrow in, output arrow out. It 
 
 The whole transformation is fully described by where it sends the basis vectors — every other vector is just a linear combination of them, and linearity preserves that combination. Those landing spots are the **columns of the matrix**
 
-$\begin{bmatrix} a & b \\ c & d \end{bmatrix}$ means $\hat{i} \rightarrow \begin{bmatrix} a \\ c \end{bmatrix}$ and $\hat{j} \rightarrow \begin{bmatrix} b \\ d \end{bmatrix}$
+$`\begin{bmatrix} a & b \\ c & d \end{bmatrix}`$ means $`\hat{i} \rightarrow \begin{bmatrix} a \\ c \end{bmatrix}`$ and $`\hat{j} \rightarrow \begin{bmatrix} b \\ d \end{bmatrix}`$
 
 Matrix-vector product = applying the transformation:
 
-$\begin{bmatrix} a & b \\ c & d \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = x \begin{bmatrix} a \\ c \end{bmatrix} + y \begin{bmatrix} b \\ d \end{bmatrix}$
+```math
+\begin{bmatrix} a & b \\ c & d \end{bmatrix} \begin{bmatrix} x \\ y \end{bmatrix} = x \begin{bmatrix} a \\ c \end{bmatrix} + y \begin{bmatrix} b \\ d \end{bmatrix}
+```
 
 > Read it as: the output is a linear combination of the columns, weighted by the input coordinates. A matrix is not a grid of numbers — it *is* a transformation of space; multiplying by it is performing the transformation
 
@@ -44,11 +46,11 @@ Exactly the same in 3D: three basis vectors $\hat{i}, \hat{j}, \hat{k}$, a 3×3 
 
 ## Common 2D transformations
 
-$\begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}$ rotation 90° counterclockwise ($\hat{i} \rightarrow \begin{bmatrix} 0 \\ 1 \end{bmatrix}$, $\hat{j} \rightarrow \begin{bmatrix} -1 \\ 0 \end{bmatrix}$)
+$`\begin{bmatrix} 0 & -1 \\ 1 & 0 \end{bmatrix}`$ rotation 90° counterclockwise ($`\hat{i} \rightarrow \begin{bmatrix} 0 \\ 1 \end{bmatrix}`$, $`\hat{j} \rightarrow \begin{bmatrix} -1 \\ 0 \end{bmatrix}`$)
 
-$\begin{bmatrix} 1 & 1 \\ 0 & 1 \end{bmatrix}$ shear ($\hat{j}$ tilts right, $\hat{i}$ stays) — turns the unit square into a parallelogram of the *same area*
+$`\begin{bmatrix} 1 & 1 \\ 0 & 1 \end{bmatrix}`$ shear ($\hat{j}$ tilts right, $\hat{i}$ stays) — turns the unit square into a parallelogram of the *same area*
 
-$\begin{bmatrix} s & 0 \\ 0 & s \end{bmatrix}$ uniform scale by $s$
+$`\begin{bmatrix} s & 0 \\ 0 & s \end{bmatrix}`$ uniform scale by $s$
 
 # Matrix multiplication
 
@@ -75,19 +77,23 @@ $det(A) < 0$ orientation is flipped; the absolute value still scales area
 - 2D: the plane is mirrored ($\hat{j}$ ends up *clockwise* from $\hat{i}$ instead of counterclockwise)
 - 3D: right-handed becomes left-handed. Right-hand test: forefinger along $\hat{i}$, middle finger along $\hat{j}$, thumb along $\hat{k}$ — if after the transformation you need your *left* hand to do this, $det < 0$
 
-$det(AB) = det(A)\,det(B)$
+```math
+det(AB) = det(A)\,det(B)
+```
 
 > Obvious once read geometrically: scaling areas by $det(B)$ and then by $det(A)$ scales them by the product. The algebraic proof is painful; the geometric one is one sentence
 
 ## Computation
 
-2×2: $det\begin{bmatrix} a & b \\ c & d \end{bmatrix} = ad - bc$
+2×2: $`det\begin{bmatrix} a & b \\ c & d \end{bmatrix} = ad - bc`$
 
 > $ad$ = scaled unit square area, $bc$ = how much it gets sheared away
 
 n×n: expand along a row, alternate signs, recurse on minors:
 
-$det\begin{bmatrix} a & b & c \\ d & e & f \\ g & h & i \end{bmatrix} = a\,det\begin{bmatrix} e & f \\ h & i \end{bmatrix} - b\,det\begin{bmatrix} d & f \\ g & i \end{bmatrix} + c\,det\begin{bmatrix} d & e \\ g & h \end{bmatrix}$
+```math
+det\begin{bmatrix} a & b & c \\ d & e & f \\ g & h & i \end{bmatrix} = a\,det\begin{bmatrix} e & f \\ h & i \end{bmatrix} - b\,det\begin{bmatrix} d & f \\ g & i \end{bmatrix} + c\,det\begin{bmatrix} d & e \\ g & h \end{bmatrix}
+```
 
 # Linear systems, inverse matrix
 
@@ -135,7 +141,7 @@ Start with the augmented matrix $[A \mid I]$, reduce the left part to $I$ with G
 
 `Kernel` (null space) set of all vectors mapped to $\vec{0}$
 
-> When the transformation squishes dimensions, a whole line/plane of vectors lands on the origin: that is the kernel. Full rank ⇒ kernel = $\{\vec{0}\}$
+> When the transformation squishes dimensions, a whole line/plane of vectors lands on the origin: that is the kernel. Full rank ⇒ kernel = $`\{\vec{0}\}`$
 
 Connection to systems: for $A\vec{x} = \vec{0}$, the kernel *is* the solution set. For $A\vec{x} = \vec{v}$ with $\vec{v}$ in the column space, the solutions are one particular solution plus anything in the kernel
 
@@ -153,7 +159,9 @@ A 1×2 matrix $[a\ \ b]$ maps 2D → the number line: $\hat{i} \rightarrow a$, $
 
 # Dot product
 
-$\vec{v} \cdot \vec{w} = v_x w_x + v_y w_y + \dots = |\vec{v}|\,|\vec{w}|\cos\theta$
+```math
+\vec{v} \cdot \vec{w} = v_x w_x + v_y w_y + \dots = |\vec{v}|\,|\vec{w}|\cos\theta
+```
 
 - $> 0$ pointing the same general direction
 - $= 0$ perpendicular (`orthogonal` = 90° angle)
@@ -161,7 +169,7 @@ $\vec{v} \cdot \vec{w} = v_x w_x + v_y w_y + \dots = |\vec{v}|\,|\vec{w}|\cos\th
 
 Geometric reading: length of the projection of $\vec{w}$ onto $\vec{v}$, times $|\vec{v}|$
 
-Properties: symmetric ($\vec{v} \cdot \vec{w} = \vec{w} \cdot \vec{v}$ — not obvious from the projection picture, but the projection can be read either way), and linear in each argument ($(k\vec{v}) \cdot \vec{w} = k(\vec{v} \cdot \vec{w})$)
+Properties: symmetric ($\vec{v} \cdot \vec{w} = \vec{w} \cdot \vec{v}$ — not obvious from the projection picture, but the projection can be read either way), and linear in each argument ($`(k\vec{v}) \cdot \vec{w} = k(\vec{v} \cdot \vec{w})`$)
 
 > `Duality`: dotting with $\vec{v}$ is the same as applying the 1×n matrix $[v_x\ v_y]$ — a linear map to the number line. Every linear transformation to the number line secretly *is* some vector $\vec{v}$ lying down as a matrix row, and conversely every vector defines one. Vector ⟷ "measure along me"
 
@@ -175,9 +183,11 @@ $\vec{v} \times \vec{w} = -(\vec{w} \times \vec{v})$ antisymmetric
 
 ## Computation
 
-$\begin{bmatrix} v_1 \\ v_2 \\ v_3 \end{bmatrix} \times \begin{bmatrix} w_1 \\ w_2 \\ w_3 \end{bmatrix} = \begin{bmatrix} v_2 w_3 - v_3 w_2 \\ v_3 w_1 - v_1 w_3 \\ v_1 w_2 - v_2 w_1 \end{bmatrix}$
+```math
+\begin{bmatrix} v_1 \\ v_2 \\ v_3 \end{bmatrix} \times \begin{bmatrix} w_1 \\ w_2 \\ w_3 \end{bmatrix} = \begin{bmatrix} v_2 w_3 - v_3 w_2 \\ v_3 w_1 - v_1 w_3 \\ v_1 w_2 - v_2 w_1 \end{bmatrix}
+```
 
-Mnemonic: $det\begin{bmatrix} \hat{i} & v_1 & w_1 \\ \hat{j} & v_2 & w_2 \\ \hat{k} & v_3 & w_3 \end{bmatrix}$
+Mnemonic: $`det\begin{bmatrix} \hat{i} & v_1 & w_1 \\ \hat{j} & v_2 & w_2 \\ \hat{k} & v_3 & w_3 \end{bmatrix}`$
 
 > The determinant connection is no accident: the cross product's component along any $\vec{p}$ measures the volume of the parallelepiped spanned by $\vec{p}, \vec{v}, \vec{w}$ — duality again: "volume with these two vectors" is a linear map to the number line, so it must *be* some vector. That vector is the cross product
 
@@ -185,9 +195,11 @@ Mnemonic: $det\begin{bmatrix} \hat{i} & v_1 & w_1 \\ \hat{j} & v_2 & w_2 \\ \hat
 
 A basis is a choice of language for describing vectors; the same vector has different coordinates in different bases
 
-To translate **from** basis $\vec{b_1} = \begin{bmatrix} 3 \\ 0 \end{bmatrix}$, $\vec{b_2} = \begin{bmatrix} 1 \\ 2 \end{bmatrix}$ **to** our standard basis, multiply by the matrix whose columns are the new basis vectors:
+To translate **from** basis $`\vec{b_1} = \begin{bmatrix} 3 \\ 0 \end{bmatrix}`$, $`\vec{b_2} = \begin{bmatrix} 1 \\ 2 \end{bmatrix}`$ **to** our standard basis, multiply by the matrix whose columns are the new basis vectors:
 
-$B = \begin{bmatrix} 3 & 1 \\ 0 & 2 \end{bmatrix}$
+```math
+B = \begin{bmatrix} 3 & 1 \\ 0 & 2 \end{bmatrix}
+```
 
 $B^{-1}$ translates the other way (our language → their language)
 
@@ -239,7 +251,9 @@ Singular Value Decomposition: any matrix $A = U \Sigma V^T$
 
 Equivalent reading: sum of rank-1 matrices, ordered by importance:
 
-$A = \sum_i \sigma_i\, \vec{u_i} \vec{v_i}^T$
+```math
+A = \sum_i \sigma_i\, \vec{u_i} \vec{v_i}^T
+```
 
 > Truncating the sum after $k$ terms gives the best rank-$k$ approximation of $A$ = lossy compression. "Data-driven generalization of the Fourier transform"
 
