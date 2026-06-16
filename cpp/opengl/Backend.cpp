@@ -63,10 +63,12 @@ void GLBackend::setDepthFunc(bool lequal) {
   glDepthFunc(lequal ? GL_LEQUAL : GL_LESS);
 }
 
-std::unique_ptr<Shader> GLBackend::createShader(const std::string &vert,
-                                                const std::string &frag,
-                                                const std::string &geo) {
-  return std::make_unique<GLShader>(vert, frag, geo);
+std::unique_ptr<Shader> GLBackend::createShader(const std::string &name,
+                                                bool hasGeometry) {
+  const std::string base = "shaders/gl/" + name;
+  return std::make_unique<GLShader>(*this, base + ".vert.glsl",
+                                    base + ".frag.glsl",
+                                    hasGeometry ? base + ".geo.glsl" : "");
 }
 
 uint32_t GLBackend::loadTexture(const std::string &path) {
@@ -167,6 +169,8 @@ void GLBackend::destroySkyboxMesh(uint32_t vao, uint32_t vbo) {
 }
 
 void GLBackend::drawMesh(uint32_t vao, size_t indexCount) {
+  if (currentShader)
+    currentShader->flushUniforms();
   glBindVertexArray(vao);
   glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indexCount),
                  GL_UNSIGNED_INT, 0);
@@ -174,6 +178,8 @@ void GLBackend::drawMesh(uint32_t vao, size_t indexCount) {
 }
 
 void GLBackend::drawSkybox(uint32_t vao) {
+  if (currentShader)
+    currentShader->flushUniforms();
   glBindVertexArray(vao);
   glDrawArrays(GL_TRIANGLES, 0, 36);
   glBindVertexArray(0);

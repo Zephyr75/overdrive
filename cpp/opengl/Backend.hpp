@@ -1,6 +1,8 @@
 #pragma once
 #include "renderer/Backend.hpp"
 
+class GLShader;
+
 class GLBackend final : public Backend {
 public:
   void configureWindow() override;
@@ -16,9 +18,8 @@ public:
   void setCullFace(bool front) override;
   void setDepthFunc(bool lequal) override;
 
-  std::unique_ptr<Shader> createShader(const std::string &vert,
-                                       const std::string &frag,
-                                       const std::string &geo) override;
+  std::unique_ptr<Shader> createShader(const std::string &name,
+                                       bool hasGeometry) override;
 
   uint32_t loadTexture(const std::string &path) override;
   uint32_t loadCubemap(const std::vector<std::string> &faces) override;
@@ -49,7 +50,11 @@ public:
                            uint32_t &cube) override;
   void destroyFramebuffer(uint32_t fbo) override;
 
+  // Records the shader to flush uniforms from before the next draw.
+  void setCurrentShader(GLShader *s) { currentShader = s; }
+
 private:
   GLFWwindow *window = nullptr;
   uint32_t whiteTex = 0;
+  GLShader *currentShader = nullptr;
 };

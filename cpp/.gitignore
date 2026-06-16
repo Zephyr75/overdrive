@@ -1,0 +1,6 @@
+# Build trees
+build*/
+
+# Generated shaders: authored in shaders/slang/, compiled per backend by CMake
+shaders/gl/
+shaders/vk/

@@ -31,9 +31,10 @@ public:
   virtual void setCullFace(bool front) = 0;
   virtual void setDepthFunc(bool lequal) = 0;
 
-  virtual std::unique_ptr<Shader> createShader(const std::string &vert,
-                                               const std::string &frag,
-                                               const std::string &geo = "") = 0;
+  // Loads the compiled shader set named <name> (e.g. "forward"). Each backend
+  // resolves the per-stage files it needs (GLSL for GL, SPIR-V for Vulkan).
+  virtual std::unique_ptr<Shader> createShader(const std::string &name,
+                                               bool hasGeometry = false) = 0;
 
   virtual uint32_t loadTexture(const std::string &path) = 0;
   virtual uint32_t loadCubemap(const std::vector<std::string> &faces) = 0;

@@ -865,10 +865,12 @@ void VKBackend::setDepthFunc(bool lequal) {
 
 // ---- shaders / pipelines -------------------------------------------------------
 
-std::unique_ptr<Shader> VKBackend::createShader(const std::string &vert,
-                                                const std::string &frag,
-                                                const std::string &geo) {
-  return std::make_unique<VKShader>(*this, vert, frag, geo);
+std::unique_ptr<Shader> VKBackend::createShader(const std::string &name,
+                                                bool hasGeometry) {
+  const std::string base = "shaders/vk/" + name;
+  return std::make_unique<VKShader>(*this, base + ".vert.spv",
+                                    base + ".frag.spv",
+                                    hasGeometry ? base + ".geo.spv" : "");
 }
 
 VkPipeline VKBackend::getPipeline(VKShader &shader, VKPass pass,

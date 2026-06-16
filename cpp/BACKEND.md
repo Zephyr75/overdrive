@@ -36,9 +36,31 @@ vulkan/
   Uniforms.hpp    — CPU mirror of the shader uniform block + name->offset maps
   ThirdParty.cpp  — VMA + stb_image implementation TU
 
-shaders/         — OpenGL GLSL
-shaders/vulkan/  — Vulkan GLSL (compiled to .spv by CMake via glslc)
+shaders/slang/   — Slang shader sources (the single source of truth)
+shaders/gl/      — generated GLSL 4.10 for OpenGL   (git-ignored)
+shaders/vk/      — generated SPIR-V for Vulkan       (git-ignored)
 ```
+
+## Shaders (Slang, one source, two backends)
+
+Every shader is written once in `shaders/slang/*.slang` and compiled by CMake to
+both targets:
+
+- **OpenGL** — `slangc -target glsl -profile glsl_410 -preserve-params`, then
+  `shaders/slang/downgrade.cmake` rewrites slangc's ~GLSL-4.50 output down to the
+  4.10 core profile (the macOS ceiling): clamps `#version`, strips
+  `layout(binding=)` and the SSBO `layout(row_major) buffer;` line, and converts
+  `{…}` array initialisers to the `type[](…)` constructor form. Output → `shaders/gl/`.
+- **Vulkan** — `slangc -target spirv -emit-spirv-directly -fvk-use-scalar-layout`.
+  Output → `shaders/vk/`. (`-preserve-params` is *not* used here — it crashes the
+  direct-SPIR-V path, and the VK shaders reach the UBO through a `Uniforms*`
+  pointer whose full struct layout slangc keeps regardless of field usage.)
+
+`common.slang` selects the resource model per target with `-DTARGET_VK`: Vulkan
+uses the BDA push-constant pointer + bindless arrays; OpenGL uses a std140
+`ConstantBuffer` UBO + named samplers. The shading math is shared. `createShader`
+takes a logical name (e.g. `"forward"`); each backend resolves its own per-stage
+files. `slangc` is found on PATH or the SDK is fetched at configure time.
 
 ## Selecting a backend
 
@@ -51,7 +73,7 @@ cmake --build build-vk -j
 ./build-vk/overdrive                # run from cpp/
 ```
 
-Vulkan build requirements: `vulkan-headers`, `vulkan-memory-allocator`, `shaderc` (glslc), and `vulkan-validation-layers` (enabled automatically when installed; messages go to stderr).
+Vulkan build requirements: `vulkan-headers`, `vulkan-memory-allocator`, and `vulkan-validation-layers` (enabled automatically when installed; messages go to stderr). Shaders are compiled by `slangc` (found on PATH, otherwise the Slang SDK is fetched at configure time).
 
 ## How the Vulkan backend implements the interface
 
@@ -61,7 +83,10 @@ Targets Vulkan 1.3 with `dynamicRendering`, `synchronization2`, `bufferDeviceAdd
   (`VKUniformBlock`, scalar layout, shared by all shaders). Each draw snapshots
   the block into a per-frame host-visible ring buffer and passes its GPU
   address as a push constant; shaders read it through a `buffer_reference`
-  pointer. No descriptor sets for buffers.
+  pointer. No descriptor sets for buffers. The block matches the `Uniforms`
+  struct in `shaders/slang/common.slang` byte-for-byte under scalar layout.
+  (The OpenGL backend mirrors the same struct as a std140 UBO in `GLShader`;
+  same logical names, std140 offsets.)
 - **Textures** — one bindless descriptor set: `sampler2D[256]` + `samplerCube[64]`,
   partially bound, update-after-bind. Texture handles resolve to array slots at
   draw time; sampler uniforms keep their GL "texture unit" meaning. 2D slot 0 is

@@ -65,20 +65,7 @@ const std::unordered_map<std::string, VKSamplerSlot> &vkSamplerSlots() {
 
 // ---- module loading ----------------------------------------------------------
 
-// "shaders/forward.vert.glsl" -> "shaders/vulkan/forward.vert.spv"
-static std::string spvPath(std::string path) {
-  const std::string prefix = "shaders/";
-  if (path.rfind(prefix, 0) == 0)
-    path = "shaders/vulkan/" + path.substr(prefix.size());
-  const std::string ext = ".glsl";
-  if (path.size() > ext.size() &&
-      path.compare(path.size() - ext.size(), ext.size(), ext) == 0)
-    path = path.substr(0, path.size() - ext.size()) + ".spv";
-  return path;
-}
-
-static VkShaderModule loadModule(VkDevice device, const std::string &glslPath) {
-  const std::string path = spvPath(glslPath);
+static VkShaderModule loadModule(VkDevice device, const std::string &path) {
   std::ifstream file(path, std::ios::binary | std::ios::ate);
   if (!file) {
     std::cerr << "Failed to open SPIR-V file: " << path << "\n";

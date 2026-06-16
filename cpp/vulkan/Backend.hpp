@@ -26,9 +26,8 @@ public:
   void setCullFace(bool front) override;
   void setDepthFunc(bool lequal) override;
 
-  std::unique_ptr<Shader> createShader(const std::string &vert,
-                                       const std::string &frag,
-                                       const std::string &geo) override;
+  std::unique_ptr<Shader> createShader(const std::string &name,
+                                       bool hasGeometry) override;
 
   uint32_t loadTexture(const std::string &path) override;
   uint32_t loadCubemap(const std::vector<std::string> &faces) override;

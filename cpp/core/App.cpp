@@ -52,16 +52,10 @@ void App::run(const std::string &scenePath) {
   Scene scene(scenePath, *backend);
   Input::setCamera(&scene.camera);
 
-  auto forwardShader = backend->createShader("shaders/forward.vert.glsl",
-                                             "shaders/forward.frag.glsl");
-  auto depthShader =
-      backend->createShader("shaders/depth.vert.glsl", "shaders/depth.frag.glsl");
-  auto depthCubeShader =
-      backend->createShader("shaders/depth_cube.vert.glsl",
-                            "shaders/depth_cube.frag.glsl",
-                            "shaders/depth_cube.geo.glsl");
-  auto skyboxShader = backend->createShader("shaders/skybox.vert.glsl",
-                                            "shaders/skybox.frag.glsl");
+  auto forwardShader = backend->createShader("forward");
+  auto depthShader = backend->createShader("depth");
+  auto depthCubeShader = backend->createShader("depth_cube", /*hasGeometry=*/true);
+  auto skyboxShader = backend->createShader("skybox");
 
   float lastFrame = 0.0f;
   float fpsTimer = 0.0f;
