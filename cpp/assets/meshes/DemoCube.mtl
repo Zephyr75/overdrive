@@ -1,0 +1,10 @@
+# Showcase: wood (ambientCG Wood067, CC0)
+newmtl wood
+Ka 0.15 0.15 0.15
+Kd 0.85 0.85 0.85
+Ks 0.35 0.35 0.35
+Ns 64.0
+d 1.0
+illum 2
+map_Kd textures/wood_color.png
+map_Bump textures/wood_normal.png

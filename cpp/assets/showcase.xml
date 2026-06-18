@@ -1,0 +1,68 @@
+<?xml version="1.0" ?>
+<!-- Overdrive feature showcase. Geometry is baked into the Demo*.obj vertices
+     (engine renders with an identity model matrix), so <position> is unused for
+     static meshes. Lights MUST be ordered point-first, sun-second: the forward
+     shader treats lights[0] as the cube-shadow point light and lights[1] as the
+     2D-shadow directional light. -->
+<scene>
+	<camera name="Camera">
+		<type>persp</type>
+		<position>0.0,-9.5,3.5</position>
+		<yaw>0.0</yaw>
+		<pitch>14.0</pitch>
+		<fov>45.0</fov>
+	</camera>
+
+	<!-- Paving-stone ground: normal-mapped flat surface, catches both shadows -->
+	<mesh name="Ground">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoGround.obj</obj>
+	</mesh>
+
+	<!-- Hero: metal Suzanne, normal-mapped, high specular -->
+	<mesh name="Suzanne">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoSuzanne.obj</obj>
+	</mesh>
+
+	<!-- Polished chrome sphere: low Kd → skybox reflection dominates -->
+	<mesh name="SphereChrome">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoSphereChrome.obj</obj>
+	</mesh>
+
+	<!-- Brick sphere: normal mapping on a curved surface -->
+	<mesh name="SphereBrick">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoSphereBrick.obj</obj>
+	</mesh>
+
+	<!-- Wood cube: normal mapping on flat faces -->
+	<mesh name="Cube">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoCube.obj</obj>
+	</mesh>
+
+	<!-- lights[0] = warm point light → omnidirectional cube shadow -->
+	<light name="Point">
+		<type>point</type>
+		<position>2.8,-2.5,3.2</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.0,0.8,0.55</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>9000.0</intensity>
+	</light>
+
+	<!-- lights[1] = sun → directional 2D shadow map. direction points toward
+	     the light (up); the shadow camera looks along pos - direction. -->
+	<light name="Sun">
+		<type>sun</type>
+		<position>6.0,-5.0,12.0</position>
+		<direction>-0.35,0.45,-1.0</direction>
+		<color>1.0,0.98,0.92</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>4.0</intensity>
+	</light>
+</scene>

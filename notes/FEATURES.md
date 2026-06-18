@@ -81,6 +81,16 @@ passes before the main pass:
   skybox. Meshes load from OBJ/MTL via tinyobjloader.
 - Per-frame `updateMeshes()` supports moving geometry (Verlet-style movement
   hooks exist from the Go original).
+- **Showcase scene** (`assets/showcase.xml`, the default) exercises every
+  feature: a normal-mapped paving ground, a metal Suzanne, a brick and a wood
+  primitive (all normal-mapped), and a low-Kd chrome sphere that mirrors the
+  skybox, lit by a directional sun (2D shadow) + a warm point light (cube
+  shadow). PBR colour/normal maps are CC0 from ambientCG, in `cpp/textures/`.
+  Note: static meshes render with an identity model matrix, so geometry is baked
+  into the `Demo*.obj` vertices (in GL world space) rather than positioned by the
+  XML `<position>` tags; the demo objs were generated directly in world space.
+  Lights are ordered point-first, sun-second to match the forward shader's
+  `lights[0]` = cube-shadow / `lights[1]` = 2D-shadow assignment.
 
 ---
 

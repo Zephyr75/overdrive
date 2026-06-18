@@ -1,0 +1,10 @@
+# Showcase: metal (ambientCG Metal032, CC0)
+newmtl metal
+Ka 0.1 0.1 0.1
+Kd 0.55 0.55 0.55
+Ks 0.9 0.9 0.9
+Ns 128.0
+d 1.0
+illum 2
+map_Kd textures/metal_color.png
+map_Bump textures/metal_normal.png

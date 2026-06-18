@@ -1,0 +1,10 @@
+# Showcase: brick (ambientCG Bricks075A, CC0)
+newmtl brick
+Ka 0.15 0.15 0.15
+Kd 0.9 0.9 0.9
+Ks 0.2 0.2 0.2
+Ns 16.0
+d 1.0
+illum 2
+map_Kd textures/brick_color.png
+map_Bump textures/brick_normal.png

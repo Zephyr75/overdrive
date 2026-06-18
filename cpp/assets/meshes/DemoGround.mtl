@@ -1,0 +1,10 @@
+# Showcase: paving stones (ambientCG PavingStones092, CC0)
+newmtl ground
+Ka 0.15 0.15 0.15
+Kd 0.85 0.85 0.85
+Ks 0.25 0.25 0.25
+Ns 32.0
+d 1.0
+illum 2
+map_Kd textures/ground_color.png
+map_Bump textures/ground_normal.png

@@ -1,0 +1,8 @@
+# Showcase: polished chrome - low Kd so the skybox reflection dominates
+newmtl chrome
+Ka 0.05 0.05 0.05
+Kd 0.08 0.08 0.08
+Ks 1.0 1.0 1.0
+Ns 256.0
+d 1.0
+illum 2
