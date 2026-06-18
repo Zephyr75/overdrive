@@ -86,9 +86,11 @@ void App::run(const std::string &scenePath) {
 
     backend->beginFrame();
 
-    // Shadow passes
+    // Shadow passes — only the designated shadow casters have a depth map.
     glm::mat4 lightSpaceMatrix(1.0f);
     for (auto &light : scene.lights) {
+      if (!light.castsShadow)
+        continue;
       glm::mat4 mat = light.renderLight(nearPlane, farPlane, *depthShader,
                                         *depthCubeShader, scene);
       if (light.type == LightType::Sun)

@@ -19,6 +19,10 @@ struct Light {
   float specular = 1.0f;
   float intensity = 1.0f;
 
+  // Only shadow-casting lights allocate a shadow map and run a depth pass.
+  // Scene picks the first directional + first point light as the casters.
+  bool castsShadow = false;
+
   uint32_t depthMapFBO = 0;
   uint32_t depthMap = 0;
   uint32_t depthCubeMap = 0;

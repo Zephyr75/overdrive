@@ -27,10 +27,8 @@ Defined in `scene/Light.hpp` (`LightType { Sun, Point }`) and evaluated in
   (`kConstant/kLinear/kQuadratic`).
 - Both use the Blinn-Phong halfway-vector specular term; ambient + diffuse +
   specular are scaled by per-light `intensity`, `diffuse`, `specular` factors.
-- **Limitation:** the fragment loop is hardcoded to exactly 2 lights
-  (`for (int l = 0; l < 2; l++)`), and the `Uniforms` block carries
-  `LightData lights[2]` (`common.slang`). One directional + one point is the
-  effective ceiling today.
+- Up to `MAX_LIGHTS` (8) lights in any mix of directional and point — see
+  **Multi-light support** below.
 
 ### Shadows — both kinds, with PCF
 Driven by `Light::renderLight` (`scene/Light.cpp`), rendered in dedicated depth
@@ -44,6 +42,41 @@ passes before the main pass:
   distance / `farPlane`. Backed by `createShadowCubemap`.
 - GL↔VK bridging for the shadow passes (positive viewport, CW front face,
   `TO_VK_DEPTH` clip-z remap) is handled per `cpp/BACKEND.md`.
+
+### Multi-light support
+The forward pass evaluates up to `MAX_LIGHTS` (= 8) lights per fragment, in any
+mix of directional and point lights. How it fits together:
+
+- **Uniform block.** `Uniforms` (`common.slang`) carries `LightData
+  lights[MAX_LIGHTS]` plus three ints: `lightCount` (how many entries are live)
+  and `shadowDirIndex` / `shadowPointIndex` (which light, if any, owns each
+  shadow map; -1 = none). `MAX_LIGHTS` is duplicated as a constant in the two CPU
+  mirrors (`vulkan/Uniforms.hpp`, `opengl/Shader.cpp`) and in `scene/Mesh.cpp`,
+  all of which must stay in step with the shader. The layout change is guarded
+  the usual way: the Vulkan scalar mirror by `static_assert(sizeof(VKUniformBlock)
+  == 1288)`, the GL std140 mirror by `kBlockSize` (1536) and the hand-computed
+  offset table (`lights[]` ends at byte 1488, the trailing ints follow).
+
+- **Fragment loop.** `forward.slang` loops `l < lightCount`, branches on
+  `light.type`, and adds `calcDirLight` / `calcPointLight` for each. The earlier
+  hard-coded 2-iteration loop is gone.
+
+- **Shadow budget, decoupled from light order.** Shadows do *not* scale to N
+  lights — there is still exactly one 2D shadow map and one cube shadow map.
+  Rather than assume a fixed light ordering, the shader applies the 2D shadow
+  only to the light at `shadowDirIndex` and the cube shadow only to the light at
+  `shadowPointIndex`; every other light is lit but unshadowed. The shadow-test
+  helpers were generalised to take the relevant light's direction / position as
+  parameters instead of indexing `lights[0]` / `lights[1]` directly.
+
+- **Who casts.** `Scene` (`scene/Scene.cpp`) picks the first directional and the
+  first point light as the casters, records their indices (`shadowDirIndex`,
+  `shadowPointIndex`) and sets `Light::castsShadow`. Only casters allocate a
+  shadow map (`Light::setup` early-returns otherwise) and run a depth pass
+  (`App` skips non-casters), so adding more lights costs only the forward-pass
+  evaluation, not extra shadow passes or cube-map allocations. `Mesh::draw`
+  uploads `lightCount` + the two indices and binds the casters' maps; light
+  ordering in the XML no longer matters.
 
 ### Materials & textures
 - `scene/Material.hpp`: ambient / diffuse / specular / shininess / alpha, plus a
@@ -89,8 +122,8 @@ passes before the main pass:
   Note: static meshes render with an identity model matrix, so geometry is baked
   into the `Demo*.obj` vertices (in GL world space) rather than positioned by the
   XML `<position>` tags; the demo objs were generated directly in world space.
-  Lights are ordered point-first, sun-second to match the forward shader's
-  `lights[0]` = cube-shadow / `lights[1]` = 2D-shadow assignment.
+  (Light order in the XML is no longer significant — the shadow casters are
+  resolved by index at load time; see **Multi-light support**.)
 
 ---
 
@@ -98,22 +131,7 @@ passes before the main pass:
 
 Ordered by value-to-effort. Each item lists the files to touch and the strategy.
 
-### 1. Dynamic / multi-light support (medium)
-**Why:** the hard cap of 2 lights is the most limiting gameplay constraint.
-**Files:** `shaders/slang/common.slang` (the `Uniforms` block + `lights[]`),
-`vulkan/Uniforms.hpp` + `opengl/Shader.cpp` (the mirrored CPU layouts — these
-must stay byte-compatible, guarded by the existing static_asserts / reflection
-checks), `scene/Scene.cpp` (upload), `core/App.cpp` (light loop), `forward.slang`.
-**Strategy:**
-- Replace `lights[2]` with `lights[N]` + an active `lightCount` uniform; bump the
-  fragment loop to `lightCount`.
-- Shadows do not scale 1:1 — keep a small fixed budget of shadow-casting lights
-  (e.g. 1 directional + a few point), and treat the rest as unshadowed. Otherwise
-  the per-light shadow-map allocation and extra depth passes explode.
-- Update both CPU uniform mirrors in lockstep and re-verify offsets
-  (`spirv-dis` for VK, std140 for GL) — this is the main correctness risk.
-
-### 2. PBR materials (medium-high)
+### 1. PBR materials (medium-high)
 **Why:** Blinn-Phong is the visual ceiling; metallic-roughness is the standard.
 **Files:** `scene/Material.hpp` (+ loader in `Mesh.cpp`), `forward.slang`,
 `common.slang`, both uniform mirrors.
@@ -125,7 +143,7 @@ checks), `scene/Scene.cpp` (upload), `core/App.cpp` (light loop), `forward.slang
   prefiltered-specular cubemaps and a BRDF LUT (one-time compute/raster pass at
   load) instead of the current raw-cubemap reflection hack.
 
-### 3. HDR + tonemapping + bloom (medium)
+### 2. HDR + tonemapping + bloom (medium)
 **Why:** unlocks intensity values >1 and physically meaningful lighting.
 **Files:** `renderer/Backend.hpp` (offscreen HDR target API), both backends, a
 new `tonemap`/`bloom` Slang pass, `core/App.cpp` (render-to-texture then
@@ -137,7 +155,7 @@ composite).
 - This needs a real offscreen-color-target abstraction; today `beginPass(0,…)`
   only distinguishes backbuffer vs shadow FBOs. Generalize framebuffer creation.
 
-### 4. Ray-traced shadows (high — Vulkan only)
+### 3. Ray-traced shadows (high — Vulkan only)
 **Why / how:** already designed in detail. The entry point is **ray query
 (`VK_KHR_ray_query`)** dropped into `forward.slang`'s shadow test, replacing the
 shadow-map passes; it reuses the existing forward pass and the current light

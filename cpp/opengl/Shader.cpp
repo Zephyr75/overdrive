@@ -9,6 +9,9 @@
 #include <set>
 #include <sstream>
 
+// Must match MAX_LIGHTS in shaders/slang/common.slang.
+static constexpr int MAX_LIGHTS = 8;
+
 // GL-style uniform name -> byte offset inside the std140 Uniforms block.
 // These offsets are the std140 layout slangc reflects for the block in
 // shaders/slang/common.slang. The scalar-layout Vulkan mirror
@@ -30,7 +33,7 @@ static const std::unordered_map<std::string, size_t> &glUniformOffsets() {
     m["material.diffuse"] = 688;
     m["material.specular"] = 704;
     m["material.shininess"] = 716;
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < MAX_LIGHTS; i++) {
       const std::string base = "lights[" + std::to_string(i) + "].";
       const size_t off = 720 + i * 96; // std140 LightData stride = 96
       m[base + "type"] = off + 0;
@@ -45,10 +48,13 @@ static const std::unordered_map<std::string, size_t> &glUniformOffsets() {
       m[base + "position"] = off + 64;
       m[base + "direction"] = off + 80;
     }
-    // texShadowMap/texOurTexture/texShadowCubeMap/texSkybox/texNormalMap occupy
-    // 912..932 in std140 but GL reads textures through named samplers, not the
-    // block; only the useNormalMap flag is read from the UBO.
-    m["useNormalMap"] = 932;
+    // The five texSlot ints (1488..1508) are read by Vulkan only; GL samples
+    // through named samplers. GL does read the flag + light-count + shadow
+    // indices from the UBO. std140 offsets after lights[MAX_LIGHTS] (ends 1488).
+    m["useNormalMap"] = 1508;
+    m["lightCount"] = 1512;
+    m["shadowDirIndex"] = 1516;
+    m["shadowPointIndex"] = 1520;
     return m;
   }();
   return map;

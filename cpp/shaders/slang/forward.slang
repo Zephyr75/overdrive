@@ -29,8 +29,8 @@ static const float3 gridSamplingDisk[20] = {
     float3(0, 1, 1), float3(0, -1, 1), float3(0, -1, -1), float3(0, 1, -1)
 };
 
-float shadowCalculationCube(float3 fragPos) {
-    float3 fragToLight = fragPos - U.lights[0].position;
+float shadowCalculationCube(float3 fragPos, float3 lightPos) {
+    float3 fragToLight = fragPos - lightPos;
     float currentDepth = length(fragToLight);
     float shadow = 0.0;
     float bias = 0.15;
@@ -48,11 +48,11 @@ float shadowCalculationCube(float3 fragPos) {
     return shadow * 5.0;
 }
 
-float shadowCalculation(float4 fragPosLightSpace, float3 normal) {
+float shadowCalculation(float4 fragPosLightSpace, float3 normal, float3 lightDir) {
     float3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
     float currentDepth = projCoords.z;
-    float bias = max(0.05 * (1.0 - dot(normal, U.lights[1].direction)), 0.005);
+    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
     float shadow = 0.0;
     uint w, h;
     TEX_SHADOWMAP.GetDimensions(w, h);
@@ -127,13 +127,21 @@ float4 fsMain(VSOut i) : SV_Target {
     float3 viewDir = normalize(U.viewPos - i.fragPos);
     float3 result = float3(0.2);
 
-    for (int l = 0; l < 2; l++) {
-        if (U.lights[l].type == 0)
-            result += calcDirLight(U.lights[l], norm, viewDir) *
-                      (1.0 - shadowCalculation(i.fragPosLightSpace, norm));
-        else
-            result += calcPointLight(U.lights[l], norm, i.fragPos, viewDir) *
-                      (1.0 - shadowCalculationCube(i.fragPos));
+    for (int l = 0; l < U.lightCount; l++) {
+        LightData light = U.lights[l];
+        float shadow = 0.0;
+        float3 contrib;
+        if (light.type == 0) {
+            contrib = calcDirLight(light, norm, viewDir);
+            if (l == U.shadowDirIndex)
+                shadow = shadowCalculation(i.fragPosLightSpace, norm,
+                                           normalize(light.direction));
+        } else {
+            contrib = calcPointLight(light, norm, i.fragPos, viewDir);
+            if (l == U.shadowPointIndex)
+                shadow = shadowCalculationCube(i.fragPos, light.position);
+        }
+        result += contrib * (1.0 - shadow);
     }
 
     float3 I = normalize(i.fragPos - U.viewPos);

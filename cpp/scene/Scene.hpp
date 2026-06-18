@@ -17,6 +17,11 @@ public:
   std::vector<Light> lights;
   Skybox skybox;
 
+  // Index into lights[] of the single shadow-casting directional / point light,
+  // or -1 if none. Set during construction; consumed by the forward shader.
+  int shadowDirIndex = -1;
+  int shadowPointIndex = -1;
+
   explicit Scene(const std::string &xmlPath, Backend &backend);
   ~Scene();
 

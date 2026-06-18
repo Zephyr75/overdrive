@@ -99,9 +99,25 @@ Scene::Scene(const std::string &xmlPath, Backend &backend) {
     if (light.type == LightType::Point)
       light.intensity /= 1000.0f;
 
-    light.setup(backend);
     lights.push_back(std::move(light));
   }
+
+  // Pick the shadow casters: the first directional and the first point light.
+  // Only these allocate a shadow map and run a depth pass; the rest light the
+  // scene without casting shadows (keeps the per-light shadow budget bounded).
+  for (int i = 0; i < (int)lights.size(); i++) {
+    if (lights[i].type == LightType::Sun && shadowDirIndex < 0)
+      shadowDirIndex = i;
+    else if (lights[i].type == LightType::Point && shadowPointIndex < 0)
+      shadowPointIndex = i;
+  }
+  if (shadowDirIndex >= 0)
+    lights[shadowDirIndex].castsShadow = true;
+  if (shadowPointIndex >= 0)
+    lights[shadowPointIndex].castsShadow = true;
+
+  for (auto &light : lights)
+    light.setup(backend);
 
   skybox.setup(backend);
 }

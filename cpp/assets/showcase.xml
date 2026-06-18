@@ -1,9 +1,8 @@
 <?xml version="1.0" ?>
 <!-- Overdrive feature showcase. Geometry is baked into the Demo*.obj vertices
      (engine renders with an identity model matrix), so <position> is unused for
-     static meshes. Lights MUST be ordered point-first, sun-second: the forward
-     shader treats lights[0] as the cube-shadow point light and lights[1] as the
-     2D-shadow directional light. -->
+     static meshes. Up to 8 lights are supported in any order; the first
+     directional and first point light cast shadows. -->
 <scene>
 	<camera name="Camera">
 		<type>persp</type>
@@ -43,19 +42,60 @@
 		<obj>DemoCube.obj</obj>
 	</mesh>
 
-	<!-- lights[0] = warm point light → omnidirectional cube shadow -->
-	<light name="Point">
+	<!-- Five lights, placed so each is easy to tell apart:
+	     - warm point above centre  -> casts the cube shadow (first point)
+	     - red point on the left, green on the right, blue in front -> distinct
+	       coloured pools on the ground and props
+	     - white sun overhead       -> casts the 2D shadow (first directional)
+	     XML position is (GLx, -GLz, GLy) because of the Blender->GL axis swap. -->
+
+	<!-- warm point, GL (1.0, 4.0, 1.5), above the scene -> cube shadow caster -->
+	<light name="PointWarm">
 		<type>point</type>
-		<position>2.8,-2.5,3.2</position>
+		<position>1.0,-1.5,4.0</position>
 		<direction>0.0,0.0,-1.0</direction>
-		<color>1.0,0.8,0.55</color>
+		<color>1.0,0.85,0.6</color>
 		<diffuse>1.0</diffuse>
 		<specular>1.0</specular>
 		<intensity>9000.0</intensity>
 	</light>
 
-	<!-- lights[1] = sun → directional 2D shadow map. direction points toward
-	     the light (up); the shadow camera looks along pos - direction. -->
+	<!-- red point, GL (-4.5, 1.0, 1.8), low by the chrome sphere -->
+	<light name="PointRed">
+		<type>point</type>
+		<position>-4.5,-1.8,1.0</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.0,0.1,0.1</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>8000.0</intensity>
+	</light>
+
+	<!-- green point, GL (4.5, 1.0, 1.8), low by the brick sphere -->
+	<light name="PointGreen">
+		<type>point</type>
+		<position>4.5,-1.8,1.0</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.1,1.0,0.1</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>8000.0</intensity>
+	</light>
+
+	<!-- blue point, GL (0.0, 0.9, 3.8), low and in front of Suzanne -->
+	<light name="PointBlue">
+		<type>point</type>
+		<position>0.0,-3.8,0.9</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.2,0.3,1.0</color>
+		<diffuse>1.0</diffuse>
+		<specular>1.0</specular>
+		<intensity>7000.0</intensity>
+	</light>
+
+	<!-- sun -> directional 2D shadow map (first directional = caster). direction
+	     points toward the light (up); the shadow camera looks along pos - direction.
+	     Kept dim so the coloured point lights stay visible. -->
 	<light name="Sun">
 		<type>sun</type>
 		<position>6.0,-5.0,12.0</position>
@@ -63,6 +103,6 @@
 		<color>1.0,0.98,0.92</color>
 		<diffuse>1.0</diffuse>
 		<specular>1.0</specular>
-		<intensity>4.0</intensity>
+		<intensity>2.0</intensity>
 	</light>
 </scene>

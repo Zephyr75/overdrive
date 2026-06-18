@@ -33,7 +33,7 @@ const std::unordered_map<std::string, VKUniformField> &vkUniformFields() {
     add("material.specular", offsetof(VKUniformBlock, matSpecular), 12);
     add("material.shininess", offsetof(VKUniformBlock, matShininess), 4);
 
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < MAX_LIGHTS; i++) {
       const std::string base = "lights[" + std::to_string(i) + "].";
       const size_t off = offsetof(VKUniformBlock, lights) + i * sizeof(VKLightData);
       add(base + "type", off + offsetof(VKLightData, type), 4);
@@ -50,6 +50,9 @@ const std::unordered_map<std::string, VKUniformField> &vkUniformFields() {
     }
 
     add("useNormalMap", offsetof(VKUniformBlock, useNormalMap), 4);
+    add("lightCount", offsetof(VKUniformBlock, lightCount), 4);
+    add("shadowDirIndex", offsetof(VKUniformBlock, shadowDirIndex), 4);
+    add("shadowPointIndex", offsetof(VKUniformBlock, shadowPointIndex), 4);
     return m;
   }();
   return map;

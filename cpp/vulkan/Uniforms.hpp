@@ -9,6 +9,9 @@
 // Both sides use scalar block layout, so member order and packing must match
 // exactly (everything is 4-byte aligned, vec3 occupies 12 bytes, no padding).
 
+// Must match MAX_LIGHTS in shaders/slang/common.slang.
+static constexpr int MAX_LIGHTS = 8;
+
 struct VKLightData {
   int32_t type;
   float constant;
@@ -36,7 +39,7 @@ struct VKUniformBlock {
   glm::vec3 matDiffuse;
   glm::vec3 matSpecular;
   float matShininess;
-  VKLightData lights[2];
+  VKLightData lights[MAX_LIGHTS];
   // Bindless texture array slots, resolved from bound units at draw time
   int32_t texShadowMap;
   int32_t texOurTexture;
@@ -44,10 +47,13 @@ struct VKUniformBlock {
   int32_t texSkybox;
   int32_t texNormalMap;
   int32_t useNormalMap;
+  int32_t lightCount;
+  int32_t shadowDirIndex;
+  int32_t shadowPointIndex;
 };
 
 static_assert(sizeof(VKLightData) == 68, "scalar layout mismatch");
-static_assert(sizeof(VKUniformBlock) == 868, "scalar layout mismatch");
+static_assert(sizeof(VKUniformBlock) == 1288, "scalar layout mismatch");
 
 struct VKUniformField {
   size_t offset;

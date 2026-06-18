@@ -11,6 +11,10 @@
 void Light::setup(Backend &b) {
   backend = &b;
 
+  // Non-casters need no shadow map; the forward shader skips them.
+  if (!castsShadow)
+    return;
+
   if (type == LightType::Sun) {
     b.createShadowMap2D(Settings::SHADOW_WIDTH, Settings::SHADOW_HEIGHT,
                         depthMapFBO, depthMap);

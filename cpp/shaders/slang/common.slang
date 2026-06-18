@@ -45,6 +45,10 @@ struct LightData {
     float3 direction;
 };
 
+// Keep in sync with the C++ mirrors (vulkan/Uniforms.hpp, opengl/Shader.cpp)
+// and the per-light loops in scene/Mesh.cpp.
+#define MAX_LIGHTS 8
+
 struct Uniforms {
     float4x4 view;
     float4x4 projection;
@@ -58,7 +62,7 @@ struct Uniforms {
     float3 matDiffuse;
     float3 matSpecular;
     float matShininess;
-    LightData lights[2];
+    LightData lights[MAX_LIGHTS];
     // Bindless texture-array slots (Vulkan). Unused by the GL shader, which
     // samples the named samplers below instead.
     int texShadowMap;
@@ -68,6 +72,13 @@ struct Uniforms {
     int texNormalMap;
     // 1 when the bound material has a normal map; 0 = use the geometric normal.
     int useNormalMap;
+    // Number of active lights in lights[] (0..MAX_LIGHTS).
+    int lightCount;
+    // Index of the one directional light that owns the 2D shadow map, and the
+    // one point light that owns the cube shadow map. -1 = no shadow caster of
+    // that kind. All other lights render unshadowed.
+    int shadowDirIndex;
+    int shadowPointIndex;
 };
 
 #ifdef TARGET_VK

@@ -6,6 +6,7 @@
 #include "renderer/Backend.hpp"
 #include "renderer/Shader.hpp"
 
+#include <algorithm>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
@@ -210,7 +211,10 @@ void Mesh::moveBy(glm::vec3 delta) {
 // ---- draw -------------------------------------------------------------------
 
 void Mesh::draw(const Shader &shader, const Scene &scene) const {
-  for (int i = 0; i < (int)scene.lights.size(); i++) {
+  // Keep in sync with MAX_LIGHTS in shaders/slang/common.slang.
+  constexpr int kMaxLights = 8;
+  int lightCount = std::min((int)scene.lights.size(), kMaxLights);
+  for (int i = 0; i < lightCount; i++) {
     auto &l = scene.lights[i];
     std::string base = "lights[" + std::to_string(i) + "].";
     shader.setInt(base + "type", static_cast<int>(l.type));
@@ -227,6 +231,15 @@ void Mesh::draw(const Shader &shader, const Scene &scene) const {
   }
 
   shader.setVec3("viewPos", scene.camera.pos);
+  shader.setInt("lightCount", lightCount);
+
+  // Tell the shader which light owns each shadow map (-1 if the caster is
+  // beyond the active light count or absent).
+  int dirIdx = scene.shadowDirIndex < lightCount ? scene.shadowDirIndex : -1;
+  int pointIdx =
+      scene.shadowPointIndex < lightCount ? scene.shadowPointIndex : -1;
+  shader.setInt("shadowDirIndex", dirIdx);
+  shader.setInt("shadowPointIndex", pointIdx);
 
   shader.setInt("shadowMap", 0);
   shader.setInt("ourTexture", 1);
@@ -234,12 +247,12 @@ void Mesh::draw(const Shader &shader, const Scene &scene) const {
   shader.setInt("skybox", 3);
   shader.setInt("normalMap", 4);
 
-  // lights[1] = directional → 2D shadow map
-  if (scene.lights.size() > 1)
-    backend->bindTexture2D(0, scene.lights[1].depthMap);
-  // lights[0] = point → cubemap shadow
-  if (!scene.lights.empty())
-    backend->bindCubemap(2, scene.lights[0].depthCubeMap);
+  // Bind the 2D shadow map from the directional caster and the cube shadow from
+  // the point caster.
+  if (dirIdx >= 0)
+    backend->bindTexture2D(0, scene.lights[dirIdx].depthMap);
+  if (pointIdx >= 0)
+    backend->bindCubemap(2, scene.lights[pointIdx].depthCubeMap);
   // Skybox cubemap
   backend->bindCubemap(3, scene.skybox.texture);
 
