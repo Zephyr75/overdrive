@@ -35,6 +35,15 @@ void Mesh::load(const std::string &objPath, const std::string &mtlDir,
   auto &shapes = reader.GetShapes();
   auto &mats = reader.GetMaterials();
 
+  // Blender bakes machine-specific paths into the .mtl (often absolute). Keep
+  // only the basename and resolve against the project-local textures/ dir, so
+  // the project is portable across machines and folders.
+  auto resolveTex = [](const std::string &name) {
+    auto slash = name.find_last_of("/\\");
+    std::string base = slash == std::string::npos ? name : name.substr(slash + 1);
+    return "textures/" + base;
+  };
+
   // Load materials — store paths; GPU upload happens in setup()
   for (auto &m : mats) {
     Material mat;
@@ -44,9 +53,9 @@ void Mesh::load(const std::string &objPath, const std::string &mtlDir,
     mat.shininess = m.shininess > 0.0f ? m.shininess : 32.0f;
     mat.alpha = m.dissolve;
     if (!m.diffuse_texname.empty())
-      mat.texturePath = mtlDir + m.diffuse_texname;
+      mat.texturePath = resolveTex(m.diffuse_texname);
     if (!m.bump_texname.empty())
-      mat.normalMapPath = mtlDir + m.bump_texname;
+      mat.normalMapPath = resolveTex(m.bump_texname);
     materials.push_back(mat);
   }
 
@@ -223,6 +232,7 @@ void Mesh::draw(const Shader &shader, const Scene &scene) const {
   shader.setInt("ourTexture", 1);
   shader.setInt("shadowCubeMap", 2);
   shader.setInt("skybox", 3);
+  shader.setInt("normalMap", 4);
 
   // lights[1] = directional → 2D shadow map
   if (scene.lights.size() > 1)
@@ -244,6 +254,8 @@ void Mesh::draw(const Shader &shader, const Scene &scene) const {
     shader.setFloat("material.shininess", mat.shininess);
 
     backend->bindTexture2D(1, mat.texture ? mat.texture : backend->whiteTexture());
+    backend->bindTexture2D(4, mat.normalMap ? mat.normalMap : backend->whiteTexture());
+    shader.setInt("useNormalMap", mat.normalMap ? 1 : 0);
     backend->drawMesh(sm.vao, sm.indices.size());
   }
 }

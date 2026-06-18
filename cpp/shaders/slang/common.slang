@@ -65,6 +65,9 @@ struct Uniforms {
     int texOurTexture;
     int texShadowCubeMap;
     int texSkybox;
+    int texNormalMap;
+    // 1 when the bound material has a normal map; 0 = use the geometric normal.
+    int useNormalMap;
 };
 
 #ifdef TARGET_VK
@@ -80,6 +83,7 @@ struct PushConstants { Uniforms *ubo; };
 
 #define U (pc.ubo)
 #define TEX_OUR (textures2D[U.texOurTexture])
+#define TEX_NORMAL (textures2D[U.texNormalMap])
 #define TEX_SHADOWMAP (textures2D[U.texShadowMap])
 #define TEX_SKYBOX (texturesCube[U.texSkybox])
 #define TEX_SHADOWCUBE (texturesCube[U.texShadowCubeMap])
@@ -95,11 +99,13 @@ ConstantBuffer<Uniforms> ubo;
 // backend (glUniform1i), so they stay separate named samplers.
 Sampler2D shadowMap;
 Sampler2D ourTexture;
+Sampler2D normalMap;
 SamplerCube shadowCubeMap;
 SamplerCube skybox;
 
 #define U (ubo)
 #define TEX_OUR (ourTexture)
+#define TEX_NORMAL (normalMap)
 #define TEX_SHADOWMAP (shadowMap)
 #define TEX_SKYBOX (skybox)
 #define TEX_SHADOWCUBE (shadowCubeMap)

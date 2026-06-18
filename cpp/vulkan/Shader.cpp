@@ -48,6 +48,8 @@ const std::unordered_map<std::string, VKUniformField> &vkUniformFields() {
       add(base + "position", off + offsetof(VKLightData, position), 12);
       add(base + "direction", off + offsetof(VKLightData, direction), 12);
     }
+
+    add("useNormalMap", offsetof(VKUniformBlock, useNormalMap), 4);
     return m;
   }();
   return map;
@@ -59,6 +61,7 @@ const std::unordered_map<std::string, VKSamplerSlot> &vkSamplerSlots() {
       {"ourTexture", {offsetof(VKUniformBlock, texOurTexture), false}},
       {"shadowCubeMap", {offsetof(VKUniformBlock, texShadowCubeMap), true}},
       {"skybox", {offsetof(VKUniformBlock, texSkybox), true}},
+      {"normalMap", {offsetof(VKUniformBlock, texNormalMap), false}},
   };
   return map;
 }

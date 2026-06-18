@@ -96,9 +96,34 @@ float3 calcPointLight(LightData light, float3 normal, float3 fragPos, float3 vie
     return (ambient + diffuse + specular) * light.intensity / 5.0;
 }
 
+// Perturb the geometric normal by a tangent-space normal map without
+// precomputed tangents: derive the TBN basis from screen-space derivatives of
+// fragPos and uv (Schüler's cotangent frame). Avoids adding tangents to the
+// vertex layout.
+float3 perturbNormal(float3 N, float3 fragPos, float2 uv) {
+    float3 tangentNormal = TEX_NORMAL.Sample(uv).xyz * 2.0 - 1.0;
+
+    float3 dp1 = ddx(fragPos);
+    float3 dp2 = ddy(fragPos);
+    float2 duv1 = ddx(uv);
+    float2 duv2 = ddy(uv);
+
+    float3 dp2perp = cross(dp2, N);
+    float3 dp1perp = cross(N, dp1);
+    float3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+    float3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+
+    float invmax = rsqrt(max(dot(T, T), dot(B, B)));
+    float3x3 TBN = float3x3(T * invmax, B * invmax, N);
+    return normalize(mul(tangentNormal, TBN));
+}
+
 [shader("fragment")]
 float4 fsMain(VSOut i) : SV_Target {
+    float2 flippedTex = float2(i.texCoord.x, 1.0 - i.texCoord.y);
     float3 norm = normalize(i.normal);
+    if (U.useNormalMap != 0)
+        norm = perturbNormal(norm, i.fragPos, flippedTex);
     float3 viewDir = normalize(U.viewPos - i.fragPos);
     float3 result = float3(0.2);
 
@@ -110,8 +135,6 @@ float4 fsMain(VSOut i) : SV_Target {
             result += calcPointLight(U.lights[l], norm, i.fragPos, viewDir) *
                       (1.0 - shadowCalculationCube(i.fragPos));
     }
-
-    float2 flippedTex = float2(i.texCoord.x, 1.0 - i.texCoord.y);
 
     float3 I = normalize(i.fragPos - U.viewPos);
     float3 R = reflect(I, norm);

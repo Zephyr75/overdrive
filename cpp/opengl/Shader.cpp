@@ -45,6 +45,10 @@ static const std::unordered_map<std::string, size_t> &glUniformOffsets() {
       m[base + "position"] = off + 64;
       m[base + "direction"] = off + 80;
     }
+    // texShadowMap/texOurTexture/texShadowCubeMap/texSkybox/texNormalMap occupy
+    // 912..932 in std140 but GL reads textures through named samplers, not the
+    // block; only the useNormalMap flag is read from the UBO.
+    m["useNormalMap"] = 932;
     return m;
   }();
   return map;

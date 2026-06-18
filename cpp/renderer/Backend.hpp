@@ -17,15 +17,22 @@ public:
   // Called once after window creation: context/device/swapchain setup.
   virtual void init(GLFWwindow *window) = 0;
 
+  // Starts a frame's worth of rendering (Vulkan: acquires the swapchain image,
+  // resets the per-frame command buffer/uniform ring). Call once before any
+  // passes; pair with endFrame().
   virtual void beginFrame() = 0;
-  // Submits the frame and presents it (GL: swap buffers).
+  // Ends the frame and presents it (GL: swap buffers; Vulkan: submits the
+  // command buffer and queues the present).
   virtual void endFrame() = 0;
 
-  // framebuffer == 0 targets the backbuffer/swapchain. Depth is always
-  // cleared; color only when clearColor is set.
+  // Begins a render pass on the given target: binds the framebuffer (0 = the
+  // backbuffer/swapchain), sets the viewport to w×h, and clears at the start of
+  // the pass — depth always, color only when clearColor is set. Clears happen
+  // only here, never mid-pass (required for Vulkan dynamic rendering).
   virtual void beginPass(uint32_t framebuffer, int w, int h, bool clearColor,
                          float r = 0, float g = 0, float b = 0,
                          float a = 1) = 0;
+  // Ends the current render pass and returns the target to the backbuffer.
   virtual void endPass() = 0;
 
   virtual void setCullFace(bool front) = 0;

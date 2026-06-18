@@ -42,10 +42,12 @@ struct VKUniformBlock {
   int32_t texOurTexture;
   int32_t texShadowCubeMap;
   int32_t texSkybox;
+  int32_t texNormalMap;
+  int32_t useNormalMap;
 };
 
 static_assert(sizeof(VKLightData) == 68, "scalar layout mismatch");
-static_assert(sizeof(VKUniformBlock) == 860, "scalar layout mismatch");
+static_assert(sizeof(VKUniformBlock) == 868, "scalar layout mismatch");
 
 struct VKUniformField {
   size_t offset;

@@ -86,7 +86,14 @@
       "WebFetch(domain:medium.com)",
       "Bash(grep *)",
       "Bash(echo \"exit $?\")",
-      "Bash(cmake --build build-vk -j)"
+      "Bash(cmake --build build-vk -j)",
+      "WebSearch",
+      "Bash(command -v coredumpctl)",
+      "Bash(coredumpctl list *)",
+      "Bash(coredumpctl info *)",
+      "Bash(awk '{print $5}')",
+      "Bash(timeout 6 ./build-vk/overdrive assets/sphere.xml)",
+      "Bash(echo \"exit:$?\")"
     ]
   }
 }

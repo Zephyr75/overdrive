@@ -17,6 +17,9 @@ App::App(const std::string &title, int width, int height) {
 }
 
 App::~App() {
+  // Destroy the backend first: it owns the Vulkan surface/swapchain, which must
+  // be torn down while the window (and its wayland connection) is still alive.
+  backend.reset();
   glfwDestroyWindow(window);
   glfwTerminate();
 }
