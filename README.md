@@ -10,11 +10,6 @@ custom add-on. The export covers meshes, camera, lights and materials.
 
 ![Overdrive showcase scene](demo.png)
 
-The showcase scene above has a paving ground with a normal map, a metal Suzanne,
-brick and wood props, and a chrome sphere that reflects the skybox. It is lit by a
-sun (directional light with 2D shadows) and a warm point light (cube shadows in
-every direction).
-
 ## Features
 
 ### Rendering (OpenGL and Vulkan)
@@ -49,9 +44,7 @@ first and these gameplay systems are being redone on top of it. See the roadmap.
 
 ## Roadmap
 
-* Basic ray tracing on Vulkan. Hardware ray traced shadows through
-  `VK_KHR_ray_query`, then ambient occlusion and reflections. Vulkan only, the
-  OpenGL backend keeps shadow maps. See
+* Basic ray tracing on Vulkan. Hardware ray traced shadows then ambient occlusion and reflections. Vulkan only, the OpenGL backend keeps shadow maps. See
   [`notes/RAYTRACING_PLAN.md`](notes/RAYTRACING_PLAN.md).
 * PBR materials. A metallic and roughness workflow with a Cook-Torrance BRDF and
   lighting from a prefiltered skybox.
@@ -82,7 +75,7 @@ not, the Slang SDK is downloaded for you when you configure the build.
 
 ```sh
 ./overdrive_build.sh   # builds both backends into cpp/build-gl and cpp/build-vk
-./overdrive.sh         # pick a scene and a backend with gum, then launch
+./overdrive.sh         # pick a scene and a backend then launch
 ```
 
 ### Manual build
