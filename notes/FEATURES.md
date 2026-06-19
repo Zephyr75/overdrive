@@ -78,6 +78,28 @@ mix of directional and point lights. How it fits together:
   uploads `lightCount` + the two indices and binds the casters' maps; light
   ordering in the XML no longer matters.
 
+- **Vulkan per-light uniform-read optimisation.** The first multi-light cut ran
+  the showcase at ~60 fps on OpenGL but only ~30 on Vulkan (FIFO vsync, Intel
+  UHD 620). Root cause: the per-light loop in `forward.slang` read the
+  loop-invariant material fields (`U.matAmbient` / `matDiffuse` / `matSpecular` /
+  `matShininess`) *inside* `calcDirLight` / `calcPointLight`, i.e. once **per
+  light per fragment**. On Vulkan `U` is a `buffer_reference` (BDA) pointer, so
+  the compiler cannot prove those loads are loop-invariant (no aliasing
+  guarantee) and re-fetches them from memory every iteration; on OpenGL the same
+  reads hit a UBO and ride Intel's constant cache for free — hence the
+  backend-specific cliff. Going from 2 to 5 lights pushed the Vulkan frame past
+  the 16.6 ms vsync boundary, so it dropped cleanly to the next interval (30 fps).
+  Fix: hoist the material fields into a local `MatParams` struct (and the loop
+  scalars `lightCount` / `shadowDirIndex` / `shadowPointIndex` into locals)
+  once at the top of `fsMain`, and pass `MatParams` into the light functions
+  instead of reading `U` inside them. The loop now touches registers, not the
+  BDA pointer. Measured (Intel UHD 620, 5 lights): Vulkan 39 → 53 fps, back to
+  the old 2-light baseline; OpenGL unaffected (a marginal win at most). The
+  lighting math is unchanged. Note this is structural, not light-count: the
+  saving applies for any N, and is the reason the per-light loop never reads
+  material data through `U` directly.
+
+
 ### Materials & textures
 - `scene/Material.hpp`: ambient / diffuse / specular / shininess / alpha, plus a
   diffuse texture and a normal-map slot.
