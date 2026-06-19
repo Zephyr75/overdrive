@@ -70,29 +70,40 @@ float shadowCalculation(float4 fragPosLightSpace, float3 normal, float3 lightDir
     return shadow;
 }
 
-float3 calcDirLight(LightData light, float3 normal, float3 viewDir) {
+// The material parameters are passed in (read once in fsMain) rather than
+// fetched from U inside the per-light loop: on Vulkan U is a buffer_reference
+// pointer, so the compiler cannot prove the loads are loop-invariant and would
+// otherwise re-read them from memory every iteration. GL's UBO caches them.
+struct MatParams {
+    float3 ambient;
+    float3 diffuse;
+    float3 specular;
+    float shininess;
+};
+
+float3 calcDirLight(LightData light, MatParams mat, float3 normal, float3 viewDir) {
     float3 lightDir = normalize(light.direction);
     float diff = max(dot(normal, lightDir), 0.0);
     float3 halfwayDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfwayDir), 0.0), U.matShininess + 0.0001);
-    float3 ambient = light.color * U.matAmbient;
-    float3 diffuse = light.color * light.diffuse * diff * U.matDiffuse;
-    float3 specular = light.color * light.specular * spec * U.matSpecular;
+    float spec = pow(max(dot(normal, halfwayDir), 0.0), mat.shininess + 0.0001);
+    float3 ambient = light.color * mat.ambient;
+    float3 diffuse = light.color * light.diffuse * diff * mat.diffuse;
+    float3 specular = light.color * light.specular * spec * mat.specular;
     return (ambient + diffuse + specular) * light.intensity / 5.0;
 }
 
-float3 calcPointLight(LightData light, float3 normal, float3 fragPos, float3 viewDir) {
+float3 calcPointLight(LightData light, MatParams mat, float3 normal, float3 fragPos, float3 viewDir) {
     float3 lightDir = normalize(light.position - fragPos);
     float diff = max(dot(normal, lightDir), 0.0);
     float3 halfwayDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfwayDir), 0.0), U.matShininess + 0.0001);
+    float spec = pow(max(dot(normal, halfwayDir), 0.0), mat.shininess + 0.0001);
     float distance = length(light.position - fragPos);
     float attenuation =
         1.0 / (light.kConstant + light.kLinear * distance +
                light.kQuadratic * (distance * distance));
-    float3 ambient = light.color * U.matAmbient * attenuation;
-    float3 diffuse = light.color * light.diffuse * diff * U.matDiffuse * attenuation;
-    float3 specular = light.color * light.specular * spec * U.matSpecular * attenuation;
+    float3 ambient = light.color * mat.ambient * attenuation;
+    float3 diffuse = light.color * light.diffuse * diff * mat.diffuse * attenuation;
+    float3 specular = light.color * light.specular * spec * mat.specular * attenuation;
     return (ambient + diffuse + specular) * light.intensity / 5.0;
 }
 
@@ -127,18 +138,30 @@ float4 fsMain(VSOut i) : SV_Target {
     float3 viewDir = normalize(U.viewPos - i.fragPos);
     float3 result = float3(0.2);
 
-    for (int l = 0; l < U.lightCount; l++) {
+    // Hoist loop-invariant uniform reads into locals so the per-light loop
+    // touches registers instead of re-loading through U's buffer_reference
+    // pointer (Vulkan) every iteration.
+    MatParams mat;
+    mat.ambient = U.matAmbient;
+    mat.diffuse = U.matDiffuse;
+    mat.specular = U.matSpecular;
+    mat.shininess = U.matShininess;
+    int lightCount = U.lightCount;
+    int shadowDirIndex = U.shadowDirIndex;
+    int shadowPointIndex = U.shadowPointIndex;
+
+    for (int l = 0; l < lightCount; l++) {
         LightData light = U.lights[l];
         float shadow = 0.0;
         float3 contrib;
         if (light.type == 0) {
-            contrib = calcDirLight(light, norm, viewDir);
-            if (l == U.shadowDirIndex)
+            contrib = calcDirLight(light, mat, norm, viewDir);
+            if (l == shadowDirIndex)
                 shadow = shadowCalculation(i.fragPosLightSpace, norm,
                                            normalize(light.direction));
         } else {
-            contrib = calcPointLight(light, norm, i.fragPos, viewDir);
-            if (l == U.shadowPointIndex)
+            contrib = calcPointLight(light, mat, norm, i.fragPos, viewDir);
+            if (l == shadowPointIndex)
                 shadow = shadowCalculationCube(i.fragPos, light.position);
         }
         result += contrib * (1.0 - shadow);

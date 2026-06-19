@@ -93,7 +93,10 @@
       "Bash(coredumpctl info *)",
       "Bash(awk '{print $5}')",
       "Bash(timeout 6 ./build-vk/overdrive assets/sphere.xml)",
-      "Bash(echo \"exit:$?\")"
+      "Bash(echo \"exit:$?\")",
+      "Bash(git *)",
+      "Bash(git show *)",
+      "Bash(vulkaninfo)"
     ]
   }
 }
