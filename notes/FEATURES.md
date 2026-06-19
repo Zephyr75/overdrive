@@ -36,14 +36,44 @@ Defined in `scene/Light.hpp` (`LightType { Sun, Point }`) and evaluated in
 Driven by `Light::renderLight` (`scene/Light.cpp`), rendered in dedicated depth
 passes before the main pass:
 - **Directional → 2D shadow map.** Orthographic light-space matrix; sampled in
-  `shadowCalculation` with a 3×3 PCF kernel and slope-scaled depth bias; clamps
-  to lit beyond the far plane. Backed by `createShadowMap2D`.
+  `shadowCalculation` with a 3×3 PCF kernel and a **normal-offset bias** (see
+  below); clamps to lit beyond the far plane. Backed by `createShadowMap2D`.
 - **Point → omnidirectional cubemap shadow.** 6 face-view matrices rendered via
   the `depth_cube` geometry-shader path; sampled in `shadowCalculationCube` with
   a 20-tap disk PCF whose radius grows with view distance. Stores linear
   distance / `farPlane`. Backed by `createShadowCubemap`.
 - GL↔VK bridging for the shadow passes (positive viewport, CW front face,
   `TO_VK_DEPTH` clip-z remap) is handled per `cpp/BACKEND.md`.
+
+#### Shadow bias — normal-offset (and how to change it later)
+Shadow-map filtering needs a bias to escape **shadow acne** (the receiver
+self-shadowing from depth-map quantization). The tradeoff is **peter-panning**:
+too much bias detaches the shadow from the object's base, leaving a lit *gap* at
+the contact point.
+
+Both shadow tests use a **normal-offset bias** rather than a depth bias: instead
+of offsetting the compared depth, the receiver sample point is pushed along its
+surface normal in world space (`NORMAL_OFFSET_2D` / `NORMAL_OFFSET_CUBE` in
+`forward.slang`), more at grazing light angles, *before* projecting into the
+shadow map. The 2D path re-projects the offset world position in the fragment
+shader (so the old precomputed `fragPosLightSpace` varying is gone); the cube
+path offsets the `fragToLight` origin. This escapes acne geometrically, so the
+residual constant depth bias is tiny (2D `0.0015`, cube `0.04`) and contact
+shadows stay attached.
+
+The offset constants are tuned for the showcase's ~10-unit scene scale; rescale
+them if the scene scale changes (too small → acne returns; too large →
+peter-panning comes back). **Alternatives if you want to revisit this:**
+- **Front-face culling in the shadow pass** (render only back faces into the
+  depth map): the cleanest fix for *closed, solid* meshes — the bias hides
+  inside the geometry — but a flat/single-sided ground plane has no back face,
+  so it can't cover the showcase ground on its own. Would need
+  `glCullFace(GL_FRONT)` (GL) / a CW-vs-CCW cull flip (VK) around the depth pass.
+- **Slope-scaled depth bias** (`glPolygonOffset`) — cheap, but on its own it was
+  what caused the original peter-panning.
+- A robust production setup usually pairs **front-face culling (solids) +
+  normal-offset (everything, incl. flat receivers)**, which is the natural next
+  step here if shadows need to be tighter.
 
 ### Multi-light support
 The forward pass evaluates up to `MAX_LIGHTS` (= 8) lights per fragment, in any

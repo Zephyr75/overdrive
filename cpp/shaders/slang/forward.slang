@@ -5,7 +5,6 @@ struct VSOut {
     float2 texCoord : TEXCOORD0;
     float3 normal : NORMAL;
     float3 fragPos : TEXCOORD1;
-    float4 fragPosLightSpace : TEXCOORD2;
 };
 
 [shader("vertex")]
@@ -15,11 +14,23 @@ VSOut vsMain(float3 aPos, float3 aNormal, float2 aTexCoord) {
     o.fragPos = fragPos;
     o.texCoord = aTexCoord;
     o.normal = mul(transpose(inverse3((float3x3)U.model)), aNormal);
-    o.fragPosLightSpace = mul(U.lightSpaceMatrix, float4(fragPos, 1.0));
+    // The light-space position used to be precomputed here, but the shadow
+    // test now applies a normal-offset bias to the world position first, so it
+    // re-projects in the fragment shader instead.
     o.position = mul(U.projection, mul(U.view, float4(fragPos, 1.0)));
     TO_VK_DEPTH(o.position);
     return o;
 }
+
+// Normal-offset shadow bias: rather than offsetting the stored/compared *depth*
+// (which detaches the contact shadow = peter-panning), we push the receiver
+// sample point along its surface normal, in world space, before projecting it
+// into the shadow map. The offset grows toward grazing light angles where acne
+// is worst. This keeps contact shadows attached while still escaping self-
+// shadow acne, so the leftover constant depth bias can be tiny.
+// Tuned for the showcase's ~10-unit scene scale; see FEATURES.md (Shadow bias).
+static const float NORMAL_OFFSET_2D = 0.08;   // ortho 2D map, world units
+static const float NORMAL_OFFSET_CUBE = 0.10; // point cube map, world units
 
 static const float3 gridSamplingDisk[20] = {
     float3(1, 1, 1), float3(1, -1, 1), float3(-1, -1, 1), float3(-1, 1, 1),
@@ -29,11 +40,14 @@ static const float3 gridSamplingDisk[20] = {
     float3(0, 1, 1), float3(0, -1, 1), float3(0, -1, -1), float3(0, 1, -1)
 };
 
-float shadowCalculationCube(float3 fragPos, float3 lightPos) {
-    float3 fragToLight = fragPos - lightPos;
+float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos) {
+    // Normal-offset bias: nudge the sample off the surface along its normal so
+    // self-shadow acne is escaped geometrically, letting the depth bias shrink.
+    float3 offsetPos = fragPos + normal * NORMAL_OFFSET_CUBE;
+    float3 fragToLight = offsetPos - lightPos;
     float currentDepth = length(fragToLight);
     float shadow = 0.0;
-    float bias = 0.15;
+    float bias = 0.04;
     int samples = 20;
     float viewDistance = length(U.viewPos - fragPos);
     float diskRadius = (1.0 + (viewDistance / U.farPlane)) / 25.0;
@@ -48,11 +62,19 @@ float shadowCalculationCube(float3 fragPos, float3 lightPos) {
     return shadow * 5.0;
 }
 
-float shadowCalculation(float4 fragPosLightSpace, float3 normal, float3 lightDir) {
+float shadowCalculation(float3 fragPos, float3 normal, float3 lightDir) {
+    // Normal-offset bias: offset the world-space sample along its normal, more
+    // at grazing angles, then re-project into light space. Replaces the old
+    // slope-scaled *depth* bias that caused peter-panning at contact points.
+    float ndl = clamp(dot(normal, lightDir), 0.0, 1.0);
+    float offset = NORMAL_OFFSET_2D * (1.0 - ndl);
+    float4 fragPosLightSpace =
+        mul(U.lightSpaceMatrix, float4(fragPos + normal * offset, 1.0));
     float3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
     float currentDepth = projCoords.z;
-    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+    // Small residual depth bias; the normal offset does the heavy lifting.
+    float bias = 0.0015;
     float shadow = 0.0;
     uint w, h;
     TEX_SHADOWMAP.GetDimensions(w, h);
@@ -205,12 +227,12 @@ float4 fsMain(VSOut i) : SV_Target {
         if (light.type == 0) {
             contrib = calcDirLight(light, mat, norm, viewDir);
             if (l == shadowDirIndex)
-                shadow = shadowCalculation(i.fragPosLightSpace, norm,
+                shadow = shadowCalculation(i.fragPos, norm,
                                            normalize(light.direction));
         } else {
             contrib = calcPointLight(light, mat, norm, i.fragPos, viewDir);
             if (l == shadowPointIndex)
-                shadow = shadowCalculationCube(i.fragPos, light.position);
+                shadow = shadowCalculationCube(i.fragPos, norm, light.position);
         }
         Lo += contrib * (1.0 - shadow);
     }
