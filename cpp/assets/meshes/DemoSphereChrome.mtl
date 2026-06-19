@@ -1,8 +1,11 @@
-# Showcase: polished chrome - low Kd so the skybox reflection dominates
+# Showcase: polished chrome - metallic=1 + low roughness mirrors the skybox.
+# Kd is the metal reflectance tint (= PBR F0), so keep it bright, not low.
 newmtl chrome
 Ka 0.05 0.05 0.05
-Kd 0.08 0.08 0.08
+Kd 0.6 0.6 0.6
 Ks 1.0 1.0 1.0
 Ns 256.0
 d 1.0
 illum 2
+Pm 1.0
+Pr 0.08

@@ -55,6 +55,12 @@ static const std::unordered_map<std::string, size_t> &glUniformOffsets() {
     m["lightCount"] = 1512;
     m["shadowDirIndex"] = 1516;
     m["shadowPointIndex"] = 1520;
+    // PBR scalars, appended after the trailing ints; each std140 scalar is
+    // 4-byte aligned. The block ends at 1536, still a multiple of 16 so
+    // kBlockSize is unchanged.
+    m["material.metallic"] = 1524;
+    m["material.roughness"] = 1528;
+    m["material.ao"] = 1532;
     return m;
   }();
   return map;

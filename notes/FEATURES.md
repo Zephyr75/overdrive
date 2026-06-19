@@ -19,14 +19,16 @@ prioritized plan for what comes next and how to build it. Read alongside
   address + scalar layout for uniforms, bindless descriptor indexing, 2 frames
   in flight (see `cpp/BACKEND.md`).
 
-### Lighting — Blinn-Phong, two light types
+### Lighting — Cook-Torrance PBR, two light types
 Defined in `scene/Light.hpp` (`LightType { Sun, Point }`) and evaluated in
-`shaders/slang/forward.slang`:
-- **Directional ("Sun")** — `calcDirLight`, infinite light along `direction`.
-- **Point** — `calcPointLight`, with distance attenuation
-  (`kConstant/kLinear/kQuadratic`).
-- Both use the Blinn-Phong halfway-vector specular term; ambient + diffuse +
-  specular are scaled by per-light `intensity`, `diffuse`, `specular` factors.
+`shaders/slang/forward.slang` with a metallic-roughness microfacet BRDF (see
+**PBR materials** below for the BRDF itself):
+- **Directional ("Sun")** — `calcDirLight`, infinite light along `direction`;
+  radiance = `color · diffuse · intensity`.
+- **Point** — `calcPointLight`, inverse-square falloff
+  (`1 / (kConstant + d²)`); radiance scaled by that attenuation.
+- Each light builds an incoming-radiance term and feeds the shared
+  `cookTorrance` evaluator; per-light `intensity` / `diffuse` set its strength.
 - Up to `MAX_LIGHTS` (8) lights in any mix of directional and point — see
   **Multi-light support** below.
 
@@ -100,9 +102,48 @@ mix of directional and point lights. How it fits together:
   material data through `U` directly.
 
 
+### PBR materials — metallic-roughness Cook-Torrance
+The forward shader uses a physically-based microfacet BRDF instead of
+Blinn-Phong. Implemented entirely in `forward.slang` with three new material
+scalars threaded through the uniform block.
+
+- **BRDF.** `cookTorrance` (in `forward.slang`) is the textbook Cook-Torrance
+  specular term — GGX/Trowbridge-Reitz normal distribution (`distributionGGX`),
+  Smith height-correlated geometry via Schlick-GGX with the direct-lighting
+  `k = (r+1)²/8` (`geometrySmith`), and Fresnel-Schlick (`fresnelSchlick`) —
+  plus a Lambertian diffuse lobe. Energy is conserved: the diffuse weight is
+  `kD = (1 - F)(1 - metallic)`, so the Fresnel reflectance and metalness steal
+  from the diffuse term, and metals have no diffuse at all.
+- **Material model.** `matDiffuse` is reused as the **base colour / albedo**
+  (sampled albedo texture × tint, linearised from sRGB with `pow(·, 2.2)`).
+  `Material` (`scene/Material.hpp`) gains `metallic`, `roughness`, `ao` scalars;
+  loaded from the `.mtl` PBR extension keys (`Pm`, `Pr`) in `scene/Mesh.cpp`,
+  defaulting to dielectric/matte (`metallic 0`, `roughness 1`) for legacy
+  materials. `F0 = lerp(0.04, albedo, metallic)`: dielectrics reflect ~4%, metals
+  tint their reflectance with the albedo.
+- **Uniform plumbing.** Three floats (`matMetallic` / `matRoughness` / `matAo`)
+  were appended to the shared `Uniforms` (`common.slang`) and both CPU mirrors.
+  Appending at the end keeps the change cheap: the GL std140 block still ends at
+  1536 bytes (`kBlockSize` unchanged), the VK scalar block grows 1288 → 1300
+  (size `static_assert` bumped). `Mesh::draw` uploads them per submesh next to
+  the existing `material.*` setters; `vkUniformFields()` / `glUniformOffsets()`
+  carry the three new offsets.
+- **Image-based ambient.** The old raw-reflection hack is replaced by a
+  Fresnel-weighted split-sum approximation: the skybox cubemap stands in for both
+  the diffuse irradiance (sampled along `N`) and the prefiltered specular
+  environment (sampled along `reflect(-V, N)`), mixed by
+  `fresnelSchlickRoughness` and scaled by `ao`. So metals mirror the sky and
+  dielectrics pick up a soft tint, with no separate reflection term. (A real
+  prefiltered-mip + BRDF-LUT IBL is still roadmap — see below.)
+- **Tonemapping.** PBR radiance is unbounded; `fsMain` applies a Reinhard
+  tonemap + gamma at the end so it stays displayable in the LDR backbuffer until
+  the dedicated HDR/bloom pass (roadmap) lands. Showcase light intensities were
+  retuned for the inverse-square falloff and this LDR path.
+
 ### Materials & textures
-- `scene/Material.hpp`: ambient / diffuse / specular / shininess / alpha, plus a
-  diffuse texture and a normal-map slot.
+- `scene/Material.hpp`: ambient / diffuse (= albedo) / specular / shininess /
+  alpha / metallic / roughness / ao, plus a diffuse texture and a normal-map
+  slot.
 - **Bindless textures** in both backends (`sampler2D[256]` + `samplerCube[64]`);
   texture handle 0 is a built-in white pixel. Sampler uniforms keep GL
   texture-unit semantics and resolve to array slots at draw time.
@@ -128,8 +169,9 @@ mix of directional and point lights. How it fits together:
 ### Environment & reflection
 - **Skybox** (`scene/Skybox.*`, `shaders/slang/skybox.slang`): cubemap rendered
   behind the scene.
-- The skybox cubemap doubles as a crude **reflection probe** in `forward.slang`
-  (reflect view vector, sample cubemap, weight by `1 - matDiffuse`).
+- The skybox cubemap doubles as a crude **reflection probe** in `forward.slang`,
+  now consumed by the PBR ambient term (Fresnel/metallic-weighted env sample)
+  rather than the old `1 - matDiffuse` hack — see **PBR materials**.
 
 ### Scene & assets
 - XML scene description (`scene/Scene.cpp`) loads camera, meshes, lights,
@@ -137,10 +179,13 @@ mix of directional and point lights. How it fits together:
 - Per-frame `updateMeshes()` supports moving geometry (Verlet-style movement
   hooks exist from the Go original).
 - **Showcase scene** (`assets/showcase.xml`, the default) exercises every
-  feature: a normal-mapped paving ground, a metal Suzanne, a brick and a wood
-  primitive (all normal-mapped), and a low-Kd chrome sphere that mirrors the
-  skybox, lit by a directional sun (2D shadow) + a warm point light (cube
-  shadow). PBR colour/normal maps are CC0 from ambientCG, in `cpp/textures/`.
+  feature: a normal-mapped paving ground, a metal Suzanne (`Pm 1`), a brick and a
+  wood primitive (dielectric, all normal-mapped), and a fully-metallic low-
+  roughness chrome sphere (`Pm 1, Pr 0.08`) that mirrors the skybox through the
+  PBR ambient term, lit by a directional sun (2D shadow) + a warm point light
+  (cube shadow). The per-mesh `.mtl` files carry the `Pm`/`Pr` PBR scalars; light
+  intensities are tuned for the inverse-square falloff. Colour/normal maps are
+  CC0 from ambientCG, in `cpp/textures/`.
   Note: static meshes render with an identity model matrix, so geometry is baked
   into the `Demo*.obj` vertices (in GL world space) rather than positioned by the
   XML `<position>` tags; the demo objs were generated directly in world space.
@@ -153,17 +198,20 @@ mix of directional and point lights. How it fits together:
 
 Ordered by value-to-effort. Each item lists the files to touch and the strategy.
 
-### 1. PBR materials (medium-high)
-**Why:** Blinn-Phong is the visual ceiling; metallic-roughness is the standard.
-**Files:** `scene/Material.hpp` (+ loader in `Mesh.cpp`), `forward.slang`,
-`common.slang`, both uniform mirrors.
-**Strategy:**
-- Add albedo / metallic / roughness / AO + their texture slots to `Material`.
-- Swap the lighting functions in `forward.slang` for a Cook-Torrance BRDF
-  (GGX distribution, Smith geometry, Fresnel-Schlick).
-- For correct image-based lighting, prefilter the skybox into irradiance +
-  prefiltered-specular cubemaps and a BRDF LUT (one-time compute/raster pass at
-  load) instead of the current raw-cubemap reflection hack.
+### 1. PBR materials — **done** (scalar metallic-roughness)
+The Cook-Torrance metallic-roughness BRDF shipped — see **PBR materials** in
+Part 1. What landed: per-material `metallic`/`roughness`/`ao` scalars (`.mtl`
+`Pm`/`Pr`), GGX/Smith/Fresnel BRDF in `forward.slang`, a Fresnel-weighted skybox
+ambient term, and an inline Reinhard tonemap.
+
+**Still open (PBR follow-ups):**
+- **Texture-driven PBR.** Add albedo/metallic/roughness/AO *map* slots (new
+  bindless textures + `map_Pm`/`map_Pr` loading) so values vary per-texel, not
+  just per-material. Today the maps in `cpp/textures/` are colour + normal only.
+- **Proper IBL.** Prefilter the skybox into an irradiance cubemap + a
+  roughness-mip prefiltered-specular cubemap and a BRDF LUT (one-time
+  compute/raster pass at load), replacing the current single-sample skybox
+  ambient approximation.
 
 ### 2. HDR + tonemapping + bloom (medium)
 **Why:** unlocks intensity values >1 and physically meaningful lighting.
@@ -173,7 +221,9 @@ composite).
 **Strategy:**
 - Render the main pass into an `RGBA16F` framebuffer instead of the swapchain.
 - Add a fullscreen post pass: bright-pass + separable Gaussian blur for bloom,
-  then ACES/Reinhard tonemap + gamma to the backbuffer.
+  then ACES/Reinhard tonemap + gamma to the backbuffer. (A stopgap Reinhard +
+  gamma already runs inline at the end of `forward.slang` for the PBR path; move
+  it here once there is a real HDR target.)
 - This needs a real offscreen-color-target abstraction; today `beginPass(0,…)`
   only distinguishes backbuffer vs shadow FBOs. Generalize framebuffer creation.
 

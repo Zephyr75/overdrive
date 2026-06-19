@@ -41,8 +41,8 @@ void processKeyboard(GLFWwindow* window, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS)
         camera->pos += camera->up * currentSpeed * deltaTime;
 
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-        glfwSetWindowShouldClose(window, true);
+    // if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+    //     glfwSetWindowShouldClose(window, true);
 }
 
 void mouseCallback(GLFWwindow* /*window*/, double xpos, double ypos) {

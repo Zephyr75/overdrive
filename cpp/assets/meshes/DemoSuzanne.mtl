@@ -8,3 +8,5 @@ d 1.0
 illum 2
 map_Kd textures/metal_color.png
 map_Bump textures/metal_normal.png
+Pm 1.0
+Pr 0.35

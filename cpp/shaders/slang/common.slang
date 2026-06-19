@@ -79,6 +79,12 @@ struct Uniforms {
     // that kind. All other lights render unshadowed.
     int shadowDirIndex;
     int shadowPointIndex;
+    // Metallic-roughness PBR scalars for the bound material. matDiffuse is the
+    // base-colour tint. Appended at the end so the std140/scalar block sizes only
+    // grow by 12 bytes (GL block stays 1536, VK scalar 1288 -> 1300).
+    float matMetallic;
+    float matRoughness;
+    float matAo;
 };
 
 #ifdef TARGET_VK

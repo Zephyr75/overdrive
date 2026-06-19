@@ -70,41 +70,82 @@ float shadowCalculation(float4 fragPosLightSpace, float3 normal, float3 lightDir
     return shadow;
 }
 
-// The material parameters are passed in (read once in fsMain) rather than
-// fetched from U inside the per-light loop: on Vulkan U is a buffer_reference
-// pointer, so the compiler cannot prove the loads are loop-invariant and would
-// otherwise re-read them from memory every iteration. GL's UBO caches them.
+// ---- Cook-Torrance metallic-roughness PBR -----------------------------------
+//
+// Replaces the old Blinn-Phong terms with a microfacet BRDF: GGX/Trowbridge-
+// Reitz normal distribution, Smith height-correlated geometry (Schlick-GGX
+// with the direct-lighting k), and a Fresnel-Schlick term. matDiffuse is the
+// base colour (albedo); metallic blends the F0 reflectance from the 0.04
+// dielectric default toward the albedo, and kills the diffuse lobe.
+static const float PI = 3.14159265358979;
+
+// Material params hoisted out of the per-light loop. On Vulkan U is a
+// buffer_reference pointer, so reads inside the loop cannot be proven
+// loop-invariant and would re-fetch every iteration; locals stay in registers.
 struct MatParams {
-    float3 ambient;
-    float3 diffuse;
-    float3 specular;
-    float shininess;
+    float3 albedo;
+    float metallic;
+    float roughness;
+    float3 F0;
 };
+
+float distributionGGX(float3 N, float3 H, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float NdotH = max(dot(N, H), 0.0);
+    float d = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    return a2 / max(PI * d * d, 1e-7);
+}
+
+float geometrySchlickGGX(float NdotV, float roughness) {
+    float r = roughness + 1.0;
+    float k = (r * r) / 8.0; // direct-lighting remap
+    return NdotV / (NdotV * (1.0 - k) + k);
+}
+
+float geometrySmith(float3 N, float3 V, float3 L, float roughness) {
+    return geometrySchlickGGX(max(dot(N, V), 0.0), roughness) *
+           geometrySchlickGGX(max(dot(N, L), 0.0), roughness);
+}
+
+float3 fresnelSchlick(float cosTheta, float3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+// Roughness-aware Fresnel for the environment ambient term (Sébastien Lagarde).
+float3 fresnelSchlickRoughness(float cosTheta, float3 F0, float roughness) {
+    float3 Fr = max(float3(1.0 - roughness), F0);
+    return F0 + (Fr - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+// Outgoing radiance from one light, given its incoming radiance at the surface.
+float3 cookTorrance(MatParams mat, float3 N, float3 V, float3 L, float3 radiance) {
+    float3 H = normalize(V + L);
+    float NdotL = max(dot(N, L), 0.0);
+    float NDF = distributionGGX(N, H, mat.roughness);
+    float G = geometrySmith(N, V, L, mat.roughness);
+    float3 F = fresnelSchlick(max(dot(H, V), 0.0), mat.F0);
+    float3 specular = (NDF * G * F) /
+                      max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-4);
+    // Energy conservation: what is not reflected (kS = F) is refracted/diffused,
+    // and metals have no diffuse lobe.
+    float3 kD = (float3(1.0) - F) * (1.0 - mat.metallic);
+    return (kD * mat.albedo / PI + specular) * radiance * NdotL;
+}
 
 float3 calcDirLight(LightData light, MatParams mat, float3 normal, float3 viewDir) {
     float3 lightDir = normalize(light.direction);
-    float diff = max(dot(normal, lightDir), 0.0);
-    float3 halfwayDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfwayDir), 0.0), mat.shininess + 0.0001);
-    float3 ambient = light.color * mat.ambient;
-    float3 diffuse = light.color * light.diffuse * diff * mat.diffuse;
-    float3 specular = light.color * light.specular * spec * mat.specular;
-    return (ambient + diffuse + specular) * light.intensity / 5.0;
+    float3 radiance = light.color * light.diffuse * light.intensity;
+    return cookTorrance(mat, normal, viewDir, lightDir, radiance);
 }
 
 float3 calcPointLight(LightData light, MatParams mat, float3 normal, float3 fragPos, float3 viewDir) {
     float3 lightDir = normalize(light.position - fragPos);
-    float diff = max(dot(normal, lightDir), 0.0);
-    float3 halfwayDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfwayDir), 0.0), mat.shininess + 0.0001);
     float distance = length(light.position - fragPos);
-    float attenuation =
-        1.0 / (light.kConstant + light.kLinear * distance +
-               light.kQuadratic * (distance * distance));
-    float3 ambient = light.color * mat.ambient * attenuation;
-    float3 diffuse = light.color * light.diffuse * diff * mat.diffuse * attenuation;
-    float3 specular = light.color * light.specular * spec * mat.specular * attenuation;
-    return (ambient + diffuse + specular) * light.intensity / 5.0;
+    // Inverse-square falloff (physical), kept off zero by kConstant.
+    float attenuation = 1.0 / (light.kConstant + distance * distance);
+    float3 radiance = light.color * light.diffuse * light.intensity * attenuation;
+    return cookTorrance(mat, normal, viewDir, lightDir, radiance);
 }
 
 // Perturb the geometric normal by a tangent-space normal map without
@@ -136,20 +177,27 @@ float4 fsMain(VSOut i) : SV_Target {
     if (U.useNormalMap != 0)
         norm = perturbNormal(norm, i.fragPos, flippedTex);
     float3 viewDir = normalize(U.viewPos - i.fragPos);
-    float3 result = float3(0.2);
 
-    // Hoist loop-invariant uniform reads into locals so the per-light loop
+    // Albedo = sRGB base-colour texture (linearised) tinted by matDiffuse. The
+    // default white texture makes untextured materials fall back to matDiffuse.
+    float3 texColor = TEX_OUR.Sample(flippedTex).rgb;
+    float3 albedo = pow(texColor, float3(2.2)) * U.matDiffuse;
+
+    // Hoist loop-invariant material reads into locals so the per-light loop
     // touches registers instead of re-loading through U's buffer_reference
     // pointer (Vulkan) every iteration.
     MatParams mat;
-    mat.ambient = U.matAmbient;
-    mat.diffuse = U.matDiffuse;
-    mat.specular = U.matSpecular;
-    mat.shininess = U.matShininess;
+    mat.albedo = albedo;
+    mat.metallic = U.matMetallic;
+    mat.roughness = clamp(U.matRoughness, 0.04, 1.0);
+    // Dielectrics reflect ~4%; metals tint their reflectance with the albedo.
+    mat.F0 = lerp(float3(0.04), albedo, U.matMetallic);
+    float ao = U.matAo;
     int lightCount = U.lightCount;
     int shadowDirIndex = U.shadowDirIndex;
     int shadowPointIndex = U.shadowPointIndex;
 
+    float3 Lo = float3(0.0);
     for (int l = 0; l < lightCount; l++) {
         LightData light = U.lights[l];
         float shadow = 0.0;
@@ -164,14 +212,30 @@ float4 fsMain(VSOut i) : SV_Target {
             if (l == shadowPointIndex)
                 shadow = shadowCalculationCube(i.fragPos, light.position);
         }
-        result += contrib * (1.0 - shadow);
+        Lo += contrib * (1.0 - shadow);
     }
 
-    float3 I = normalize(i.fragPos - U.viewPos);
-    float3 R = reflect(I, norm);
-    float4 skyboxColor = float4(TEX_SKYBOX.Sample(R).rgb, 1.0);
-    skyboxColor *= float4(float3(1.0 - U.matDiffuse), 1.0);
-    skyboxColor /= float4(float3(5.0), 1.0);
+    // Ambient image-based lighting. The skybox cubemap stands in for both the
+    // irradiance (diffuse) and the prefiltered specular environment — a crude
+    // probe (no prefiltered mips or BRDF LUT yet; see FEATURES roadmap). The
+    // split-sum is approximated by a Fresnel-weighted mix so metals mirror the
+    // sky and dielectrics pick up a soft tint.
+    float3 F = fresnelSchlickRoughness(max(dot(norm, viewDir), 0.0), mat.F0,
+                                       mat.roughness);
+    float3 kD = (float3(1.0) - F) * (1.0 - mat.metallic);
+    // Damp the diffuse irradiance: a single raw cubemap tap massively
+    // over-estimates true hemispherical irradiance and washes out direct
+    // lighting. Specular reflection (prefiltered) stays full so metals still
+    // mirror the sky. (Proper prefiltered IBL would remove the fudge factor.)
+    float3 irradiance = TEX_SKYBOX.Sample(norm).rgb * 0.35;
+    float3 R = reflect(-viewDir, norm);
+    float3 prefiltered = TEX_SKYBOX.Sample(R).rgb;
+    float3 ambient = (kD * irradiance * albedo + prefiltered * F) * ao;
 
-    return float4(result, 1.0) * TEX_OUR.Sample(flippedTex) + skyboxColor;
+    // HDR -> LDR: Reinhard tonemap + gamma. A dedicated HDR/bloom pass is on the
+    // roadmap; until then this keeps the unbounded PBR radiance displayable.
+    float3 color = ambient + Lo;
+    color = color / (color + float3(1.0));
+    color = pow(color, float3(1.0 / 2.2));
+    return float4(color, 1.0);
 }

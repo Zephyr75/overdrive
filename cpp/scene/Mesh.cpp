@@ -53,6 +53,11 @@ void Mesh::load(const std::string &objPath, const std::string &mtlDir,
     mat.specular = {m.specular[0], m.specular[1], m.specular[2]};
     mat.shininess = m.shininess > 0.0f ? m.shininess : 32.0f;
     mat.alpha = m.dissolve;
+    // PBR metallic-roughness scalars (.mtl Pm / Pr). tinyobj defaults both to 0;
+    // a 0 roughness would read as a perfect mirror, so fall back to fully matte.
+    mat.metallic = m.metallic;
+    mat.roughness = m.roughness > 0.0f ? m.roughness : 1.0f;
+    mat.ao = 1.0f;
     if (!m.diffuse_texname.empty())
       mat.texturePath = resolveTex(m.diffuse_texname);
     if (!m.bump_texname.empty())
@@ -265,6 +270,9 @@ void Mesh::draw(const Shader &shader, const Scene &scene) const {
     shader.setVec3("material.diffuse", mat.diffuse);
     shader.setVec3("material.specular", mat.specular);
     shader.setFloat("material.shininess", mat.shininess);
+    shader.setFloat("material.metallic", mat.metallic);
+    shader.setFloat("material.roughness", mat.roughness);
+    shader.setFloat("material.ao", mat.ao);
 
     backend->bindTexture2D(1, mat.texture ? mat.texture : backend->whiteTexture());
     backend->bindTexture2D(4, mat.normalMap ? mat.normalMap : backend->whiteTexture());

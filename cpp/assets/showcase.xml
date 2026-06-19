@@ -57,7 +57,7 @@
 		<color>1.0,0.85,0.6</color>
 		<diffuse>1.0</diffuse>
 		<specular>1.0</specular>
-		<intensity>9000.0</intensity>
+		<intensity>70.0</intensity>
 	</light>
 
 	<!-- red point, GL (-4.5, 1.0, 1.8), low by the chrome sphere -->
@@ -68,7 +68,7 @@
 		<color>1.0,0.1,0.1</color>
 		<diffuse>1.0</diffuse>
 		<specular>1.0</specular>
-		<intensity>8000.0</intensity>
+		<intensity>900.0</intensity>
 	</light>
 
 	<!-- green point, GL (4.5, 1.0, 1.8), low by the brick sphere -->
@@ -79,7 +79,7 @@
 		<color>0.1,1.0,0.1</color>
 		<diffuse>1.0</diffuse>
 		<specular>1.0</specular>
-		<intensity>8000.0</intensity>
+		<intensity>900.0</intensity>
 	</light>
 
 	<!-- blue point, GL (0.0, 0.9, 3.8), low and in front of Suzanne -->
@@ -90,7 +90,7 @@
 		<color>0.2,0.3,1.0</color>
 		<diffuse>1.0</diffuse>
 		<specular>1.0</specular>
-		<intensity>7000.0</intensity>
+		<intensity>800.0</intensity>
 	</light>
 
 	<!-- sun -> directional 2D shadow map (first directional = caster). direction
@@ -103,6 +103,6 @@
 		<color>1.0,0.98,0.92</color>
 		<diffuse>1.0</diffuse>
 		<specular>1.0</specular>
-		<intensity>2.0</intensity>
+		<intensity>3.0</intensity>
 	</light>
 </scene>

@@ -50,10 +50,13 @@ struct VKUniformBlock {
   int32_t lightCount;
   int32_t shadowDirIndex;
   int32_t shadowPointIndex;
+  float matMetallic;
+  float matRoughness;
+  float matAo;
 };
 
 static_assert(sizeof(VKLightData) == 68, "scalar layout mismatch");
-static_assert(sizeof(VKUniformBlock) == 1288, "scalar layout mismatch");
+static_assert(sizeof(VKUniformBlock) == 1300, "scalar layout mismatch");
 
 struct VKUniformField {
   size_t offset;

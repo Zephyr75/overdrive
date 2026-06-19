@@ -53,6 +53,10 @@ const std::unordered_map<std::string, VKUniformField> &vkUniformFields() {
     add("lightCount", offsetof(VKUniformBlock, lightCount), 4);
     add("shadowDirIndex", offsetof(VKUniformBlock, shadowDirIndex), 4);
     add("shadowPointIndex", offsetof(VKUniformBlock, shadowPointIndex), 4);
+
+    add("material.metallic", offsetof(VKUniformBlock, matMetallic), 4);
+    add("material.roughness", offsetof(VKUniformBlock, matRoughness), 4);
+    add("material.ao", offsetof(VKUniformBlock, matAo), 4);
     return m;
   }();
   return map;

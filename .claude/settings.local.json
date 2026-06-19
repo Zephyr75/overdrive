@@ -96,7 +96,13 @@
       "Bash(echo \"exit:$?\")",
       "Bash(git *)",
       "Bash(git show *)",
-      "Bash(vulkaninfo)"
+      "Bash(vulkaninfo)",
+      "Bash(cosmic-screenshot --help)",
+      "Bash(./build/overdrive)",
+      "Bash(echo \"pid $!\")",
+      "Bash(ps -p 217810 -o pid,etime,cmd --no-headers)",
+      "Bash(ps -p 218411 -o pid,etime --no-headers)",
+      "Bash(cosmic-screenshot --interactive=false --notify=false --save-dir /tmp)"
     ]
   }
 }

@@ -8,3 +8,5 @@ d 1.0
 illum 2
 map_Kd textures/wood_color.png
 map_Bump textures/wood_normal.png
+Pm 0.0
+Pr 0.6
