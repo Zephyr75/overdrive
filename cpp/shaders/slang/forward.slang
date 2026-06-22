@@ -49,12 +49,39 @@ float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos) {
     float shadow = 0.0;
     float bias = 0.04;
     int samples = 20;
+    // Hoist the bindless cubemap and the loop-invariant uniforms into locals.
+    // On Vulkan TEX_SHADOWCUBE expands to a dynamically-indexed descriptor
+    // (texturesCube[U.texShadowCubeMap]); resolving it once instead of inside
+    // the 20-tap loop stops Intel's driver re-fetching the descriptor (and
+    // re-reading the BDA index) on every tap — the main GL/Vulkan perf gap.
+    SamplerCube shadowCube = TEX_SHADOWCUBE;
+    float farPlane = U.farPlane;
     float viewDistance = length(U.viewPos - fragPos);
-    float diskRadius = (1.0 + (viewDistance / U.farPlane)) / 25.0;
+    float diskRadius = (1.0 + (viewDistance / farPlane)) / 25.0;
+
+    // Early-bail PCF: 4 spread taps first. If they unanimously agree (fully lit
+    // or fully shadowed — true for almost every fragment outside a penumbra),
+    // skip the full 20-tap kernel. Only soft edges pay the full price. This is
+    // the main shadow-sampling cost saver; it disproportionately helps the
+    // Vulkan/Intel path, where these taps dominated the frame.
+    float early = 0.0;
+    [unroll]
+    for (int j = 0; j < 4; ++j) {
+        float cd = shadowCube.Sample(fragToLight + gridSamplingDisk[j * 5] *
+                                                       diskRadius).r * farPlane;
+        if (currentDepth - bias > cd)
+            early += 1.0;
+    }
+    if (early == 0.0)
+        return 0.0; // unanimously lit
+    if (early == 4.0)
+        return 5.0; // unanimously shadowed (shadow = 1.0, scaled by 5)
+
+    // Penumbra: full kernel for a smooth edge.
     for (int i = 0; i < samples; ++i) {
         float closestDepth =
-            TEX_SHADOWCUBE.Sample(fragToLight + gridSamplingDisk[i] * diskRadius).r;
-        closestDepth *= U.farPlane;
+            shadowCube.Sample(fragToLight + gridSamplingDisk[i] * diskRadius).r;
+        closestDepth *= farPlane;
         if (currentDepth - bias > closestDepth)
             shadow += 1.0;
     }
@@ -76,13 +103,32 @@ float shadowCalculation(float3 fragPos, float3 normal, float3 lightDir) {
     // Small residual depth bias; the normal offset does the heavy lifting.
     float bias = 0.0015;
     float shadow = 0.0;
+    // Resolve the bindless 2D shadow map once (see shadowCalculationCube).
+    Sampler2D shadowMap = TEX_SHADOWMAP;
     uint w, h;
-    TEX_SHADOWMAP.GetDimensions(w, h);
+    shadowMap.GetDimensions(w, h);
     float2 texelSize = 1.0 / float2(w, h);
+
+    // Early-bail: test the 4 corners; skip the 3x3 kernel if they agree (same
+    // idea as the cube path).
+    float2 corners[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1),
+                         float2(1, 1)};
+    float early = 0.0;
+    [unroll]
+    for (int c = 0; c < 4; ++c) {
+        float pcfDepth =
+            shadowMap.Sample(projCoords.xy + corners[c] * texelSize).r;
+        early += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
+    }
+    if (early == 0.0)
+        return 0.0; // fully lit
+    if (early == 4.0)
+        return projCoords.z > 1.0 ? 0.0 : 1.0; // fully shadowed (unless past far)
+
     for (int x = -1; x <= 1; ++x) {
         for (int y = -1; y <= 1; ++y) {
             float pcfDepth =
-                TEX_SHADOWMAP.Sample(projCoords.xy + float2(x, y) * texelSize).r;
+                shadowMap.Sample(projCoords.xy + float2(x, y) * texelSize).r;
             shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
         }
     }

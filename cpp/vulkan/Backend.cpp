@@ -411,32 +411,45 @@ void VKBackend::createSamplers() {
 }
 
 void VKBackend::createDescriptors() {
-  VkDescriptorSetLayoutBinding bindings[2]{};
+  // Bindings 0/1: the bindless material texture arrays (2D + cube). Bindings
+  // 2/3: dedicated single-descriptor shadow maps (2D + cube). The shadow maps
+  // are tapped 9× / 20× per fragment by the PCF kernels; sampling them through
+  // the dynamically-indexed bindless array makes Intel's Vulkan driver re-fetch
+  // the descriptor per tap (the ~1.7× GL/Vulkan gap), so they get plain bound
+  // descriptors like the OpenGL backend uses.
+  VkDescriptorSetLayoutBinding bindings[4]{};
   bindings[0] = {0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMax2DTextures,
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
   bindings[1] = {1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kMaxCubeTextures,
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+  bindings[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                 VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+  bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+                 VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
 
-  VkDescriptorBindingFlags flags[2] = {
+  const VkDescriptorBindingFlags bindlessFlags =
       VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
-          VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT,
-      VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
-          VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT};
+      VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT;
+  // The shadow bindings are written after the set is bound (during Mesh::draw),
+  // so they need UPDATE_AFTER_BIND too; PARTIALLY_BOUND tolerates frames before
+  // a shadow map exists.
+  VkDescriptorBindingFlags flags[4] = {bindlessFlags, bindlessFlags,
+                                       bindlessFlags, bindlessFlags};
   VkDescriptorSetLayoutBindingFlagsCreateInfo flagsCI{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
-  flagsCI.bindingCount = 2;
+  flagsCI.bindingCount = 4;
   flagsCI.pBindingFlags = flags;
 
   VkDescriptorSetLayoutCreateInfo layoutCI{
       VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
   layoutCI.pNext = &flagsCI;
   layoutCI.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-  layoutCI.bindingCount = 2;
+  layoutCI.bindingCount = 4;
   layoutCI.pBindings = bindings;
   VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &setLayout));
 
   VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                kMax2DTextures + kMaxCubeTextures};
+                                kMax2DTextures + kMaxCubeTextures + 2};
   VkDescriptorPoolCreateInfo poolCI{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   poolCI.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
@@ -472,6 +485,26 @@ void VKBackend::createDefaultTextures() {
   // Cube slot 0: black dummy, sampled when a cube unit was never bound
   unsigned char black[4 * 6] = {};
   uploadTexture(black, 1, 1, 6, true, samplerCubeLinear);
+
+  // Seed the dedicated shadow descriptors (bindings 2/3) with the defaults so
+  // they are valid before the first real shadow map binds; bindTexture2D /
+  // bindCubemap overwrite them when the caster's maps are bound.
+  writeDedicatedTexture(2, textures[0].view, samplerShadow2D); // white 2D
+  writeDedicatedTexture(3, textures[1].view, samplerShadowCube); // black cube
+}
+
+void VKBackend::writeDedicatedTexture(uint32_t binding, VkImageView view,
+                                      VkSampler sampler) {
+  VkDescriptorImageInfo imageInfo{sampler, view,
+                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+  VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  write.dstSet = descriptorSet;
+  write.dstBinding = binding;
+  write.dstArrayElement = 0;
+  write.descriptorCount = 1;
+  write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  write.pImageInfo = &imageInfo;
+  vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
 }
 
 // ---- helpers ------------------------------------------------------------------
@@ -1116,11 +1149,24 @@ void VKBackend::destroyTexture(uint32_t handle) {
 void VKBackend::bindTexture2D(int unit, uint32_t handle) {
   if (unit >= 0 && unit < 8)
     boundTex2D[unit] = static_cast<int32_t>(handle);
+  // Unit 0 is the directional 2D shadow map (see Mesh::draw). Mirror it into the
+  // dedicated binding 2 so the PCF loop samples a plain bound descriptor.
+  if (unit == 0 && handle != shadow2DHandle && handle < textures.size() &&
+      textures[handle].valid) {
+    shadow2DHandle = handle;
+    writeDedicatedTexture(2, textures[handle].view, samplerShadow2D);
+  }
 }
 
 void VKBackend::bindCubemap(int unit, uint32_t handle) {
   if (unit >= 0 && unit < 8)
     boundCube[unit] = static_cast<int32_t>(handle);
+  // Unit 2 is the point-light cube shadow map (see Mesh::draw) -> binding 3.
+  if (unit == 2 && handle != shadowCubeHandle && handle < textures.size() &&
+      textures[handle].valid) {
+    shadowCubeHandle = handle;
+    writeDedicatedTexture(3, textures[handle].view, samplerShadowCube);
+  }
 }
 
 // ---- buffers / meshes ----------------------------------------------------------

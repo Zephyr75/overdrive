@@ -98,12 +98,20 @@ struct PushConstants { Uniforms *ubo; };
 [[vk::binding(0, 0)]] Sampler2D textures2D[];
 [[vk::binding(1, 0)]] SamplerCube texturesCube[];
 
+// The shadow maps get dedicated (non-bindless) bindings. They are tapped many
+// times per fragment by the PCF kernels, and Intel's Vulkan driver re-fetches a
+// dynamically-indexed bindless descriptor on every tap, so going through the
+// bindless arrays here was the main cause of Vulkan running ~1.7x slower than
+// OpenGL. A plain bound descriptor (what the GL backend uses) fixes it.
+[[vk::binding(2, 0)]] Sampler2D shadowMap2D;
+[[vk::binding(3, 0)]] SamplerCube shadowCubeMap;
+
 #define U (pc.ubo)
 #define TEX_OUR (textures2D[U.texOurTexture])
 #define TEX_NORMAL (textures2D[U.texNormalMap])
-#define TEX_SHADOWMAP (textures2D[U.texShadowMap])
+#define TEX_SHADOWMAP (shadowMap2D)
 #define TEX_SKYBOX (texturesCube[U.texSkybox])
-#define TEX_SHADOWCUBE (texturesCube[U.texShadowCubeMap])
+#define TEX_SHADOWCUBE (shadowCubeMap)
 
 // GL projection matrices produce clip z in [-w, w]; Vulkan clips to [0, w].
 #define TO_VK_DEPTH(pos) ((pos).z = ((pos).z + (pos).w) * 0.5)

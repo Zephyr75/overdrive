@@ -45,6 +45,35 @@ passes before the main pass:
 - GL↔VK bridging for the shadow passes (positive viewport, CW front face,
   `TO_VK_DEPTH` clip-z remap) is handled per `cpp/BACKEND.md`.
 
+#### Shadow-sampling performance (the GL/Vulkan parity fix)
+The PCF kernels tap the shadow maps a lot per fragment (9× for the 2D map, 20×
+for the cube), which made the **Vulkan backend run ~2× slower than OpenGL** on an
+Intel UHD 620 (≈37 vs ≈62 fps, and worse once the iGPU throttled). Profiling by
+gutting the fragment shader showed the cost was entirely the shadow taps, not the
+PBR/IBL math or CPU submission. Two fixes closed most of the gap (to ≈46 vs ≈61):
+
+- **Dedicated shadow descriptors instead of bindless.** The shadow maps were
+  sampled through the bindless `texturesCube[idx]` / `textures2D[idx]` arrays.
+  Intel's Vulkan driver re-fetches a *dynamically-indexed* descriptor on every
+  tap, so 20 cube taps = 20 descriptor fetches. The shadow maps now get plain
+  bound descriptors (set 0, bindings 2 = `Sampler2D`, 3 = `SamplerCube`) — the
+  same fixed-sampler model the OpenGL backend already uses. `VKBackend` mirrors
+  the caster's 2D map (texture unit 0) and cube map (unit 2) into those bindings
+  in `bindTexture2D` / `bindCubemap`, only rewriting them when the caster changes
+  (`writeDedicatedTexture`, guarded by `shadow2DHandle` / `shadowCubeHandle`).
+  Material textures stay bindless. (≈37 → ≈43 fps.)
+- **Early-bail PCF.** Both shadow tests first take 4 spread taps; if they
+  unanimously agree (fully lit or fully shadowed — true for almost every fragment
+  outside a penumbra) they return immediately, skipping the full 9-/20-tap
+  kernel. Only soft edges pay full price. Quality is unchanged; this helps both
+  backends and disproportionately the Vulkan path that was tap-bound. (≈43 → ≈46
+  fps, and it throttles far less because the GPU does less work.)
+
+The residual gap is the iGPU still being shadow-tap-bound below the 60 fps vsync
+cap (OpenGL has headroom under it). Further levers if needed: fewer base cube
+taps, a screen-space shadow cache, or the ray-traced-shadow path (roadmap §3),
+which removes the shadow-map taps entirely on Vulkan.
+
 #### Shadow bias — normal-offset (and how to change it later)
 Shadow-map filtering needs a bias to escape **shadow acne** (the receiver
 self-shadowing from depth-map quantization). The tradeoff is **peter-panning**:
