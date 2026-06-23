@@ -128,6 +128,12 @@ private:
   void createGlobalPipelineLayout();
   void createDefaultTextures();
 
+  // --- GPU timing (opt-in: set env OD_GPU_TIMING) ---
+  // Writes 3 GPU timestamps per frame (start, shadow->main boundary, end) into a
+  // per-frame slice of a query pool, then reports averaged bake/main ms.
+  void createTimestampPool();
+  void readTimestamps(); // host-reads the slot the current frame is about to reuse
+
   // --- helpers ---
   void immediateSubmit(const std::function<void(VkCommandBuffer)> &record);
   void imageBarrier(VkCommandBuffer cb, VkImage image,
@@ -184,6 +190,16 @@ private:
   VkDescriptorPool descriptorPool = VK_NULL_HANDLE;
   VkDescriptorSet descriptorSet = VK_NULL_HANDLE;
   VkPipelineLayout pipelineLayout = VK_NULL_HANDLE;
+
+  // --- GPU timing state ---
+  static constexpr uint32_t kTimestampsPerFrame = 3;
+  bool gpuTiming = false;
+  float timestampPeriodNs = 0.0f;
+  VkQueryPool timestampPool = VK_NULL_HANDLE;
+  bool frameTimed[kFramesInFlight] = {};
+  bool mainPassStarted = false; // per-frame: shadow->main boundary written yet
+  double accBakeMs = 0.0, accMainMs = 0.0;
+  uint32_t timedFrames = 0;
   // Texture handles currently mirrored into the dedicated shadow bindings (2/3),
   // so the descriptors are only rewritten when the caster's map changes.
   uint32_t shadow2DHandle = UINT32_MAX;

@@ -133,8 +133,25 @@ GLShader::GLShader(GLBackend &b, const std::string &vertPath,
     GLenum type = 0;
     glGetActiveUniform(id, i, sizeof(nameBuf), &len, &size, &type, nameBuf);
     if (type == GL_SAMPLER_2D || type == GL_SAMPLER_CUBE) {
-      GLint loc = glGetUniformLocation(id, nameBuf);
-      samplerLocations[stripSuffix(nameBuf)] = loc;
+      // An array sampler (e.g. shadowCubeMap[4]) is reported once as
+      // "shadowCubeMap_0[0]" with size > 1. Record a location per element under
+      // the logical name "shadowCubeMap[e]" so setInt can bind each to its unit;
+      // missing this leaves elements [1..] at unit 0, colliding with the 2D
+      // shadow sampler -> GL_INVALID_OPERATION at draw. Scalars keep their name.
+      std::string raw(nameBuf);
+      size_t bracket = raw.find('[');
+      std::string mangledBase =
+          bracket == std::string::npos ? raw : raw.substr(0, bracket);
+      std::string logical = stripSuffix(mangledBase);
+      if (bracket == std::string::npos) {
+        samplerLocations[logical] = glGetUniformLocation(id, raw.c_str());
+      } else {
+        for (GLint e = 0; e < size; e++) {
+          std::string idx = "[" + std::to_string(e) + "]";
+          samplerLocations[logical + idx] =
+              glGetUniformLocation(id, (mangledBase + idx).c_str());
+        }
+      }
     }
   }
 }

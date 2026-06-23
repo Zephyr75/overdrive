@@ -4,6 +4,7 @@
 #include <glad/glad.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 
@@ -34,14 +35,57 @@ void GLBackend::init(GLFWwindow *win) {
   glEnable(GL_CULL_FACE);
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+  gpuTiming = std::getenv("OD_GPU_TIMING") != nullptr;
+  if (gpuTiming) {
+    glGenQueries(6, &timeQueries[0][0]);
+    std::cerr << "[gpu] timing enabled; reporting bake/main GPU ms every 120 "
+                 "frames\n";
+  }
 }
 
-void GLBackend::beginFrame() {}
+void GLBackend::readGLTimestamps() {
+  GLuint64 t0 = 0, t1 = 0, t2 = 0;
+  glGetQueryObjectui64v(timeQueries[qFrame][0], GL_QUERY_RESULT, &t0);
+  glGetQueryObjectui64v(timeQueries[qFrame][1], GL_QUERY_RESULT, &t1);
+  glGetQueryObjectui64v(timeQueries[qFrame][2], GL_QUERY_RESULT, &t2);
+  accBakeMs += double(t1 - t0) / 1e6; // GL timestamps are nanoseconds
+  accMainMs += double(t2 - t1) / 1e6;
+  if (++timedFrames >= 120) {
+    double b = accBakeMs / timedFrames, m = accMainMs / timedFrames;
+    std::cerr << "[gpu] shadow-bake " << b << " ms  main-pass " << m
+              << " ms  total " << (b + m) << " ms\n";
+    accBakeMs = accMainMs = 0.0;
+    timedFrames = 0;
+  }
+}
 
-void GLBackend::endFrame() { glfwSwapBuffers(window); }
+void GLBackend::beginFrame() {
+  if (gpuTiming) {
+    if (qFilled[qFrame])
+      readGLTimestamps(); // results are a frame old -> ready, no stall
+    glQueryCounter(timeQueries[qFrame][0], GL_TIMESTAMP);
+    mainStarted = false;
+  }
+}
+
+void GLBackend::endFrame() {
+  if (gpuTiming) {
+    glQueryCounter(timeQueries[qFrame][2], GL_TIMESTAMP);
+    qFilled[qFrame] = true;
+    qFrame ^= 1;
+  }
+  glfwSwapBuffers(window);
+}
 
 void GLBackend::beginPass(uint32_t framebuffer, int w, int h, bool clearColor,
                           float r, float g, float b, float a) {
+  // First backbuffer pass (framebuffer 0) ends the shadow bakes. GL_TIMESTAMP
+  // records after all prior commands complete, so this is the true boundary.
+  if (gpuTiming && framebuffer == 0 && !mainStarted) {
+    mainStarted = true;
+    glQueryCounter(timeQueries[qFrame][1], GL_TIMESTAMP);
+  }
   glBindFramebuffer(GL_FRAMEBUFFER, framebuffer);
   glViewport(0, 0, w, h);
 

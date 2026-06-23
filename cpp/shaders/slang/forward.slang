@@ -50,11 +50,11 @@ float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos,
     float shadow = 0.0;
     float bias = 0.04;
     int samples = 20;
-    // Hoist the bindless cubemap and the loop-invariant uniforms into locals.
-    // On Vulkan TEX_SHADOWCUBE expands to a dynamically-indexed descriptor
-    // (texturesCube[U.texShadowCubeMap]); resolving it once instead of inside
-    // the 20-tap loop stops Intel's driver re-fetching the descriptor (and
-    // re-reading the BDA index) on every tap — the main GL/Vulkan perf gap.
+    // Hoist the cubemap and the loop-invariant uniforms into locals so the
+    // 20-tap loop touches registers, not memory. On Vulkan shadowCubeMap[slot]
+    // is a dynamically-indexed dedicated descriptor; resolving it once here is
+    // the most we do about that (see OPTIMISATION.md — the residual per-tap
+    // descriptor cost is an Intel-iGPU artifact we deliberately don't chase).
     SamplerCube shadowCube = shadowCubeMap[slot];
     float farPlane = U.farPlane;
     float viewDistance = length(U.viewPos - fragPos);
@@ -279,9 +279,9 @@ float4 fsMain(VSOut i) : SV_Target {
         } else {
             contrib = calcPointLight(light, mat, norm, i.fragPos, viewDir);
             // Does this point light own a cube shadow slot? Up to
-            // MAX_SHADOW_CUBES casters; the rest light unshadowed. (No [unroll]:
-            // it makes slangc emit GL_EXT_control_flow_attributes, which the
-            // GL 4.10 fragment profile rejects.)
+            // MAX_SHADOW_CUBES casters; the rest light unshadowed. The cube is
+            // indexed dynamically (shadowCubeMap[s]); see OPTIMISATION.md for why
+            // we deliberately keep this generic rather than constant-fold it.
             for (int s = 0; s < MAX_SHADOW_CUBES; s++)
                 if (U.pointShadowLights[s] == l)
                     shadow = shadowCalculationCube(i.fragPos, norm,

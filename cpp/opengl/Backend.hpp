@@ -57,4 +57,16 @@ private:
   GLFWwindow *window = nullptr;
   uint32_t whiteTex = 0;
   GLShader *currentShader = nullptr;
+
+  // --- GPU timing (opt-in: set env OD_GPU_TIMING) ---
+  // GL_TIMESTAMP query counters at frame start / shadow->main boundary / end.
+  // Double-buffered so results are read a frame late, avoiding a GPU stall.
+  void readGLTimestamps();
+  bool gpuTiming = false;
+  unsigned int timeQueries[2][3] = {};
+  int qFrame = 0;
+  bool qFilled[2] = {};
+  bool mainStarted = false;
+  double accBakeMs = 0.0, accMainMs = 0.0;
+  unsigned int timedFrames = 0;
 };

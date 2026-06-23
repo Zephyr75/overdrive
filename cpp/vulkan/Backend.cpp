@@ -7,6 +7,7 @@
 #include <stb_image.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
 #include <memory>
@@ -67,6 +68,46 @@ void VKBackend::init(GLFWwindow *win) {
   shadowTargets.emplace_back();
 
   createDefaultTextures();
+  createTimestampPool();
+}
+
+void VKBackend::createTimestampPool() {
+  gpuTiming = std::getenv("OD_GPU_TIMING") != nullptr;
+  if (!gpuTiming)
+    return;
+  VkPhysicalDeviceProperties props;
+  vkGetPhysicalDeviceProperties(physicalDevice, &props);
+  timestampPeriodNs = props.limits.timestampPeriod;
+  if (timestampPeriodNs == 0.0f) {
+    gpuTiming = false;
+    std::cerr << "[gpu] timestamps unsupported on this device\n";
+    return;
+  }
+  VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+  qi.queryType = VK_QUERY_TYPE_TIMESTAMP;
+  qi.queryCount = kFramesInFlight * kTimestampsPerFrame;
+  VK_CHECK(vkCreateQueryPool(device, &qi, nullptr, &timestampPool));
+  std::cerr << "[gpu] timing enabled (timestampPeriod " << timestampPeriodNs
+            << " ns); reporting bake/main GPU ms every 120 frames\n";
+}
+
+void VKBackend::readTimestamps() {
+  uint32_t base = frameIndex * kTimestampsPerFrame;
+  uint64_t ts[kTimestampsPerFrame] = {};
+  VkResult r = vkGetQueryPoolResults(device, timestampPool, base,
+                                     kTimestampsPerFrame, sizeof(ts), ts,
+                                     sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+  if (r != VK_SUCCESS)
+    return; // fence already waited at beginFrame, so this should not happen
+  accBakeMs += double(ts[1] - ts[0]) * timestampPeriodNs / 1e6;
+  accMainMs += double(ts[2] - ts[1]) * timestampPeriodNs / 1e6;
+  if (++timedFrames >= 120) {
+    double b = accBakeMs / timedFrames, m = accMainMs / timedFrames;
+    std::cerr << "[gpu] shadow-bake " << b << " ms  main-pass " << m
+              << " ms  total " << (b + m) << " ms\n";
+    accBakeMs = accMainMs = 0.0;
+    timedFrames = 0;
+  }
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL
@@ -708,6 +749,17 @@ void VKBackend::beginFrame() {
   vkCmdBindDescriptorSets(f.cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
                           pipelineLayout, 0, 1, &descriptorSet, 0, nullptr);
 
+  if (gpuTiming) {
+    // Fence is already waited above, so this frame's prior results are ready.
+    if (frameTimed[frameIndex])
+      readTimestamps();
+    uint32_t base = frameIndex * kTimestampsPerFrame;
+    vkCmdResetQueryPool(f.cb, timestampPool, base, kTimestampsPerFrame);
+    vkCmdWriteTimestamp2(f.cb, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+                         timestampPool, base + 0);
+    mainPassStarted = false;
+  }
+
   boundPipeline = VK_NULL_HANDLE;
   frameActive = true;
 }
@@ -723,6 +775,12 @@ void VKBackend::endFrame() {
                VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE);
+
+  if (gpuTiming) {
+    vkCmdWriteTimestamp2(f.cb, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+                         timestampPool, frameIndex * kTimestampsPerFrame + 2);
+    frameTimed[frameIndex] = true;
+  }
 
   vkEndCommandBuffer(f.cb);
   vmaFlushAllocation(allocator, f.ringAlloc, 0,
@@ -765,6 +823,17 @@ void VKBackend::beginPass(uint32_t framebuffer, int w, int h, bool clearColor,
   if (!frameActive)
     return;
   VkCommandBuffer cb = frames[frameIndex].cb;
+
+  // First non-shadow pass (framebuffer 0 = backbuffer) marks the end of all
+  // shadow bakes on the GPU timeline.
+  if (gpuTiming && framebuffer == 0 && !mainPassStarted) {
+    mainPassStarted = true;
+    // BOTTOM_OF_PIPE so the timestamp fires only after all prior (shadow-bake)
+    // work has completed, not when this command is merely parsed. TOP_OF_PIPE
+    // here would under-count the bake and over-count the main pass.
+    vkCmdWriteTimestamp2(cb, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
+                         timestampPool, frameIndex * kTimestampsPerFrame + 1);
+  }
 
   VkRenderingAttachmentInfo depthAtt{
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -1404,6 +1473,8 @@ VKBackend::~VKBackend() {
   vkDestroySampler(device, samplerShadow2D, nullptr);
   vkDestroySampler(device, samplerShadowCube, nullptr);
 
+  if (timestampPool)
+    vkDestroyQueryPool(device, timestampPool, nullptr);
   vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
   vkDestroyDescriptorPool(device, descriptorPool, nullptr);
   vkDestroyDescriptorSetLayout(device, setLayout, nullptr);

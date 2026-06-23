@@ -204,9 +204,23 @@ Trois effets géométriques entrent en jeu :
 
 Une BRDF microfacette se construit avec **trois termes** : la distribution $D$, le masking-shadowing $G$, et le Fresnel $F$.
 
+### L'intuition d'ensemble (à avoir en tête *avant* les formules)
+
+Imagine la surface comme une **foule de micro-miroirs** orientés aléatoirement. Tu envoies un pinceau de lumière depuis $\omega_i$ et tu regardes depuis $\omega_o$. Trois questions, et trois seulement, décident combien d'énergie te revient :
+
+| Terme | Question | Ce qu'il contrôle |
+|---|---|---|
+| **$D$** | Combien de micro-miroirs sont inclinés **pile poil** pour renvoyer $\omega_i$ vers $\omega_o$ ? | la **forme et la taille** du highlight |
+| **$F$** | Ces miroirs-là, quelle **fraction** de la lumière réfléchissent-ils vraiment (le reste pénètre) ? | l'**intensité** et la **teinte**, le bord brillant |
+| **$G$** | Parmi ces miroirs bien orientés, combien sont réellement **dégagés** (ni cachés du viewer, ni à l'ombre) ? | l'**énergie** aux angles rasants |
+
+Pour qu'un photon contribue, il faut les **trois à la fois** : être réfléchi par un miroir *bien orienté* **ET** que ce miroir *réfléchisse* **ET** qu'il soit *dégagé*. D'où une **multiplication** des trois (§7). Garde cette histoire — chaque sous-section ci-dessous ne fait que la rendre quantitative.
+
 ### 6.1 — La distribution des normales : $D$ (GGX / Trowbridge-Reitz)
 
 $D(\omega_m)$ donne la densité de microfacettes orientées selon $\omega_m$. C'est ce qui contrôle la **forme du highlight spéculaire**. Le modèle dominant est **GGX** (= Trowbridge-Reitz 1975, rebaptisé par Walter et al. 2007).
+
+> **Intuition** : seuls les micro-miroirs dont la normale vaut *exactement* la micronormale $\omega_m$ (le half-vector entre $\omega_i$ et $\omega_o$) peuvent renvoyer la lumière vers l'œil. $D$ compte leur densité. Surface **lisse** → presque toutes les normales sont serrées autour de $\mathbf{n}$ → highlight petit et **intense** (le pic de $D$ est haut et étroit). Surface **rugueuse** → les normales sont éparpillées → la même énergie est **étalée** sur un grand halo terne (pic bas et large). C'est une **densité de probabilité** (sr⁻¹), pas une fraction : sa valeur peut largement dépasser 1, seule son intégrale (pondérée par $\cos$) vaut 1.
 
 **⚡ Forme isotrope (celle que tu implémenteras en temps réel)** :
 
@@ -239,6 +253,8 @@ Ce ne sont **pas** les mêmes. Sache laquelle ton moteur utilise.
 ### 6.2 — Le masking-shadowing : $G$ (Smith)
 
 $G$ corrige l'énergie : depuis une direction donnée, seules certaines microfacettes sont visibles (les autres sont masquées). Sans $G$, on aurait des gains d'énergie non physiques aux angles rasants.
+
+> **Intuition** : les micro-miroirs vivent dans des creux. Un miroir bien orienté ne sert à rien s'il est **caché du viewer** (masking, côté $\omega_o$) ou **dans l'ombre d'une bosse voisine** (shadowing, côté $\omega_i$). $G \in [0,1]$ est la fraction qui survit aux deux. L'effet est négligeable de face ($G \approx 1$) et mord aux **angles rasants**, là où les creux se cachent mutuellement. C'est précisément là que $D$ seul exploserait (le $\frac{1}{4(\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)}$ de Cook-Torrance tend vers l'infini quand un cosinus → 0) : $G$ ramène ça à zéro et **empêche le highlight de déborder l'énergie reçue**. Le raffinement *height-correlated* (Heitz 2014) reconnaît qu'un miroir caché du viewer est souvent *aussi* celui qui est à l'ombre (les deux événements sont corrélés) ; le produit naïf $G_1(\omega_o)\,G_1(\omega_i)$ les traite comme indépendants et **assombrit deux fois trop**.
 
 ![Masking et projection](https://www.pbr-book.org/4ed/Reflection_Models/pha09f24.svg)
 
@@ -280,10 +296,41 @@ $$\omega_m = \frac{\omega_o + \omega_i}{\lVert \omega_o + \omega_i \rVert}$$
 
 ### Décomposition intuitive
 
-- **$D$** : combien de microfacettes sont orientées pile pour réfléchir $\omega_i$ vers $\omega_o$ → la forme/taille du highlight.
-- **$F$** : quelle fraction est réfléchie à cet angle (Fresnel) → l'intensité et la teinte, le bord brillant.
-- **$G$** : quelle fraction n'est pas masquée/ombrée → assombrit les angles rasants, conserve l'énergie.
-- **$4 (\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)$** : facteur de normalisation issu du changement de variable micro→macro (le « jacobien du half-vector »).
+Reprends l'histoire de la foule de micro-miroirs (§6). Le numérateur $D \cdot F \cdot G$ est une **chaîne de filtres** appliquée à l'énergie incidente : chaque terme retire ce qui ne contribue pas.
+
+```mermaid
+flowchart LR
+    L["Énergie de ωi"] -->|"× D : garder les miroirs<br/>orientés vers ωm"| D["… bien orientés"]
+    D -->|"× F : garder ce qui se<br/>réfléchit (le reste pénètre)"| F["… et réfléchissants"]
+    F -->|"× G : retirer les cachés<br/>et les ombrés"| G["… et dégagés"]
+    G -->|"÷ 4 (n·ωo)(n·ωi)<br/>micro → macro"| Out["Highlight visible"]
+```
+
+- **$D$ — la forme.** Combien de microfacettes sont orientées pile pour réfléchir $\omega_i$ vers $\omega_o$. Fixe la **taille** du spot : petit et vif si lisse, large et terne si rugueux.
+- **$F$ — l'intensité et la teinte.** Quelle fraction ces facettes réfléchissent vraiment (Fresnel sur la micronormale $\omega_m$). Donne la **couleur** du reflet (neutre pour un diélectrique, colorée pour un métal) et le **bord qui s'illumine** à incidence rasante.
+- **$G$ — l'énergie.** Quelle fraction n'est ni masquée ni ombrée. **Assombrit les angles rasants** et empêche le gain d'énergie non physique.
+- **$4 (\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)$ — le dénominateur.** Pas un effet physique : le **jacobien** du changement de variable micronormale → direction sortante, plus les deux cosinus de foreshortening. Il traduit « densité dans le monde des micro-miroirs » en « radiance dans le monde macroscopique ».
+
+### Ce que les trois disent *ensemble*
+
+Pourquoi une **multiplication** et pas une somme ? Parce que les trois conditions sont **indépendantes et toutes nécessaires** : un photon ne te revient que s'il frappe un miroir *bien orienté* ($D$) **et** que ce miroir le *réfléchit* au lieu de le transmettre ($F$) **et** que rien ne *bloque* le trajet aller-retour ($G$). C'est une chaîne de probabilités/fractions : on les enchaîne, donc on les multiplie.
+
+L'élégance, c'est que les trois se **partagent les rôles sans se recouvrir** :
+
+- $D$ ne dépend que de la **rugosité** et de la **géométrie** ($\omega_m$ vs $\mathbf{n}$) → *où* et *quelle taille*.
+- $F$ ne dépend que du **matériau** ($F_0$) et de l'**angle** → *quelle couleur* et *quelle force*.
+- $G$ ne dépend que de la **rugosité** et des **angles rasants** → *combien on en perd*.
+
+Concrètement, tu peux **prédire** un rendu sans calculer : un highlight *petit, vif, blanc, qui grandit et blanchit le bord quand la surface devient rasante* = roughness faible ($D$ étroit), diélectrique ($F_0$ neutre, montée de Fresnel au bord), $G \approx 1$ sauf au bord. Un highlight *large, diffus, doré* = roughness fort ($D$ étalé) + métal ($F_0$ coloré). **Chaque paramètre artiste tire exactement un des trois leviers** — c'est tout l'intérêt du modèle.
+
+### Et avec le diffus : $F$ est le pont
+
+À l'échelle de la BRDF **complète** (§8), c'est $F$ qui relie les deux moitiés. Toute l'énergie est un budget : ce que le Fresnel **réfléchit** en spéculaire n'est plus disponible pour pénétrer et ressortir en **diffus**. D'où le $(1 - F)$ devant le terme diffus (§8). Donc :
+
+- $D$ et $G$ vivent **uniquement** dans le spéculaire (ce sont des propriétés de surface microscopique).
+- $F$ est le **répartiteur** spéculaire ↔ diffus, l'unique terme partagé.
+
+C'est la vision unifiée : **$D$ et $G$ sculptent le reflet, $F$ décide combien d'énergie va au reflet plutôt qu'à la couleur de fond.**
 
 ### Le code PBRT (forme exacte, à reconnaître)
 

@@ -76,6 +76,23 @@ cap (OpenGL has headroom under it). Further levers if needed: fewer base cube
 taps, a screen-space shadow cache, or the ray-traced-shadow path (roadmap §3),
 which removes the shadow-map taps entirely on Vulkan.
 
+**Multi-cube update (and a deliberate non-fix).** Extending point shadows from
+one cube to up to `MAX_SHADOW_CUBES` (4) made the cube sampler a *descriptor
+array* indexed by a runtime slot (`shadowCubeMap[slot]`). Re-profiling with real
+GPU timestamp queries (not FPS subtraction — see `OPTIMISATION.md` for why that
+matters) showed the Vulkan main pass spends ~16 ms on cube PCF alone vs OpenGL's
+~12 ms for the *entire* main pass; the shadow bake is ~equal on both backends
+(~15 ms), so it is **not** the gap. The cause is Intel's ANV driver re-fetching a
+dynamically-indexed descriptor per tap — the same class of cost the dedicated
+bindings fixed for the single cube, reintroduced by the array index. We
+**deliberately do not** constant-fold the index (e.g. `switch(slot)` or 4 single
+bindings): that cost is an Intel-iGPU artifact, near-free on the discrete GPUs
+this engine actually targets, and the iGPU here is a throwaway dev box. Keeping
+the generic array avoids contorting the shader for hardware we won't ship on. The
+full rationale, measurements, and the opt-in GPU-timing instrumentation
+(`OD_GPU_TIMING`) live in `OPTIMISATION.md`; revisit only if a target GPU profiles
+the same way.
+
 #### Shadow bias — normal-offset (and how to change it later)
 Shadow-map filtering needs a bias to escape **shadow acne** (the receiver
 self-shadowing from depth-map quantization). The tradeoff is **peter-panning**:
