@@ -102,19 +102,21 @@ Scene::Scene(const std::string &xmlPath, Backend &backend) {
     lights.push_back(std::move(light));
   }
 
-  // Pick the shadow casters: the first directional and the first point light.
-  // Only these allocate a shadow map and run a depth pass; the rest light the
-  // scene without casting shadows (keeps the per-light shadow budget bounded).
+  // Pick the shadow casters: the first directional light, plus the first
+  // MAX_SHADOW_CUBES point lights. Only these allocate a shadow map and run a
+  // depth pass; the rest light the scene without casting shadows (keeps the
+  // per-light shadow budget bounded). Each point caster gets its own cube slot.
+  int nextCubeSlot = 0;
   for (int i = 0; i < (int)lights.size(); i++) {
-    if (lights[i].type == LightType::Sun && shadowDirIndex < 0)
+    if (lights[i].type == LightType::Sun && shadowDirIndex < 0) {
       shadowDirIndex = i;
-    else if (lights[i].type == LightType::Point && shadowPointIndex < 0)
-      shadowPointIndex = i;
+      lights[i].castsShadow = true;
+    } else if (lights[i].type == LightType::Point &&
+               nextCubeSlot < Settings::MAX_SHADOW_CUBES) {
+      pointShadowLights[nextCubeSlot++] = i;
+      lights[i].castsShadow = true;
+    }
   }
-  if (shadowDirIndex >= 0)
-    lights[shadowDirIndex].castsShadow = true;
-  if (shadowPointIndex >= 0)
-    lights[shadowPointIndex].castsShadow = true;
 
   for (auto &light : lights)
     light.setup(backend);

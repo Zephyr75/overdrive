@@ -56,12 +56,14 @@ PBR/IBL math or CPU submission. Two fixes closed most of the gap (to ≈46 vs �
   sampled through the bindless `texturesCube[idx]` / `textures2D[idx]` arrays.
   Intel's Vulkan driver re-fetches a *dynamically-indexed* descriptor on every
   tap, so 20 cube taps = 20 descriptor fetches. The shadow maps now get plain
-  bound descriptors (set 0, bindings 2 = `Sampler2D`, 3 = `SamplerCube`) — the
-  same fixed-sampler model the OpenGL backend already uses. `VKBackend` mirrors
-  the caster's 2D map (texture unit 0) and cube map (unit 2) into those bindings
-  in `bindTexture2D` / `bindCubemap`, only rewriting them when the caster changes
-  (`writeDedicatedTexture`, guarded by `shadow2DHandle` / `shadowCubeHandle`).
-  Material textures stay bindless. (≈37 → ≈43 fps.)
+  bound descriptors (set 0, bindings 2 = `Sampler2D`, 3 = `SamplerCube[
+  MAX_SHADOW_CUBES]`) — the same fixed-sampler model the OpenGL backend already
+  uses. `VKBackend` mirrors the directional caster's 2D map (texture unit 0) into
+  binding 2 and each point caster's cube map (units `SHADOW_CUBE_UNIT_BASE`..)
+  into the binding-3 array in `bindTexture2D` / `bindCubemap`, only rewriting a
+  slot when its caster changes (`writeDedicatedTexture`, guarded by
+  `shadow2DHandle` / `shadowCubeHandles[]`). Material textures stay bindless.
+  (≈37 → ≈43 fps.)
 - **Early-bail PCF.** Both shadow tests first take 4 spread taps; if they
   unanimously agree (fully lit or fully shadowed — true for almost every fragment
   outside a penumbra) they return immediately, skipping the full 9-/20-tap
@@ -109,34 +111,41 @@ The forward pass evaluates up to `MAX_LIGHTS` (= 8) lights per fragment, in any
 mix of directional and point lights. How it fits together:
 
 - **Uniform block.** `Uniforms` (`common.slang`) carries `LightData
-  lights[MAX_LIGHTS]` plus three ints: `lightCount` (how many entries are live)
-  and `shadowDirIndex` / `shadowPointIndex` (which light, if any, owns each
-  shadow map; -1 = none). `MAX_LIGHTS` is duplicated as a constant in the two CPU
-  mirrors (`vulkan/Uniforms.hpp`, `opengl/Shader.cpp`) and in `scene/Mesh.cpp`,
-  all of which must stay in step with the shader. The layout change is guarded
-  the usual way: the Vulkan scalar mirror by `static_assert(sizeof(VKUniformBlock)
-  == 1288)`, the GL std140 mirror by `kBlockSize` (1536) and the hand-computed
-  offset table (`lights[]` ends at byte 1488, the trailing ints follow).
+  lights[MAX_LIGHTS]` plus `lightCount` (how many entries are live), `shadowDirIndex`
+  (which light, if any, owns the 2D shadow map; -1 = none) and `pointShadowLights[
+  MAX_SHADOW_CUBES]` (the light index owning each cube-shadow slot, or -1).
+  `MAX_LIGHTS` and `MAX_SHADOW_CUBES` are duplicated as constants in the two CPU
+  mirrors (`vulkan/Uniforms.hpp`, `opengl/Shader.cpp`), `settings/Settings.hpp`,
+  and `scene/Mesh.cpp`, all of which must stay in step with the shader. The layout
+  change is guarded the usual way: the Vulkan scalar mirror by
+  `static_assert(sizeof(VKUniformBlock) == 1312)`, the GL std140 mirror by
+  `kBlockSize` (1600) and the hand-computed offset table (`lights[]` ends at byte
+  1488; the trailing ints, PBR scalars, then the std140 `pointShadowLights[4]`
+  array at 1536 follow).
 
 - **Fragment loop.** `forward.slang` loops `l < lightCount`, branches on
   `light.type`, and adds `calcDirLight` / `calcPointLight` for each. The earlier
   hard-coded 2-iteration loop is gone.
 
-- **Shadow budget, decoupled from light order.** Shadows do *not* scale to N
-  lights — there is still exactly one 2D shadow map and one cube shadow map.
-  Rather than assume a fixed light ordering, the shader applies the 2D shadow
-  only to the light at `shadowDirIndex` and the cube shadow only to the light at
-  `shadowPointIndex`; every other light is lit but unshadowed. The shadow-test
-  helpers were generalised to take the relevant light's direction / position as
-  parameters instead of indexing `lights[0]` / `lights[1]` directly.
+- **Shadow budget, decoupled from light order.** Shadows are bounded but no
+  longer capped at one of each kind: one 2D shadow map (directional) plus up to
+  `MAX_SHADOW_CUBES` (= 4) cube shadow maps (point). Rather than assume a fixed
+  light ordering, the shader applies the 2D shadow only to the light at
+  `shadowDirIndex`, and for each point light scans `pointShadowLights[]` — if a
+  cube slot owns it, it samples that slot's `shadowCubeMap[s]`; every other light
+  is lit but unshadowed. The shadow-test helpers take the relevant light's
+  direction / position (and, for the cube path, the slot) as parameters instead
+  of indexing `lights[0]` / `lights[1]` directly.
 
-- **Who casts.** `Scene` (`scene/Scene.cpp`) picks the first directional and the
-  first point light as the casters, records their indices (`shadowDirIndex`,
-  `shadowPointIndex`) and sets `Light::castsShadow`. Only casters allocate a
+- **Who casts.** `Scene` (`scene/Scene.cpp`) picks the first directional light
+  plus the first `MAX_SHADOW_CUBES` point lights as the casters, records the
+  directional in `shadowDirIndex` and assigns each point caster a cube slot in
+  `pointShadowLights[]`, and sets `Light::castsShadow`. Only casters allocate a
   shadow map (`Light::setup` early-returns otherwise) and run a depth pass
-  (`App` skips non-casters), so adding more lights costs only the forward-pass
-  evaluation, not extra shadow passes or cube-map allocations. `Mesh::draw`
-  uploads `lightCount` + the two indices and binds the casters' maps; light
+  (`App` skips non-casters; each caster already owns its own FBO + cube map, so
+  the bake loop scaled to N casters for free) — so adding more lights costs only
+  the forward-pass evaluation, not unbounded shadow passes. `Mesh::draw` uploads
+  `lightCount` + the indices and binds each caster's map to its unit; light
   ordering in the XML no longer matters.
 
 - **Vulkan per-light uniform-read optimisation.** The first multi-light cut ran
@@ -151,7 +160,7 @@ mix of directional and point lights. How it fits together:
   backend-specific cliff. Going from 2 to 5 lights pushed the Vulkan frame past
   the 16.6 ms vsync boundary, so it dropped cleanly to the next interval (30 fps).
   Fix: hoist the material fields into a local `MatParams` struct (and the loop
-  scalars `lightCount` / `shadowDirIndex` / `shadowPointIndex` into locals)
+  scalars `lightCount` / `shadowDirIndex` into locals)
   once at the top of `fsMain`, and pass `MatParams` into the light functions
   instead of reading `U` inside them. The loop now touches registers, not the
   BDA pointer. Measured (Intel UHD 620, 5 lights): Vulkan 39 → 53 fps, back to

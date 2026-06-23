@@ -11,6 +11,8 @@
 
 // Must match MAX_LIGHTS in shaders/slang/common.slang.
 static constexpr int MAX_LIGHTS = 8;
+// Must match MAX_SHADOW_CUBES in shaders/slang/common.slang / Settings.hpp.
+static constexpr int MAX_SHADOW_CUBES = 4;
 
 struct VKLightData {
   int32_t type;
@@ -49,14 +51,15 @@ struct VKUniformBlock {
   int32_t useNormalMap;
   int32_t lightCount;
   int32_t shadowDirIndex;
-  int32_t shadowPointIndex;
   float matMetallic;
   float matRoughness;
   float matAo;
+  // Light index owning each point-shadow cube slot; -1 = unused.
+  int32_t pointShadowLights[MAX_SHADOW_CUBES];
 };
 
 static_assert(sizeof(VKLightData) == 68, "scalar layout mismatch");
-static_assert(sizeof(VKUniformBlock) == 1300, "scalar layout mismatch");
+static_assert(sizeof(VKUniformBlock) == 1312, "scalar layout mismatch");
 
 struct VKUniformField {
   size_t offset;

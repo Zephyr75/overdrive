@@ -238,28 +238,43 @@ void Mesh::draw(const Shader &shader, const Scene &scene) const {
   shader.setVec3("viewPos", scene.camera.pos);
   shader.setInt("lightCount", lightCount);
 
-  // Tell the shader which light owns each shadow map (-1 if the caster is
+  // Tell the shader which light owns the 2D shadow map (-1 if the caster is
   // beyond the active light count or absent).
   int dirIdx = scene.shadowDirIndex < lightCount ? scene.shadowDirIndex : -1;
-  int pointIdx =
-      scene.shadowPointIndex < lightCount ? scene.shadowPointIndex : -1;
   shader.setInt("shadowDirIndex", dirIdx);
-  shader.setInt("shadowPointIndex", pointIdx);
 
-  shader.setInt("shadowMap", 0);
-  shader.setInt("ourTexture", 1);
-  shader.setInt("shadowCubeMap", 2);
-  shader.setInt("skybox", 3);
-  shader.setInt("normalMap", 4);
+  // Texture units (see Settings.hpp): 0 = 2D shadow, 1 = diffuse, 2 = skybox,
+  // 3 = normal map, 4.. = one cube shadow per point-shadow caster.
+  shader.setInt("shadowMap", Settings::UNIT_SHADOW_2D);
+  shader.setInt("ourTexture", Settings::UNIT_DIFFUSE);
+  shader.setInt("skybox", Settings::UNIT_SKYBOX);
+  shader.setInt("normalMap", Settings::UNIT_NORMAL);
 
-  // Bind the 2D shadow map from the directional caster and the cube shadow from
-  // the point caster.
+  // Directional 2D shadow map.
   if (dirIdx >= 0)
-    backend->bindTexture2D(0, scene.lights[dirIdx].depthMap);
-  if (pointIdx >= 0)
-    backend->bindCubemap(2, scene.lights[pointIdx].depthCubeMap);
-  // Skybox cubemap
-  backend->bindCubemap(3, scene.skybox.texture);
+    backend->bindTexture2D(Settings::UNIT_SHADOW_2D,
+                           scene.lights[dirIdx].depthMap);
+
+  // One cube shadow per point-shadow slot. Bind each caster's cube to its unit
+  // and tell the shader which light owns it (-1 = slot unused / beyond
+  // lightCount, so the shader skips it).
+  for (int s = 0; s < Settings::MAX_SHADOW_CUBES; s++) {
+    int li = scene.pointShadowLights[s];
+    if (li < 0 || li >= lightCount)
+      li = -1;
+    shader.setInt("pointShadowLights[" + std::to_string(s) + "]", li);
+    // Point each cube-shadow sampler array element at its texture unit (GL needs
+    // this; the Vulkan backend ignores the int and binds via dedicated
+    // descriptor). Bind the caster's cube, or the skybox as a valid-cube filler
+    // for unused slots so the GL samplerCube stays complete.
+    shader.setInt("shadowCubeMap[" + std::to_string(s) + "]",
+                  Settings::SHADOW_CUBE_UNIT_BASE + s);
+    backend->bindCubemap(Settings::SHADOW_CUBE_UNIT_BASE + s,
+                         li >= 0 ? scene.lights[li].depthCubeMap
+                                 : scene.skybox.texture);
+  }
+  // Skybox cubemap.
+  backend->bindCubemap(Settings::UNIT_SKYBOX, scene.skybox.texture);
 
   for (auto &sm : submeshes) {
     int mi = sm.materialIndex;
@@ -274,8 +289,11 @@ void Mesh::draw(const Shader &shader, const Scene &scene) const {
     shader.setFloat("material.roughness", mat.roughness);
     shader.setFloat("material.ao", mat.ao);
 
-    backend->bindTexture2D(1, mat.texture ? mat.texture : backend->whiteTexture());
-    backend->bindTexture2D(4, mat.normalMap ? mat.normalMap : backend->whiteTexture());
+    backend->bindTexture2D(Settings::UNIT_DIFFUSE,
+                           mat.texture ? mat.texture : backend->whiteTexture());
+    backend->bindTexture2D(Settings::UNIT_NORMAL, mat.normalMap
+                                                      ? mat.normalMap
+                                                      : backend->whiteTexture());
     shader.setInt("useNormalMap", mat.normalMap ? 1 : 0);
     backend->drawMesh(sm.vao, sm.indices.size());
   }

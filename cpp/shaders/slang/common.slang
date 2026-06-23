@@ -49,6 +49,11 @@ struct LightData {
 // and the per-light loops in scene/Mesh.cpp.
 #define MAX_LIGHTS 8
 
+// Point lights that own a cube shadow map. Each caster bakes into its own cube
+// and binds to a dedicated sampler slot; the rest light unshadowed. Keep in sync
+// with MAX_SHADOW_CUBES in vulkan/Uniforms.hpp / opengl/Shader.cpp / Settings.hpp.
+#define MAX_SHADOW_CUBES 4
+
 struct Uniforms {
     float4x4 view;
     float4x4 projection;
@@ -74,17 +79,18 @@ struct Uniforms {
     int useNormalMap;
     // Number of active lights in lights[] (0..MAX_LIGHTS).
     int lightCount;
-    // Index of the one directional light that owns the 2D shadow map, and the
-    // one point light that owns the cube shadow map. -1 = no shadow caster of
-    // that kind. All other lights render unshadowed.
+    // Index of the one directional light that owns the 2D shadow map. -1 = no
+    // directional caster. All other directional lights render unshadowed.
     int shadowDirIndex;
-    int shadowPointIndex;
     // Metallic-roughness PBR scalars for the bound material. matDiffuse is the
-    // base-colour tint. Appended at the end so the std140/scalar block sizes only
-    // grow by 12 bytes (GL block stays 1536, VK scalar 1288 -> 1300).
+    // base-colour tint.
     float matMetallic;
     float matRoughness;
     float matAo;
+    // Light index owning each point-shadow cube slot; -1 = slot unused. A point
+    // light at index l casts a cube shadow iff some slot s has the value l, and
+    // then samples shadowCubeMap[s]. Replaces the old single shadowPointIndex.
+    int pointShadowLights[MAX_SHADOW_CUBES];
 };
 
 #ifdef TARGET_VK
@@ -104,14 +110,13 @@ struct PushConstants { Uniforms *ubo; };
 // bindless arrays here was the main cause of Vulkan running ~1.7x slower than
 // OpenGL. A plain bound descriptor (what the GL backend uses) fixes it.
 [[vk::binding(2, 0)]] Sampler2D shadowMap2D;
-[[vk::binding(3, 0)]] SamplerCube shadowCubeMap;
+[[vk::binding(3, 0)]] SamplerCube shadowCubeMap[MAX_SHADOW_CUBES];
 
 #define U (pc.ubo)
 #define TEX_OUR (textures2D[U.texOurTexture])
 #define TEX_NORMAL (textures2D[U.texNormalMap])
 #define TEX_SHADOWMAP (shadowMap2D)
 #define TEX_SKYBOX (texturesCube[U.texSkybox])
-#define TEX_SHADOWCUBE (shadowCubeMap)
 
 // GL projection matrices produce clip z in [-w, w]; Vulkan clips to [0, w].
 #define TO_VK_DEPTH(pos) ((pos).z = ((pos).z + (pos).w) * 0.5)
@@ -125,7 +130,7 @@ ConstantBuffer<Uniforms> ubo;
 Sampler2D shadowMap;
 Sampler2D ourTexture;
 Sampler2D normalMap;
-SamplerCube shadowCubeMap;
+SamplerCube shadowCubeMap[MAX_SHADOW_CUBES];
 SamplerCube skybox;
 
 #define U (ubo)
@@ -133,7 +138,6 @@ SamplerCube skybox;
 #define TEX_NORMAL (normalMap)
 #define TEX_SHADOWMAP (shadowMap)
 #define TEX_SKYBOX (skybox)
-#define TEX_SHADOWCUBE (shadowCubeMap)
 
 // GL clip space already matches; no remap.
 #define TO_VK_DEPTH(pos)

@@ -1,5 +1,6 @@
 #include "Backend.hpp"
 #include "Shader.hpp"
+#include "settings/Settings.hpp"
 
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
@@ -424,7 +425,8 @@ void VKBackend::createDescriptors() {
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
   bindings[2] = {2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
-  bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1,
+  // Binding 3 is an array: one cube shadow map per point-shadow caster.
+  bindings[3] = {3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, MAX_SHADOW_CUBES,
                  VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
 
   const VkDescriptorBindingFlags bindlessFlags =
@@ -449,7 +451,8 @@ void VKBackend::createDescriptors() {
   VK_CHECK(vkCreateDescriptorSetLayout(device, &layoutCI, nullptr, &setLayout));
 
   VkDescriptorPoolSize poolSize{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                kMax2DTextures + kMaxCubeTextures + 2};
+                                kMax2DTextures + kMaxCubeTextures + 1 +
+                                    MAX_SHADOW_CUBES};
   VkDescriptorPoolCreateInfo poolCI{
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
   poolCI.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
@@ -488,19 +491,21 @@ void VKBackend::createDefaultTextures() {
 
   // Seed the dedicated shadow descriptors (bindings 2/3) with the defaults so
   // they are valid before the first real shadow map binds; bindTexture2D /
-  // bindCubemap overwrite them when the caster's maps are bound.
-  writeDedicatedTexture(2, textures[0].view, samplerShadow2D); // white 2D
-  writeDedicatedTexture(3, textures[1].view, samplerShadowCube); // black cube
+  // bindCubemap overwrite them when the caster's maps are bound. Binding 3 is an
+  // array, so every element needs a valid default cube.
+  writeDedicatedTexture(2, 0, textures[0].view, samplerShadow2D); // white 2D
+  for (uint32_t i = 0; i < MAX_SHADOW_CUBES; i++)
+    writeDedicatedTexture(3, i, textures[1].view, samplerShadowCube); // black
 }
 
-void VKBackend::writeDedicatedTexture(uint32_t binding, VkImageView view,
-                                      VkSampler sampler) {
+void VKBackend::writeDedicatedTexture(uint32_t binding, uint32_t arrayElement,
+                                      VkImageView view, VkSampler sampler) {
   VkDescriptorImageInfo imageInfo{sampler, view,
                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
   VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   write.dstSet = descriptorSet;
   write.dstBinding = binding;
-  write.dstArrayElement = 0;
+  write.dstArrayElement = arrayElement;
   write.descriptorCount = 1;
   write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
   write.pImageInfo = &imageInfo;
@@ -1154,18 +1159,20 @@ void VKBackend::bindTexture2D(int unit, uint32_t handle) {
   if (unit == 0 && handle != shadow2DHandle && handle < textures.size() &&
       textures[handle].valid) {
     shadow2DHandle = handle;
-    writeDedicatedTexture(2, textures[handle].view, samplerShadow2D);
+    writeDedicatedTexture(2, 0, textures[handle].view, samplerShadow2D);
   }
 }
 
 void VKBackend::bindCubemap(int unit, uint32_t handle) {
   if (unit >= 0 && unit < 8)
     boundCube[unit] = static_cast<int32_t>(handle);
-  // Unit 2 is the point-light cube shadow map (see Mesh::draw) -> binding 3.
-  if (unit == 2 && handle != shadowCubeHandle && handle < textures.size() &&
-      textures[handle].valid) {
-    shadowCubeHandle = handle;
-    writeDedicatedTexture(3, textures[handle].view, samplerShadowCube);
+  // Units 4..4+MAX_SHADOW_CUBES are the point-light cube shadow maps (see
+  // Mesh::draw) -> dedicated binding 3 array, one element per caster slot.
+  int slot = unit - Settings::SHADOW_CUBE_UNIT_BASE;
+  if (slot >= 0 && slot < MAX_SHADOW_CUBES && handle != shadowCubeHandles[slot] &&
+      handle < textures.size() && textures[handle].valid) {
+    shadowCubeHandles[slot] = handle;
+    writeDedicatedTexture(3, slot, textures[handle].view, samplerShadowCube);
   }
 }
 

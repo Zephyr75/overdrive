@@ -11,6 +11,8 @@
 
 // Must match MAX_LIGHTS in shaders/slang/common.slang.
 static constexpr int MAX_LIGHTS = 8;
+// Must match MAX_SHADOW_CUBES in shaders/slang/common.slang / Settings.hpp.
+static constexpr int MAX_SHADOW_CUBES = 4;
 
 // GL-style uniform name -> byte offset inside the std140 Uniforms block.
 // These offsets are the std140 layout slangc reflects for the block in
@@ -54,13 +56,15 @@ static const std::unordered_map<std::string, size_t> &glUniformOffsets() {
     m["useNormalMap"] = 1508;
     m["lightCount"] = 1512;
     m["shadowDirIndex"] = 1516;
-    m["shadowPointIndex"] = 1520;
-    // PBR scalars, appended after the trailing ints; each std140 scalar is
-    // 4-byte aligned. The block ends at 1536, still a multiple of 16 so
-    // kBlockSize is unchanged.
-    m["material.metallic"] = 1524;
-    m["material.roughness"] = 1528;
-    m["material.ao"] = 1532;
+    // PBR scalars; each std140 scalar is 4-byte aligned. matAo ends at 1532.
+    m["material.metallic"] = 1520;
+    m["material.roughness"] = 1524;
+    m["material.ao"] = 1528;
+    // int pointShadowLights[MAX_SHADOW_CUBES]: a std140 array has 16-byte
+    // element stride, and aligns to 16, so it starts at 1536 (1532 rounded up).
+    // The block now ends at 1600 (kBlockSize bumped to match).
+    for (int i = 0; i < MAX_SHADOW_CUBES; i++)
+      m["pointShadowLights[" + std::to_string(i) + "]"] = 1536 + i * 16;
     return m;
   }();
   return map;

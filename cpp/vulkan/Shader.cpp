@@ -52,24 +52,36 @@ const std::unordered_map<std::string, VKUniformField> &vkUniformFields() {
     add("useNormalMap", offsetof(VKUniformBlock, useNormalMap), 4);
     add("lightCount", offsetof(VKUniformBlock, lightCount), 4);
     add("shadowDirIndex", offsetof(VKUniformBlock, shadowDirIndex), 4);
-    add("shadowPointIndex", offsetof(VKUniformBlock, shadowPointIndex), 4);
 
     add("material.metallic", offsetof(VKUniformBlock, matMetallic), 4);
     add("material.roughness", offsetof(VKUniformBlock, matRoughness), 4);
     add("material.ao", offsetof(VKUniformBlock, matAo), 4);
+
+    for (int i = 0; i < MAX_SHADOW_CUBES; i++)
+      add("pointShadowLights[" + std::to_string(i) + "]",
+          offsetof(VKUniformBlock, pointShadowLights) + i * 4, 4);
     return m;
   }();
   return map;
 }
 
 const std::unordered_map<std::string, VKSamplerSlot> &vkSamplerSlots() {
-  static const std::unordered_map<std::string, VKSamplerSlot> map = {
-      {"shadowMap", {offsetof(VKUniformBlock, texShadowMap), false}},
-      {"ourTexture", {offsetof(VKUniformBlock, texOurTexture), false}},
-      {"shadowCubeMap", {offsetof(VKUniformBlock, texShadowCubeMap), true}},
-      {"skybox", {offsetof(VKUniformBlock, texSkybox), true}},
-      {"normalMap", {offsetof(VKUniformBlock, texNormalMap), false}},
-  };
+  static const std::unordered_map<std::string, VKSamplerSlot> map = [] {
+    std::unordered_map<std::string, VKSamplerSlot> m = {
+        {"shadowMap", {offsetof(VKUniformBlock, texShadowMap), false}},
+        {"ourTexture", {offsetof(VKUniformBlock, texOurTexture), false}},
+        {"skybox", {offsetof(VKUniformBlock, texSkybox), true}},
+        {"normalMap", {offsetof(VKUniformBlock, texNormalMap), false}},
+    };
+    // The cube shadow maps sample through a dedicated bound descriptor array
+    // (binding 3), not the bindless texSlot; the recorded int is unused. The
+    // entries exist so setInt("shadowCubeMap[s]", unit) records the unit and
+    // doesn't warn. Real binding happens in VKBackend::bindCubemap.
+    for (int i = 0; i < MAX_SHADOW_CUBES; i++)
+      m["shadowCubeMap[" + std::to_string(i) + "]"] = {
+          offsetof(VKUniformBlock, texShadowCubeMap), true};
+    return m;
+  }();
   return map;
 }
 

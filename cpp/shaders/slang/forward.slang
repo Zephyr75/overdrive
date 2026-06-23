@@ -40,7 +40,8 @@ static const float3 gridSamplingDisk[20] = {
     float3(0, 1, 1), float3(0, -1, 1), float3(0, -1, -1), float3(0, 1, -1)
 };
 
-float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos) {
+float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos,
+                            int slot) {
     // Normal-offset bias: nudge the sample off the surface along its normal so
     // self-shadow acne is escaped geometrically, letting the depth bias shrink.
     float3 offsetPos = fragPos + normal * NORMAL_OFFSET_CUBE;
@@ -54,7 +55,7 @@ float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos) {
     // (texturesCube[U.texShadowCubeMap]); resolving it once instead of inside
     // the 20-tap loop stops Intel's driver re-fetching the descriptor (and
     // re-reading the BDA index) on every tap — the main GL/Vulkan perf gap.
-    SamplerCube shadowCube = TEX_SHADOWCUBE;
+    SamplerCube shadowCube = shadowCubeMap[slot];
     float farPlane = U.farPlane;
     float viewDistance = length(U.viewPos - fragPos);
     float diskRadius = (1.0 + (viewDistance / farPlane)) / 25.0;
@@ -65,7 +66,8 @@ float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos) {
     // the main shadow-sampling cost saver; it disproportionately helps the
     // Vulkan/Intel path, where these taps dominated the frame.
     float early = 0.0;
-    [unroll]
+    // No [unroll]: slangc would emit GL_EXT_control_flow_attributes, which the
+    // GL 4.10 fragment profile (Mesa) rejects. The early-bail itself is the win.
     for (int j = 0; j < 4; ++j) {
         float cd = shadowCube.Sample(fragToLight + gridSamplingDisk[j * 5] *
                                                        diskRadius).r * farPlane;
@@ -114,7 +116,7 @@ float shadowCalculation(float3 fragPos, float3 normal, float3 lightDir) {
     float2 corners[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1),
                          float2(1, 1)};
     float early = 0.0;
-    [unroll]
+    // No [unroll] (see shadowCalculationCube): avoids GL_EXT_control_flow_attributes.
     for (int c = 0; c < 4; ++c) {
         float pcfDepth =
             shadowMap.Sample(projCoords.xy + corners[c] * texelSize).r;
@@ -263,7 +265,6 @@ float4 fsMain(VSOut i) : SV_Target {
     float ao = U.matAo;
     int lightCount = U.lightCount;
     int shadowDirIndex = U.shadowDirIndex;
-    int shadowPointIndex = U.shadowPointIndex;
 
     float3 Lo = float3(0.0);
     for (int l = 0; l < lightCount; l++) {
@@ -277,8 +278,14 @@ float4 fsMain(VSOut i) : SV_Target {
                                            normalize(light.direction));
         } else {
             contrib = calcPointLight(light, mat, norm, i.fragPos, viewDir);
-            if (l == shadowPointIndex)
-                shadow = shadowCalculationCube(i.fragPos, norm, light.position);
+            // Does this point light own a cube shadow slot? Up to
+            // MAX_SHADOW_CUBES casters; the rest light unshadowed. (No [unroll]:
+            // it makes slangc emit GL_EXT_control_flow_attributes, which the
+            // GL 4.10 fragment profile rejects.)
+            for (int s = 0; s < MAX_SHADOW_CUBES; s++)
+                if (U.pointShadowLights[s] == l)
+                    shadow = shadowCalculationCube(i.fragPos, norm,
+                                                   light.position, s);
         }
         Lo += contrib * (1.0 - shadow);
     }

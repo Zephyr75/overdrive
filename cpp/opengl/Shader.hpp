@@ -39,7 +39,7 @@ private:
 
   // std140 size of the Uniforms block (shaders/slang/common.slang), reflected
   // by slangc. Kept in sync with opengl/Shader.cpp's offset map.
-  static constexpr size_t kBlockSize = 1536;
+  static constexpr size_t kBlockSize = 1600;
   mutable std::array<unsigned char, kBlockSize> mirror{};
   mutable bool dirty = true;
 

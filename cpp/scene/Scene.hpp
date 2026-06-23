@@ -3,6 +3,7 @@
 #include "Light.hpp"
 #include "Mesh.hpp"
 #include "Skybox.hpp"
+#include "settings/Settings.hpp"
 #include <glm/glm.hpp>
 #include <string>
 #include <vector>
@@ -17,10 +18,12 @@ public:
   std::vector<Light> lights;
   Skybox skybox;
 
-  // Index into lights[] of the single shadow-casting directional / point light,
-  // or -1 if none. Set during construction; consumed by the forward shader.
+  // Index into lights[] of the single shadow-casting directional light, or -1.
   int shadowDirIndex = -1;
-  int shadowPointIndex = -1;
+  // Light index owning each point-shadow cube slot, or -1 if the slot is unused.
+  // Up to MAX_SHADOW_CUBES point lights cast cube shadows. Set during
+  // construction; consumed by the forward shader (see Mesh::draw).
+  int pointShadowLights[Settings::MAX_SHADOW_CUBES] = {-1, -1, -1, -1};
 
   explicit Scene(const std::string &xmlPath, Backend &backend);
   ~Scene();

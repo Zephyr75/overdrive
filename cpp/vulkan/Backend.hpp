@@ -138,9 +138,10 @@ private:
   uint32_t registerTexture(bool cube, VkImage image, VmaAllocation alloc,
                            VkImageView view, VkSampler sampler, bool ownsImage);
   // Writes a single combined image/sampler into a dedicated (non-bindless)
-  // descriptor binding (the shadow maps, bindings 2 and 3).
-  void writeDedicatedTexture(uint32_t binding, VkImageView view,
-                             VkSampler sampler);
+  // descriptor binding (the shadow maps, bindings 2 and 3). Binding 3 is an
+  // array (one cube per point-shadow caster); arrayElement selects the slot.
+  void writeDedicatedTexture(uint32_t binding, uint32_t arrayElement,
+                             VkImageView view, VkSampler sampler);
   uint32_t uploadTexture(const unsigned char *pixels, int w, int h, int layers,
                          bool cube, VkSampler sampler);
   uint32_t createBufferInternal(const void *data, size_t byteSize,
@@ -186,7 +187,8 @@ private:
   // Texture handles currently mirrored into the dedicated shadow bindings (2/3),
   // so the descriptors are only rewritten when the caster's map changes.
   uint32_t shadow2DHandle = UINT32_MAX;
-  uint32_t shadowCubeHandle = UINT32_MAX;
+  uint32_t shadowCubeHandles[MAX_SHADOW_CUBES] = {UINT32_MAX, UINT32_MAX,
+                                                  UINT32_MAX, UINT32_MAX};
 
   // --- samplers ---
   VkSampler samplerRepeat = VK_NULL_HANDLE;     // material textures
