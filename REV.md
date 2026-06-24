@@ -319,6 +319,21 @@ __global__ void reduce(const float* in, float* out, int n) {
 - **Eigenvector** : reste sur sa propre droite ($A\vec{v}=\lambda\vec{v}$) ; **eigenvalue** $\lambda$ = facteur d'étirement. Résoudre $\det(A-\lambda I)=0$. (Axe d'une rotation 3D = eigenvector avec $\lambda=1$.)
 - **SVD** : $A=U\Sigma V^T$ = rotate → scale → rotate. Tronquer = meilleure approximation rank-$k$ (compression).
 
+## Quaternions & rotations
+
+**Intuition** : un quaternion $q = w + x i + y j + z k$ encode une rotation 3D comme **un axe + un angle**. C'est un nombre complexe étendu : comme multiplier par $e^{i\theta}$ tourne dans le plan 2D, multiplier par un quaternion tourne dans l'espace 3D. Les 4 composantes ne sont **pas** (x,y,z,angle) directement — pour une rotation d'angle $\theta$ autour de l'axe unitaire $\hat{a}$ :
+
+$$q = \left(\cos\tfrac{\theta}{2},\; \hat{a}\sin\tfrac{\theta}{2}\right) \quad (w,\ x,y,z)$$
+
+Le **demi-angle** $\theta/2$ : on tourne un vecteur par le **sandwich** $v' = q\,v\,q^{-1}$ (deux multiplications → l'angle se cumule à $\theta$). Quaternion unitaire ($\|q\|=1$) = rotation pure.
+
+**Pourquoi pas des matrices ou des angles d'Euler ?**
+- vs **angles d'Euler** (yaw/pitch/roll) : ceux-ci souffrent du **gimbal lock** (deux axes s'alignent → perte d'un degré de liberté) et s'interpolent mal. Les quaternions n'ont pas ces problèmes.
+- vs **matrice de rotation** (3×3 = 9 nombres) : le quaternion ne fait que **4 nombres**, plus compact, se **renormalise** facilement (la matrice dérive vers du non-orthogonal), se compose en 16 muls au lieu de 27.
+- **Interpolation** : **slerp** (spherical linear interpolation) donne une rotation fluide à vitesse constante entre deux orientations → animation, caméras. Impossible proprement avec des matrices/Euler.
+
+**Opérations clés** : composer deux rotations = **multiplier** les quaternions ($q_2 q_1$ = $q_1$ puis $q_2$, **non commutatif** comme les matrices) ; inverser = **conjuguer** ($q^{-1} = \bar{q} = (w,-x,-y,-z)$ pour un unitaire). $q$ et $-q$ encodent la **même** rotation (double couverture).
+
 ---
 
 # 8. C++ — rappel express
