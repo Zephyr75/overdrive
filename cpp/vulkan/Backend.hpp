@@ -166,6 +166,10 @@ private:
   uint32_t queueFamily = 0;
   VkQueue queue = VK_NULL_HANDLE;
   VmaAllocator allocator = VK_NULL_HANDLE;
+  // When the device supports it, BDA buffers are created capture-replay-capable
+  // so graphics debuggers (RenderDoc) can reproduce their device addresses and
+  // capture the app. Negligible cost; without it RenderDoc crashes on our BDA.
+  bool bdaCaptureReplay = false;
 
   // --- swapchain ---
   VkSwapchainKHR swapchain = VK_NULL_HANDLE;

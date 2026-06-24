@@ -235,10 +235,23 @@ void VKBackend::createDevice() {
   f13.dynamicRendering = VK_TRUE;
   f13.synchronization2 = VK_TRUE;
 
+  // Does the driver let BDA buffers be created capture-replay-capable? Required
+  // for RenderDoc (and other tools) to reproduce device addresses and capture
+  // the app. Query before enabling so we don't fail device creation where it is
+  // unsupported.
+  VkPhysicalDeviceVulkan12Features supported12{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+  VkPhysicalDeviceFeatures2 supported{
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+  supported.pNext = &supported12;
+  vkGetPhysicalDeviceFeatures2(physicalDevice, &supported);
+  bdaCaptureReplay = supported12.bufferDeviceAddressCaptureReplay;
+
   VkPhysicalDeviceVulkan12Features f12{
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
   f12.pNext = &f13;
   f12.bufferDeviceAddress = VK_TRUE;
+  f12.bufferDeviceAddressCaptureReplay = bdaCaptureReplay ? VK_TRUE : VK_FALSE;
   f12.scalarBlockLayout = VK_TRUE;
   f12.descriptorIndexing = VK_TRUE;
   f12.runtimeDescriptorArray = VK_TRUE;
@@ -411,6 +424,8 @@ void VKBackend::createFrameData() {
     bufCI.size = kRingSize;
     bufCI.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    if (bdaCaptureReplay)
+      bufCI.flags |= VK_BUFFER_CREATE_DEVICE_ADDRESS_CAPTURE_REPLAY_BIT;
     VmaAllocationCreateInfo allocCI{};
     allocCI.usage = VMA_MEMORY_USAGE_AUTO;
     allocCI.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
