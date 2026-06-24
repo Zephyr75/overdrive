@@ -132,7 +132,12 @@ Sphere tracing : on avance de $\text{SDF}(P)$ à chaque pas (ne peut pas dépass
 
 ## Choix / alternatives
 - **Bilinéaire manuelle** dans Image : besoin de wrap par axe ($\phi$ wrap, $\theta$ clamp aux pôles).
-- **Walk on Spheres** (Monte Carlo, exact, sans maillage) : abandonné, trop bruité en temps réel.
+- **Walk on Spheres (WoS)** : méthode Monte Carlo qui donne la valeur harmonique en **un point**, sans grille ni discrétisation du PDE.
+  - **Principe** : pour une équation de Laplace, $u(P)$ = **valeur moyenne attendue de la contrainte touchée par une marche aléatoire** partant de $P$. (Propriété de la moyenne : une fonction harmonique en un point = moyenne sur n'importe quel cercle/sphère centré dessus.)
+  - **La marche** : à chaque étape, calculer la **distance à la contrainte la plus proche** → c'est le rayon du plus grand cercle vide autour du point. Sauter d'**exactement** ce rayon dans une direction tangente **uniformément aléatoire** (on atterrit sur le bord du cercle). Répéter. Quand on arrive assez près d'une contrainte, **enregistrer sa valeur** (0 ou 1).
+  - **Estimation** : lancer plein de marches indépendantes depuis $P$, **moyenner** les valeurs récoltées → $u(P)$. (Sur une surface courbe, les sauts sont des **distances géodésiques**.)
+  - **Avantages** : exact (pas d'erreur de discrétisation, seulement de la variance Monte Carlo), gère n'importe quelle géométrie de contraintes, **parallélise trivialement** (chaque fragment = une marche indépendante).
+  - **Pourquoi abandonné ici** : convergence trop lente pour le temps réel (16 samples × 64 pas → encore très bruité, accumulation temporelle insuffisante). Bon si on veut la valeur en **un point précis** ; pour visualiser **toute la surface**, Jacobi sur grille rend plus net et sans flicker.
 - **Multigrid** : accélérerait la convergence (résoudre en basse résolution d'abord), skippé pour la complexité.
 
 ---
