@@ -70,7 +70,7 @@ On scinde l'intégrale env-map en deux précalculs :
 ```
 specular = prefiltered * (F0 * envBRDF.x + envBRDF.y)
 ```
-1. **Pre-filtered env map** : HDRI convoluée avec GGX par rugosité, stockée dans les **mips** d'une cubemap.
+1. **Pre-filtered environment map** : on préfiltre la HDRI en convoluant avec GGX pour plusieurs rugosités, stockées dans les **mips** d'une cubemap. Rugosité faible → mip net (réflexion miroir). Rugosité forte → mip flou.
 2. **BRDF LUT** : texture 2D indexée par $(\text{NdotV}, \text{roughness})$, donne $(A,B)$ → un *scale+bias* sur $F_0$.
 
 ## Importance sampling
@@ -102,6 +102,19 @@ Path tracing **est** du ray tracing (résout la rendering equation complète), m
 
 ## Principe
 **Laplace-Beltrami** = le Laplacien sur une surface courbe (dérivée seconde : le point est-il au-dessus ou en dessous de ses voisins ?). À $\Delta u = 0$, chaque point = moyenne pondérée de ses voisins.
+
+### D'où vient la formule
+Une surface est décrite par une **paramétrisation** $X(\phi,\theta)$ (2 coords → point 3D). La métrique $g$ mesure comment les distances se déforment : $g_{ab} = \partial_a X \cdot \partial_b X$ (produits scalaires des vecteurs tangents). Le Laplacien généralisé à n'importe quelle métrique est la **formule de Laplace-Beltrami** :
+
+$$\Delta u = \frac{1}{\sqrt{|g|}}\,\partial_a\!\left(\sqrt{|g|}\;g^{ab}\,\partial_b u\right)$$
+
+C'est la divergence du gradient, mais pondérée par l'élément d'aire $\sqrt{|g|}$ pour rester correct quand la surface s'étire/se resserre.
+
+**Sphère** : $X(\phi,\theta)=(\sin\theta\cos\phi,\,\sin\theta\sin\phi,\,\cos\theta)$. Les tangentes sont orthogonales → métrique diagonale : $g_{\phi\phi}=\sin^2\theta$, $g_{\theta\theta}=1$, donc $\sqrt{|g|}=\sin\theta$. On injecte dans la formule :
+
+$$\Delta u = \frac{1}{\sin^2\theta}\frac{\partial^2 u}{\partial\phi^2} + \frac{1}{\sin\theta}\frac{\partial}{\partial\theta}\!\left(\sin\theta\frac{\partial u}{\partial\theta}\right)$$
+
+Les deux pièces : le $1/\sin^2\theta$ devant $\partial_\phi^2$ vient de $g^{\phi\phi}=1/\sin^2\theta$ (les méridiens se resserrent aux pôles) ; le facteur $\sin\theta$ **dans** la dérivée $\theta$ est l'élément d'aire qui rend l'opérateur conservatif. On garde cette forme conservative car elle se discrétise avec des poids positifs partout et gère bien les pôles. **Torus** : même formule, $\sin\theta$ remplacé par $D(\theta)=R+r\cos\theta$ (distance à l'axe).
 
 **Solveur = itération de Jacobi** sur une grille $256\times128$ en $(\phi,\theta)$ : chaque frame, une passe où chaque cellule devient la moyenne pondérée de ses 4 voisins (cellules contraintes restées figées). Self-feedback de BufferA → la relaxation accumule. Stencil 5 points :
 
@@ -175,6 +188,25 @@ local → world (model) → view (view) → clip (projection) → NDC ([-1,1], p
 ## Hiérarchie
 `Instance` (connexion au loader) → `PhysicalDevice` (un GPU) → `Device` (ton "contexte") → `Queue` (où on soumet le travail), `Swapchain` (ring d'images que le compositeur lit), `CommandPool`/`CommandBuffer`, `Pipeline` (état figé), sync objects.
 
+## Étapes d'initialisation (one-time setup, dans l'ordre)
+1. **Instance** `vkCreateInstance` : app info + extensions (surface, debug) + validation layers.
+2. **Surface** `SDL_Vulkan_CreateSurface` : lien fenêtre ↔ Vulkan (par-OS, géré par SDL).
+3. **PhysicalDevice** : `vkEnumeratePhysicalDevices` → choisir un GPU (discrete, supporte 1.3 + les queues voulues).
+4. **Queue families** : trouver une famille graphics+present (souvent family 0 sur desktop).
+5. **Device (logique)** `vkCreateDevice` : queues voulues + extensions (`VK_KHR_swapchain`) + **chaîne de features 1.2/1.3** (dynamicRendering, BDA, descriptorIndexing, sync2, scalarBlockLayout).
+6. **VMA allocator** : créé sur le device, gère toute la mémoire.
+7. **Swapchain** `vkCreateSwapchainKHR` : ring d'images presentables (present mode FIFO pour démarrer) + leurs `ImageView`.
+8. **Depth image** + view (via VMA, DEVICE_LOCAL).
+9. **Descriptor set layout + pool + set** : décrit l'interface (le gros tableau bindless de textures), rempli une fois.
+10. **Pipeline layout** : descriptor set layouts + ranges de push constants.
+11. **Shaders** : charger les blobs SPIR-V → `vkCreateShaderModule`.
+12. **Graphics pipeline** `vkCreateGraphicsPipelines` : fige tout l'état (voir ci-dessous).
+13. **Per-frame** (×2) : command buffers, uniform buffers (HOST_VISIBLE mappés), fences, semaphores.
+14. **Upload** vertex/index buffers + textures via **staging buffer** (HOST_VISIBLE → copy → DEVICE_LOCAL).
+
+## Le graphics pipeline fige (état immuable)
+Vertex input layout + input assembly (topology) · stages shaders · rasterization (cull, polygon mode) · multisample · depth/stencil · blend · pipeline layout · **formats d'attachments** (remplace le render pass via dynamic rendering). Blend ou format différent = **autre pipeline** → un vrai moteur en a des centaines (d'où le pipeline cache). Seuls viewport + scissor sont dynamiques sans recréer.
+
 ## Concepts clés
 - **Mémoire (VMA)** : `DEVICE_LOCAL` (VRAM, meshes/textures via staging buffer) vs `HOST_VISIBLE|HOST_COHERENT` (uniforms par frame, CPU mappe et memcpy).
 - **Image layouts** : chaque `VkImage` a un layout (UNDEFINED, ATTACHMENT_OPTIMAL, SHADER_READ_ONLY_OPTIMAL, TRANSFER_DST, PRESENT_SRC). Les transitions disent au driver de réorganiser les texels. **Oubli de transition = bug #1** "marche sur mon GPU, casse sur le tien".
@@ -225,9 +257,52 @@ Host/device = **espaces séparés**, on copie explicitement avec `cudaMemcpy(dst
 
 Cycle : `cudaMalloc` → memcpy H→D → kernel → memcpy D→H → `cudaFree`.
 
-## Patterns
-- **Grid-stride loop** : `for (i=...; i<n; i += blockDim.x*gridDim.x)` → correct même si threads < n.
-- **Shared-memory tree reduction** : charger en `__shared__`, halver les threads actifs (`log2(n)` étapes) avec `__syncthreads()` entre niveaux, puis `atomicAdd` du partiel par block. Brique de base des reductions/histogrammes/dot products.
+## Exemple complet : vector add (C = A + B)
+```cuda
+// KERNEL : tourne sur le GPU, un thread par élément (grid-stride loop)
+__global__ void vecAdd(const float* A, const float* B, float* C, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;   // index global du thread
+    for (; i < n; i += blockDim.x * gridDim.x)        // stride : couvre n même si threads < n
+        C[i] = A[i] + B[i];
+}
+
+int main() {
+    int n = 1 << 20;  size_t bytes = n * sizeof(float);
+    float *hA = ..., *hB = ..., *hC = malloc(bytes);   // buffers host (CPU)
+
+    float *dA, *dB, *dC;                               // 1. allouer sur le device
+    cudaMalloc(&dA, bytes); cudaMalloc(&dB, bytes); cudaMalloc(&dC, bytes);
+
+    cudaMemcpy(dA, hA, bytes, cudaMemcpyHostToDevice); // 2. copier H→D
+    cudaMemcpy(dB, hB, bytes, cudaMemcpyHostToDevice);
+
+    int threads = 256;                                 // multiple de 32 (warp)
+    int blocks  = (n + threads - 1) / threads;         // ceil(n/threads)
+    vecAdd<<<blocks, threads>>>(dA, dB, dC, n);        // 3. lancer le kernel
+    cudaDeviceSynchronize();                           //    attendre la fin (async sinon)
+
+    cudaMemcpy(hC, dC, bytes, cudaMemcpyDeviceToHost); // 4. copier D→H
+    cudaFree(dA); cudaFree(dB); cudaFree(dC);          // 5. libérer
+}
+```
+
+## Reduction tree (somme par block en shared memory)
+```cuda
+__global__ void reduce(const float* in, float* out, int n) {
+    __shared__ float s[256];                           // une copie par block
+    int tid = threadIdx.x;
+    int i   = blockIdx.x * blockDim.x + tid;
+    s[tid] = (i < n) ? in[i] : 0.0f;
+    __syncthreads();                                   // tous ont écrit avant de lire
+
+    for (int stride = blockDim.x / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) s[tid] += s[tid + stride];   // arbre : moitié actifs à chaque étape
+        __syncthreads();                               // barrière entre niveaux (sinon race)
+    }
+    if (tid == 0) atomicAdd(out, s[0]);                // thread 0 ajoute le partiel du block
+}
+```
+`log2(blockDim)` étapes. `__syncthreads()` obligatoire entre niveaux sinon un thread lit avant qu'un autre ait écrit. Brique de base des reductions/histogrammes/dot products.
 
 ---
 
@@ -243,5 +318,73 @@ Cycle : `cudaMalloc` → memcpy H→D → kernel → memcpy D→H → `cudaFree`
 - **Change of basis** : $B^{-1}AB$ = la même transformation vue depuis une autre base.
 - **Eigenvector** : reste sur sa propre droite ($A\vec{v}=\lambda\vec{v}$) ; **eigenvalue** $\lambda$ = facteur d'étirement. Résoudre $\det(A-\lambda I)=0$. (Axe d'une rotation 3D = eigenvector avec $\lambda=1$.)
 - **SVD** : $A=U\Sigma V^T$ = rotate → scale → rotate. Tronquer = meilleure approximation rank-$k$ (compression).
+
+---
+
+# 8. C++ — rappel express
+
+## `.hpp` (déclaration) vs `.cpp` (définition)
+Le header dit **ce qui existe** (l'interface, inclus par les autres fichiers) ; le `.cpp` dit **comment ça marche** (l'implémentation, compilé une fois). Séparer = compilation plus rapide (changer un `.cpp` ne recompile pas les fichiers qui incluent le `.hpp`) et pas de définition dupliquée à l'édition de liens.
+
+```cpp
+// mesh.hpp — l'interface
+#pragma once                 // évite la double-inclusion
+#include <vector>
+
+class Mesh {
+public:
+    Mesh(std::vector<float> verts);  // déclaré seulement
+    void draw() const;
+    int  vertexCount() const { return count_; }  // petit corps inline OK dans le header
+private:
+    std::vector<float> verts_;
+    int count_;
+};
+```
+```cpp
+// mesh.cpp — l'implémentation
+#include "mesh.hpp"
+
+Mesh::Mesh(std::vector<float> verts)   // Mesh:: = "ce membre de la classe Mesh"
+    : verts_(std::move(verts)),        // liste d'initialisation (construit les membres)
+      count_(verts_.size() / 3) {}
+
+void Mesh::draw() const { /* ... */ }
+```
+
+## Structures disponibles
+- **`struct`** : membres **public** par défaut. Convention : données simples (POD), pas de logique.
+- **`class`** : membres **private** par défaut. Convention : invariants + méthodes. (Seule vraie différence avec struct = défaut d'accès.)
+- **`enum class`** : énumération typée, scopée (`Backend::Vulkan`, pas de collision de noms).
+- **`union`** : un seul champ actif à la fois (rare, bas niveau).
+- **`namespace`** : groupe des noms (`overdrive::Mesh`) pour éviter les collisions.
+
+```cpp
+struct Vertex { glm::vec3 pos, normal; glm::vec2 uv; };  // POD, tout public
+enum class Backend { OpenGL, Vulkan };
+```
+
+## Mémoire & ownership (l'essentiel moderne)
+- **Stack** (auto) : `Mesh m(...)` — détruit en sortie de scope (RAII). À préférer.
+- **Heap** : jamais de `new`/`delete` brut → **smart pointers** :
+  - `std::unique_ptr<T>` : ownership **unique**, libéré automatiquement. `auto b = std::make_unique<VKBackend>();`
+  - `std::shared_ptr<T>` : ownership **partagé** (compteur de références).
+- **RAII** : la ressource (mémoire, fichier, handle GPU) est libérée par le destructeur → pas de fuite même en cas d'exception.
+- **Références `T&`** : alias non-null, pas de copie. `const T&` pour passer un gros objet en lecture sans le copier.
+
+## Polymorphisme (utilisé par le renderer abstrait)
+```cpp
+class Backend {                          // interface abstraite (.hpp)
+public:
+    virtual ~Backend() = default;
+    virtual void beginFrame() = 0;       // = 0 → méthode pure, pas d'impl
+};
+class VKBackend : public Backend {       // implémentation concrète
+    void beginFrame() override { /* Vulkan */ }
+};
+std::unique_ptr<Backend> b = std::make_unique<VKBackend>();
+b->beginFrame();                          // appel résolu à l'exécution (vtable)
+```
+C'est exactement le pattern du moteur : `scene/` parle à `Backend`/`Shader` abstraits, `opengl/` et `vulkan/` les implémentent.
 </content>
 </invoke>
