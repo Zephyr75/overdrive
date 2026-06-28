@@ -1,7 +1,7 @@
 #include "Backend.hpp"
 #include "Shader.hpp"
 #include "Texture.hpp"
-#include <glad/glad.h>
+#include <glad.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <cstdlib>

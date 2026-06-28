@@ -45,25 +45,25 @@ void processKeyboard(GLFWwindow* window, float deltaTime) {
     //     glfwSetWindowShouldClose(window, true);
 }
 
-void mouseCallback(GLFWwindow* /*window*/, double xpos, double ypos) {
+void mouseCallback(GLFWwindow* /*window*/, double xPos, double yPos) {
     if (!camera) return;
 
     if (firstMouse) {
-        lastX = static_cast<float>(xpos);
-        lastY = static_cast<float>(ypos);
+        lastX = static_cast<float>(xPos);
+        lastY = static_cast<float>(yPos);
         firstMouse = false;
     }
 
-    float xoffset = static_cast<float>(xpos) - lastX;
-    float yoffset = lastY - static_cast<float>(ypos); // reversed: y goes bottom→up
-    lastX = static_cast<float>(xpos);
-    lastY = static_cast<float>(ypos);
+    float xOffset = static_cast<float>(xPos) - lastX;
+    float yOffset = lastY - static_cast<float>(yPos); // reversed: y goes bottom→up
+    lastX = static_cast<float>(xPos);
+    lastY = static_cast<float>(yPos);
 
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
+    xOffset *= sensitivity;
+    yOffset *= sensitivity;
 
-    camera->yaw   += xoffset;
-    camera->pitch += yoffset;
+    camera->yaw   += xOffset;
+    camera->pitch += yOffset;
 
     if (camera->pitch >  89.0f) camera->pitch =  89.0f;
     if (camera->pitch < -89.0f) camera->pitch = -89.0f;

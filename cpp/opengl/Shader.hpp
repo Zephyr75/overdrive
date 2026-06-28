@@ -1,7 +1,7 @@
 #pragma once
 #include "renderer/Shader.hpp"
 #include <array>
-#include <glad/glad.h>
+#include <glad.h>
 #include <string>
 #include <unordered_map>
 
