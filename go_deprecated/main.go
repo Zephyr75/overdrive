@@ -54,7 +54,7 @@ func main() {
 
 	app := core.NewApp("Gutter", 1920, 1080, true, nil, nil)
 
-	scene := scene.NewScene("assets/sphere.xml")
+	scene := scene.NewScene("assets/sphere.xml", app.Backend)
 
 	world := createWorld(&scene)
 

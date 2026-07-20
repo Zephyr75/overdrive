@@ -5,15 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"time"
 
-	"github.com/Zephyr75/overdrive/settings"
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
-)
 
-var (
-	startTime = time.Now().UnixMilli()
+	"github.com/Zephyr75/overdrive/renderer"
+	"github.com/Zephyr75/overdrive/settings"
 )
 
 type SceneXml struct {
@@ -27,17 +23,20 @@ type Scene struct {
 	Lights []Light
 	Skybox Skybox
 	Cam    Camera
+
+	backend renderer.Backend
 }
 
-func NewScene(path string) Scene {
-	// Load scene
-	var s Scene = LoadScene(path)
-	for i := 0; i < len(s.Meshes); i++ {
-		s.Meshes[i].setup()
+func NewScene(path string, b renderer.Backend) Scene {
+	s := LoadScene(path)
+	s.backend = b
+	for i := range s.Meshes {
+		s.Meshes[i].setup(b)
 	}
-	for i := 0; i < len(s.Lights); i++ {
-		s.Lights[i].setup()
+	for i := range s.Lights {
+		s.Lights[i].setup(b)
 	}
+	s.Skybox.setup(b)
 	return s
 }
 
@@ -116,41 +115,62 @@ func LoadScene(path string) Scene {
 		s.Lights[i] = lightXml.toLight()
 	}
 
-	// fmt.Println(scene.Meshes[0].Vertices)
-
-	s.Skybox = Skybox{}
-	s.Skybox.setup()
-
 	return s
 }
 
-func (s Scene) RenderScene(cubesProgram uint32, lightSpaceMatrix mgl32.Mat4, farPlane float32) {
-	gl.UseProgram(cubesProgram)
+// FillFrameUniforms writes the per-frame values into u: camera matrices,
+// the light array, and the scene-wide texture handles (shadow maps, skybox).
+func (s *Scene) FillFrameUniforms(u *renderer.Uniforms) {
+	u.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
+	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
+		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+	u.ViewPos = s.Cam.Pos
 
-	view := mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
-	viewLoc := gl.GetUniformLocation(cubesProgram, gl.Str("view\x00"))
-	gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
-
-	projection := mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-	projectionLoc := gl.GetUniformLocation(cubesProgram, gl.Str("projection\x00"))
-	gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
-
-	model := mgl32.Scale3D(1.0, 1.0, 1.0)
-	modelLoc := gl.GetUniformLocation(cubesProgram, gl.Str("model\x00"))
-	gl.UniformMatrix4fv(modelLoc, 1, false, &model[0])
-
-	lightSpaceMatrixLoc := gl.GetUniformLocation(cubesProgram, gl.Str("lightSpaceMatrix\x00"))
-	gl.UniformMatrix4fv(lightSpaceMatrixLoc, 1, false, &lightSpaceMatrix[0])
-
-	farPlaneLoc := gl.GetUniformLocation(cubesProgram, gl.Str("farPlane\x00"))
-	gl.Uniform1f(farPlaneLoc, farPlane)
-
-	// TODO remove
-	timeLoc := gl.GetUniformLocation(cubesProgram, gl.Str("time\x00"))
-	gl.Uniform1f(timeLoc, float32(time.Now().UnixMilli()-startTime)/1000)
-
-	for i := 0; i < len(s.Meshes); i++ {
-		s.Meshes[i].draw(cubesProgram, &s)
+	count := len(s.Lights)
+	if count > renderer.MaxLights {
+		count = renderer.MaxLights
+	}
+	u.LightCount = int32(count)
+	for i := 0; i < count; i++ {
+		l := &s.Lights[i]
+		u.Lights[i] = renderer.LightData{
+			Type:      int32(l.Type),
+			Constant:  1.0,
+			Linear:    0.09,
+			Quadratic: 0.032,
+			Cutoff:    cos45,
+			Color:     l.Color,
+			Intensity: l.Intensity,
+			Diffuse:   l.Diffuse,
+			Specular:  l.Specular,
+			Position:  l.Pos,
+			Direction: l.Dir,
+		}
 	}
 
+	u.TexSkybox = s.Skybox.Texture
+	for i := range s.Lights {
+		l := &s.Lights[i]
+		if l.Type == renderer.LightSun && l.depthMap != 0 {
+			u.TexShadowMap = l.depthMap
+		}
+		if l.Type == renderer.LightPoint && l.depthCubeMap != 0 {
+			u.TexShadowCubeMap = l.depthCubeMap
+		}
+	}
+}
+
+// cos(45°), the spot cutoff the old per-draw uniform code hardcoded.
+const cos45 = float32(0.7071067811865476)
+
+func (s *Scene) RenderScene(shader renderer.ShaderHandle, u *renderer.Uniforms) {
+	// Restore the full view matrix (the skybox pass strips its translation).
+	u.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
+	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
+		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+	u.Model = mgl32.Scale3D(1.0, 1.0, 1.0)
+
+	for i := range s.Meshes {
+		s.Meshes[i].draw(shader, u)
+	}
 }

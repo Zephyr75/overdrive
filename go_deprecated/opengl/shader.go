@@ -2,11 +2,10 @@ package opengl
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
-	"github.com/Zephyr75/overdrive/utils"
 	"github.com/go-gl/gl/v4.1-core/gl"
-	"os"
 )
 
 func createShader(source string, shaderType uint32) (uint32, error) {
@@ -32,20 +31,29 @@ func createShader(source string, shaderType uint32) (uint32, error) {
 	return shader, nil
 }
 
-func CreateProgram(name string, addGeometry bool) (uint32, error) {
-	vertexShaderFile, err := os.ReadFile("shaders/" + name + ".vert.glsl")
-	utils.HandleError(err)
-	vertexShaderSource := string(vertexShaderFile) + "\x00"
+func readStage(name, stage string) (string, error) {
+	src, err := os.ReadFile("shaders/" + name + "." + stage + ".glsl")
+	if err != nil {
+		return "", err
+	}
+	return string(src) + "\x00", nil
+}
 
-	fragmentShaderFile, err := os.ReadFile("shaders/" + name + ".frag.glsl")
-	utils.HandleError(err)
-	fragmentShaderSource := string(fragmentShaderFile) + "\x00"
-
+func createProgram(name string, addGeometry bool) (uint32, error) {
+	vertexShaderSource, err := readStage(name, "vert")
+	if err != nil {
+		return 0, err
+	}
+	fragmentShaderSource, err := readStage(name, "frag")
+	if err != nil {
+		return 0, err
+	}
 	geometryShaderSource := ""
 	if addGeometry {
-		geometryShaderFile, err := os.ReadFile("shaders/" + name + ".geo.glsl")
-		utils.HandleError(err)
-		geometryShaderSource = string(geometryShaderFile) + "\x00"
+		geometryShaderSource, err = readStage(name, "geo")
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	vertexShader, err := createShader(vertexShaderSource, gl.VERTEX_SHADER)

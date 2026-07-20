@@ -2,16 +2,17 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"time"
 
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/Zephyr75/overdrive/ecs"
 	"github.com/Zephyr75/overdrive/input"
 	"github.com/Zephyr75/overdrive/opengl"
+	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
 	"github.com/Zephyr75/overdrive/utils"
@@ -23,6 +24,7 @@ type App struct {
 	Height        int
 	Debug         bool
 	Window        *glfw.Window
+	Backend       renderer.Backend
 	InputHandler  func(window *glfw.Window, deltaTime float32)
 	MouseCallback func(window *glfw.Window, x float64, y float64)
 }
@@ -36,6 +38,20 @@ func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
+// createBackend selects the graphics backend. It lives here rather than in
+// renderer/ because the backend packages import renderer (an import cycle
+// otherwise). Selection: OVERDRIVE_BACKEND env var, default "gl".
+func createBackend() renderer.Backend {
+	switch os.Getenv("OVERDRIVE_BACKEND") {
+	case "", "gl", "opengl":
+		return opengl.New()
+	case "vulkan", "vk":
+		panic("vulkan backend not implemented yet (GO_BACKEND.md Phase 4)")
+	default:
+		panic("unknown OVERDRIVE_BACKEND value")
+	}
+}
+
 func NewApp(name string, width int, height int, debug bool, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App {
 
 	app := App{
@@ -47,20 +63,16 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 		InputHandler:  inputHandler,
 	}
 
-	// GLFW setup
-	glfw.Init()
-	glfw.WindowHint(glfw.ContextVersionMajor, 4)
-	glfw.WindowHint(glfw.ContextVersionMinor, 1)
-	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
-	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
-	glfw.WindowHint(glfw.Samples, 4)
+	// The backend is created before the window so it can set its own hints.
+	app.Backend = createBackend()
 
-	// Window creation
-	window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, "Cube", nil, nil)
+	glfw.Init()
+	app.Backend.ConfigureWindow()
+
+	window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, name, nil, nil)
 	if err != nil {
 		glfw.Terminate()
 	}
-	window.MakeContextCurrent()
 	app.Window = window
 
 	// Callbacks
@@ -73,45 +85,25 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	}
 	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
-	// OpenGL setup
-	gl.Init()
-	gl.Enable(gl.DEPTH_TEST)
-	gl.Enable(gl.CULL_FACE)
-	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
-	gl.Enable(gl.BLEND)
-	// Anti-aliasing
-	// gl.Enable(gl.MULTISAMPLE)
+	utils.HandleError(app.Backend.Init(window))
 
 	return app
 }
 
 func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) {
+	b := app.Backend
 
-	// Declare main shader programs
-	// TODO restore
-	// cubesProgram, err := opengl.CreateProgram("cubes", false)
-	cubesProgram, err := opengl.CreateProgram("clouds", false)
-	// cubesProgram, err := opengl.CreateProgram("water", false)
+	// The main program is still "clouds" for parity with the old engine;
+	// the Slang migration (GO_BACKEND.md Phase 3) switches it to "forward".
+	forwardShader, err := b.CreateShader("clouds", false)
 	utils.HandleError(err)
-
-	// Declare directional depth shader programs
-	depthProgram, err := opengl.CreateProgram("depth", false)
+	depthShader, err := b.CreateShader("depth", false)
 	utils.HandleError(err)
-
-	// Declare point depth shader programs
-	depthCubeProgram, err := opengl.CreateProgram("depth_cube", true)
+	depthCubeShader, err := b.CreateShader("depth_cube", true)
 	utils.HandleError(err)
-
-	// Declare debug shader programs
-	// depthDebugProgram, err := opengl.CreateProgram("depth_debug", false)
-	// utils.HandleError(err)
-
-	// Declare UI shader programs
-	uiProgram, err := opengl.CreateProgram("ui", false)
+	uiShader, err := b.CreateShader("ui", false)
 	utils.HandleError(err)
-
-	// Declare skybox shader programs
-	skyboxProgram, err := opengl.CreateProgram("skybox", false)
+	skyboxShader, err := b.CreateShader("skybox", false)
 	utils.HandleError(err)
 
 	if s != nil {
@@ -122,10 +114,13 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 	}
 
 	// Time init
-	i := 0
+	frames := 0
 	curTime := glfw.GetTime()
 	var deltaTime float32 = 0.0
 	lastFrame := float64(0.0)
+
+	const nearPlane = float32(1.0)
+	const farPlane = float32(50.0)
 
 	// Window lifecycle
 	for !app.Window.ShouldClose() {
@@ -140,42 +135,48 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		} else {
 			input.DefaultInput(app.Window, deltaTime)
 		}
-		gl.ClearColor(0.1, 0.1, 0.1, 1.0)
-		gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
+
+		b.BeginFrame()
+
+		var u renderer.Uniforms
+		u.FarPlane = farPlane
 
 		if s != nil {
-			// Settings
-			nearPlane := float32(1.0)
-			farPlane := float32(50.0)
+			s.FillFrameUniforms(&u)
 
-			// Render depth map and depth cube map
-			s.Lights[0].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, s)
-			lightSpaceMatrix := s.Lights[1].RenderLight(nearPlane, farPlane, depthProgram, depthCubeProgram, s)
-
-			// Clear buffers
-			gl.Viewport(0, 0, int32(settings.WindowWidth), int32(settings.WindowHeight))
-			gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)
-
-			s.RenderSkybox(skyboxProgram)
-
-			s.RenderScene(cubesProgram, lightSpaceMatrix, farPlane)
+			// Shadow passes — one pass per light's depth target. The sun's
+			// pass leaves its light-space matrix in u for the main pass.
+			for i := range s.Lights {
+				s.Lights[i].RenderLight(nearPlane, farPlane, depthShader, depthCubeShader, s, &u)
+			}
 		}
 
-		renderUI(app, app.Window, widget, uiProgram)
+		// Main pass — the only pass that clears color.
+		b.BeginPass(0, settings.WindowWidth, settings.WindowHeight,
+			&[4]float32{0.1, 0.1, 0.1, 1.0})
+
+		if s != nil {
+			s.RenderSkybox(skyboxShader, &u)
+			s.RenderScene(forwardShader, &u)
+		}
+
+		renderUI(app, widget, uiShader)
+
+		b.EndPass()
+		b.EndFrame()
 
 		// Time management
-		i++
+		frames++
 		deltaTime = float32(glfw.GetTime()) - float32(lastFrame)
 		lastFrame = glfw.GetTime()
 		if glfw.GetTime()-curTime > 1 {
-			fmt.Printf("\rFPS: %d", i)
-			i = 0
+			fmt.Printf("\rFPS: %d", frames)
+			frames = 0
 			curTime = glfw.GetTime()
 		}
 
-		// Swap buffers
-		app.Window.SwapBuffers()
 		glfw.PollEvents()
 	}
+	b.Shutdown()
 	glfw.Terminate()
 }

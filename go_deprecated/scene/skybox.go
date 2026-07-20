@@ -1,22 +1,19 @@
 package scene
 
 import (
-	"github.com/Zephyr75/overdrive/opengl"
-	"github.com/Zephyr75/overdrive/settings"
-
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/mathgl/mgl32"
+
+	"github.com/Zephyr75/overdrive/renderer"
+	"github.com/Zephyr75/overdrive/settings"
 )
 
 type Skybox struct {
-	Vbo      uint32
-	Vao      uint32
-	vertices []float32
-	Texture  uint32
+	mesh    renderer.MeshHandle
+	Texture renderer.TextureHandle
 }
 
-func (s *Skybox) setup() {
-	s.vertices = []float32{
+func (s *Skybox) setup(b renderer.Backend) {
+	vertices := []float32{
 		// positions
 		-1.0, 1.0, -1.0,
 		-1.0, -1.0, -1.0,
@@ -61,15 +58,8 @@ func (s *Skybox) setup() {
 		1.0, -1.0, 1.0,
 	}
 
-	gl.GenVertexArrays(1, &s.Vao)
-	gl.GenBuffers(1, &s.Vbo)
-	gl.BindVertexArray(s.Vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, s.Vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, len(s.vertices)*4, gl.Ptr(s.vertices), gl.STATIC_DRAW)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))
-
-	s.Texture = opengl.CreateCubemap([]string{
+	s.mesh = b.CreateSkyboxMesh(vertices)
+	tex, err := b.LoadCubemap([6]string{
 		"./textures/skybox/right.png",
 		"./textures/skybox/left.png",
 		"./textures/skybox/top.png",
@@ -77,28 +67,21 @@ func (s *Skybox) setup() {
 		"./textures/skybox/front.png",
 		"./textures/skybox/back.png",
 	})
+	if err != nil {
+		println("Error loading skybox:", err.Error())
+	}
+	s.Texture = tex
 }
 
-func (s Scene) RenderSkybox(skyboxProgram uint32) {
-	gl.DepthFunc(gl.LEQUAL)
-	gl.UseProgram(skyboxProgram)
-
+func (s *Scene) RenderSkybox(shader renderer.ShaderHandle, u *renderer.Uniforms) {
+	// View with the translation stripped, so the skybox follows the camera.
 	view := mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
-	view = view.Mat3().Mat4()
-	viewLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("view\x00"))
-	gl.UniformMatrix4fv(viewLoc, 1, false, &view[0])
+	u.View = view.Mat3().Mat4()
+	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
+		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+	u.TexSkybox = s.Skybox.Texture
 
-	projection := mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov), float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-	projectionLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("projection\x00"))
-	gl.UniformMatrix4fv(projectionLoc, 1, false, &projection[0])
-
-	skyboxLoc := gl.GetUniformLocation(skyboxProgram, gl.Str("skybox\x00"))
-	gl.Uniform1i(skyboxLoc, 0)
-
-	gl.BindVertexArray(s.Skybox.Vao)
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_CUBE_MAP, s.Skybox.Texture)
-	gl.DrawArrays(gl.TRIANGLES, 0, 36)
-	gl.BindVertexArray(0)
-	gl.DepthFunc(gl.LESS)
+	s.backend.SetDepthFunc(true) // depth <= 1.0 passes at the far plane
+	s.backend.DrawSkybox(shader, s.Skybox.mesh, u)
+	s.backend.SetDepthFunc(false)
 }

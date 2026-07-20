@@ -3,7 +3,6 @@ package input
 import (
 	_ "image/png"
 
-	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/go-gl/mathgl/mgl32"
 	"math"
@@ -25,8 +24,9 @@ func SetScene(scene *scene.Scene) {
 	s = scene
 }
 
+// The viewport is set per pass by Backend.BeginPass, so a resize only needs
+// to update the dimensions the next frame's passes will use.
 func FramebufferSizeCallback(window *glfw.Window, width int, height int) {
-	gl.Viewport(0, 0, int32(width), int32(height))
 	settings.WindowWidth = width
 	settings.WindowHeight = height
 }

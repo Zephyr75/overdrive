@@ -172,8 +172,10 @@ overdrive/ (the Go module — promoted from go_deprecated/)
 ├── renderer/             THE ABSTRACTION — no graphics imports
 │   ├── backend.go        Backend interface, handles, Feature constants
 │   ├── uniforms.go       the Uniforms struct (mirror of common.slang)
-│   ├── raytracing.go     optional RayTracer interface (sketch, §2.5)
-│   └── create.go         CreateBackend(name) → GLBackend | VKBackend
+│   └── raytracing.go     optional RayTracer interface (sketch, §2.5)
+│                         (the backend factory lives in core/app.go — the
+│                         backend packages import renderer, so a factory in
+│                         renderer/ would be an import cycle)
 ├── opengl/               GLBackend (today's opengl/ + every gl.* call
 │   │                     migrated out of core/ and scene/)
 ├── vulkan/               VKBackend, built on go-vulkan's vk package
@@ -802,12 +804,12 @@ shadow mapping and the PBR material path return to the Go engine.
 Ordered so the engine runs at the end of every phase. Phases 1–3 are pure-GL
 refactors; Vulkan starts in Phase 4.
 
-**Phase 0 — Promote and dust off.**
+**Phase 0 — Promote and dust off.** ✅ *Done (2026-07-19).*
 `git mv go_deprecated go` (or to the repo root — decide once), `go mod tidy`,
 bump the Go version and go-gl/glfw pins, delete `tutorial/` leftovers,
 confirm the demo runs.
 
-**Phase 1 — Interfaces + pass structure.**
+**Phase 1 — Interfaces + pass structure.** ✅ *Done (2026-07-19).*
 Add `renderer/` (interface, handles, Uniforms struct) and `CreateBackend`.
 Implement `GLBackend` by moving every `gl.*` call out of `core/` and
 `scene/`. Restructure `App.Run` and `Light.RenderLight` into the pass-based
@@ -818,7 +820,7 @@ until Phase 3 brings the UBO).
 *Exit criteria:* `grep -r "go-gl/gl" --include="*.go" .` matches only
 `opengl/`; demo renders identically.
 
-**Phase 2 — Scene-layer cleanup.**
+**Phase 2 — Scene-layer cleanup.** ✅ *Done (2026-07-19, landed with Phase 1).*
 `Material` → paths + handles, loading in `Mesh.setup()`. `core/ui.go` →
 `UpdateTexture2D` + `DrawFullscreenQuad`. Delete `utils.RenderQuad`.
 *Exit criteria:* `scene/` and `core/` have zero graphics imports.
@@ -861,6 +863,7 @@ Proposed signatures follow the package's conventions (config structs without
 `sType`/`pNext`, `error` returns, handles as `uintptr`).
 
 ## 6.1 Blocking — the backend cannot be written without these
+*(✅ All six landed in go-vulkan, 2026-07-19.)*
 
 **1. Non-indexed draw** (`vk/cmd.go`) — skybox (36 vertices) and the
 fullscreen triangle:

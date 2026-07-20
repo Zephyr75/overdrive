@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Two implementations of the Overdrive engine:
 
-- `go/` — original Go + OpenGL 4.1 engine (ECS, Verlet physics, UI, Blender export plugin). Documented in `ARCHITECTURE.md`.
-- `cpp/` — C++17 rewrite with a backend-agnostic renderer (OpenGL and Vulkan backends). Documented in `cpp/BACKEND.md`. **Active development happens here.**
-- `notes/` — design notes; `notes/VULKAN.md` prescribes the Vulkan techniques the C++ backend must follow (Vulkan 1.3, dynamic rendering, BDA + scalar layout, bindless descriptor indexing, synchronization2, VMA, 2 frames in flight).
+- `go_deprecated/` — the Go engine (ECS, Verlet physics, UI, Blender export plugin), being made backend-agnostic (OpenGL + Vulkan) per `GO_BACKEND.md`. **This is becoming the main implementation; active development happens here** (the directory keeps its old name for now so diffs stay readable — it will be renamed to `go/` once the refactor is committed). Phases 0–2 are done: scene/core code has zero graphics imports, everything goes through the `renderer.Backend` interface + typed `renderer.Uniforms` struct, implemented by the `opengl` package. The Vulkan backend (Phase 4) will use the bindings from the sibling `go-vulkan` repo. Read `GO_BACKEND.md` before touching the renderer.
+- `cpp/` — C++17 rewrite with a backend-agnostic renderer (OpenGL and Vulkan backends). Documented in `cpp/BACKEND.md`. Serves as the debugged reference for the Go backend work.
+- `notes/` — design notes; `notes/VULKAN.md` prescribes the Vulkan techniques both Vulkan backends must follow (Vulkan 1.3, dynamic rendering, BDA + scalar layout, bindless descriptor indexing, synchronization2, VMA, 2 frames in flight).
 
 ## C++ build & run
 
@@ -38,7 +38,11 @@ Key Vulkan-backend conventions (details in `cpp/BACKEND.md`):
 ## Go build & run
 
 ```sh
-cd go
+cd go_deprecated  # will be renamed to go/ after the refactor lands
 go build ./...
-go run main.go    # run from go/ — relative asset paths
+go run .          # run from the module root — relative asset paths
+                  # OVERDRIVE_BACKEND=gl (default; vulkan lands in Phase 4)
 ```
+
+Pass-based frame rule (same as C++): clears and viewports exist only inside
+`Backend.BeginPass`; never add free-floating clear calls to scene/core code.
