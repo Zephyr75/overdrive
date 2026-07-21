@@ -32,11 +32,88 @@ func createShader(source string, shaderType uint32) (uint32, error) {
 }
 
 func readStage(name, stage string) (string, error) {
-	src, err := os.ReadFile("shaders/" + name + "." + stage + ".glsl")
+	path := "shaders/gl/" + name + "." + stage + ".glsl"
+	src, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read GLSL %s: %w (run ./build_shaders.sh)", path, err)
 	}
 	return string(src) + "\x00", nil
+}
+
+// stripSuffix removes the "_<n>" slangc appends to disambiguate identifiers
+// (ourTexture_0), recovering the logical name the engine binds by.
+func stripSuffix(name string) string {
+	us := strings.LastIndex(name, "_")
+	if us < 0 || us+1 >= len(name) {
+		return name
+	}
+	for _, r := range name[us+1:] {
+		if r < '0' || r > '9' {
+			return name
+		}
+	}
+	return name[:us]
+}
+
+// setupProgramInterface wires a freshly linked program to the shared uniform
+// buffer and pins each sampler to its fixed texture unit. Both are link-time
+// decisions, so nothing here repeats per draw.
+func (b *GLBackend) setupProgramInterface(program uint32) {
+	// Point every uniform block at binding 0; there is exactly one (the shared
+	// Uniforms block from common.slang).
+	var numBlocks int32
+	gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &numBlocks)
+	for i := int32(0); i < numBlocks; i++ {
+		gl.UniformBlockBinding(program, uint32(i), 0)
+	}
+
+	gl.UseProgram(program)
+	var count int32
+	gl.GetProgramiv(program, gl.ACTIVE_UNIFORMS, &count)
+	for i := int32(0); i < count; i++ {
+		var length, size int32
+		var xtype uint32
+		buf := make([]byte, 128)
+		gl.GetActiveUniform(program, uint32(i), int32(len(buf)), &length, &size, &xtype, &buf[0])
+		if xtype != gl.SAMPLER_2D && xtype != gl.SAMPLER_CUBE {
+			continue
+		}
+		raw := string(buf[:length])
+
+		// An array sampler is reported once, as "shadowCubeMap_0[0]" with
+		// size > 1. Each element needs its own unit assigned by name.
+		if bracket := strings.IndexByte(raw, '['); bracket >= 0 {
+			mangled := raw[:bracket]
+			logical := stripSuffix(mangled)
+			for e := int32(0); e < size; e++ {
+				elem := fmt.Sprintf("%s[%d]", mangled, e)
+				if loc := gl.GetUniformLocation(program, gl.Str(elem+"\x00")); loc >= 0 {
+					gl.Uniform1i(loc, samplerUnit(logical, int(e)))
+				}
+			}
+			continue
+		}
+		if loc := gl.GetUniformLocation(program, gl.Str(raw+"\x00")); loc >= 0 {
+			gl.Uniform1i(loc, samplerUnit(stripSuffix(raw), 0))
+		}
+	}
+}
+
+// samplerUnit maps a logical sampler name (and array index) to its texture unit.
+func samplerUnit(logical string, index int) int32 {
+	switch logical {
+	case "shadowMap":
+		return unitShadowMap
+	case "ourTexture":
+		return unitOurTexture
+	case "normalMap":
+		return unitNormalMap
+	case "shadowCubeMap":
+		return int32(unitShadowCube0 + index)
+	case "skybox":
+		return unitSkybox
+	}
+	return 0
 }
 
 func createProgram(name string, addGeometry bool) (uint32, error) {

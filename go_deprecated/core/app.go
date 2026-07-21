@@ -16,6 +16,7 @@ import (
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
 	"github.com/Zephyr75/overdrive/utils"
+	"github.com/Zephyr75/overdrive/vulkan"
 )
 
 type App struct {
@@ -46,7 +47,7 @@ func createBackend() renderer.Backend {
 	case "", "gl", "opengl":
 		return opengl.New()
 	case "vulkan", "vk":
-		panic("vulkan backend not implemented yet (GO_BACKEND.md Phase 4)")
+		return vulkan.New()
 	default:
 		panic("unknown OVERDRIVE_BACKEND value")
 	}
@@ -93,9 +94,7 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) {
 	b := app.Backend
 
-	// The main program is still "clouds" for parity with the old engine;
-	// the Slang migration (GO_BACKEND.md Phase 3) switches it to "forward".
-	forwardShader, err := b.CreateShader("clouds", false)
+	forwardShader, err := b.CreateShader("forward", false)
 	utils.HandleError(err)
 	depthShader, err := b.CreateShader("depth", false)
 	utils.HandleError(err)

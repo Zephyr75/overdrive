@@ -6,7 +6,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// Must match MAX_LIGHTS / MAX_SHADOW_CUBES in cpp/shaders/slang/common.slang.
+// Must match MAX_LIGHTS / MAX_SHADOW_CUBES in shaders/slang/common.slang.
 const (
 	MaxLights      = 8
 	MaxShadowCubes = 4

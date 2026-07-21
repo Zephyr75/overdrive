@@ -128,7 +128,7 @@ func (mXml MeshXml) toMesh() Mesh {
 	defer mtlFile.Close()
 
 	var materials []Material
-	var material Material
+	material := newMaterial()
 
 	mtlScanner := bufio.NewScanner(mtlFile)
 	for mtlScanner.Scan() {
@@ -137,7 +137,7 @@ func (mXml MeshXml) toMesh() Mesh {
 		switch split_line[0] {
 		case "newmtl":
 			materials = append(materials, material)
-			material = Material{}
+			material = newMaterial()
 		case "Ns":
 			first, _ := strconv.ParseFloat(split_line[1], 32)
 			material.Shininess = float32(first)
@@ -159,6 +159,12 @@ func (mXml MeshXml) toMesh() Mesh {
 		case "d":
 			first, _ := strconv.ParseFloat(split_line[1], 32)
 			material.Alpha = float32(first)
+		case "Pm": // MTL PBR extension: metalness
+			first, _ := strconv.ParseFloat(split_line[1], 32)
+			material.Metallic = float32(first)
+		case "Pr": // MTL PBR extension: roughness
+			first, _ := strconv.ParseFloat(split_line[1], 32)
+			material.Roughness = float32(first)
 		case "map_Kd":
 			material.TexturePath = split_line[1]
 		case "map_Bump":
@@ -250,7 +256,18 @@ func (m *Mesh) draw(shader renderer.ShaderHandle, u *renderer.Uniforms) {
 		u.MatDiffuse = mat.Diffuse
 		u.MatSpecular = mat.Specular
 		u.MatShininess = mat.Shininess
+		u.MatMetallic = mat.Metallic
+		u.MatRoughness = mat.Roughness
+		u.MatAo = mat.Ao
 		u.TexDiffuse = mat.Texture // 0 = the backend's white pixel
+
+		// Normal mapping is per-submesh: without a map the shader falls back to
+		// the interpolated geometric normal.
+		u.TexNormalMap = mat.NormalMap
+		u.UseNormalMap = 0
+		if mat.NormalMap != 0 {
+			u.UseNormalMap = 1
+		}
 
 		m.backend.DrawMesh(shader, m.gpu[i], len(face), u)
 	}

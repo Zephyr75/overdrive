@@ -9,7 +9,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
-	"time"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -24,8 +23,11 @@ type meshEntry struct {
 }
 
 type GLBackend struct {
-	window   *glfw.Window
-	whiteTex uint32
+	window *glfw.Window
+	// Built-in fallbacks: the "no texture" white pixel, and a black cubemap for
+	// cube sampler units the scene leaves unbound.
+	whiteTex  uint32
+	blackCube uint32
 
 	meshes map[renderer.MeshHandle]meshEntry
 
@@ -33,20 +35,16 @@ type GLBackend struct {
 	quadVAO uint32
 	quadVBO uint32
 
-	// Uniform locations resolved once per program (replaces the per-draw
-	// gl.GetUniformLocation string lookups).
-	locs map[renderer.ShaderHandle]*progLocs
-
-	// Bridge for the GLSL 3.3 "clouds" shader's time uniform; dies with the
-	// Slang migration (GO_BACKEND.md Phase 3).
-	start time.Time
+	// One std140 uniform buffer shared by every program, bound at binding
+	// point 0, rewritten per draw. blockScratch is the CPU staging copy.
+	ubo          uint32
+	blockScratch []byte
 }
 
 func New() *GLBackend {
 	return &GLBackend{
-		meshes: make(map[renderer.MeshHandle]meshEntry),
-		locs:   make(map[renderer.ShaderHandle]*progLocs),
-		start:  time.Now(),
+		meshes:       make(map[renderer.MeshHandle]meshEntry),
+		blockScratch: make([]byte, blockSize),
 	}
 }
 
@@ -79,6 +77,25 @@ func (b *GLBackend) Init(window *glfw.Window) error {
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(white))
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+
+	// Built-in 1x1 black cubemap, for cube sampler units with nothing bound.
+	gl.GenTextures(1, &b.blackCube)
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, b.blackCube)
+	black := []uint8{0, 0, 0, 255}
+	for i := 0; i < 6; i++ {
+		gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X+uint32(i), 0, gl.RGBA, 1, 1,
+			0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(black))
+	}
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+
+	// The shared uniform block, permanently bound to binding point 0; every
+	// program's block is pointed at the same buffer in setupProgramInterface.
+	gl.GenBuffers(1, &b.ubo)
+	gl.BindBuffer(gl.UNIFORM_BUFFER, b.ubo)
+	gl.BufferData(gl.UNIFORM_BUFFER, blockSize, nil, gl.DYNAMIC_DRAW)
+	gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
+	gl.BindBufferBase(gl.UNIFORM_BUFFER, 0, b.ubo)
 
 	return nil
 }
@@ -133,6 +150,7 @@ func (b *GLBackend) CreateShader(name string, hasGeometry bool) (renderer.Shader
 	if err != nil {
 		return 0, err
 	}
+	b.setupProgramInterface(program)
 	return renderer.ShaderHandle(program), nil
 }
 
@@ -343,7 +361,7 @@ func (b *GLBackend) DestroyFramebuffer(f renderer.FramebufferHandle) {
 
 func (b *GLBackend) DrawMesh(s renderer.ShaderHandle, m renderer.MeshHandle, indexCount int, u *renderer.Uniforms) {
 	gl.UseProgram(uint32(s))
-	b.applyUniforms(s, u)
+	b.applyUniforms(u)
 	gl.BindVertexArray(uint32(m))
 	gl.DrawElements(gl.TRIANGLES, int32(indexCount), gl.UNSIGNED_INT, gl.PtrOffset(0))
 	gl.BindVertexArray(0)
@@ -351,7 +369,7 @@ func (b *GLBackend) DrawMesh(s renderer.ShaderHandle, m renderer.MeshHandle, ind
 
 func (b *GLBackend) DrawSkybox(s renderer.ShaderHandle, m renderer.MeshHandle, u *renderer.Uniforms) {
 	gl.UseProgram(uint32(s))
-	b.applyUniforms(s, u)
+	b.applyUniforms(u)
 	gl.BindVertexArray(uint32(m))
 	gl.DrawArrays(gl.TRIANGLES, 0, 36)
 	gl.BindVertexArray(0)
@@ -378,8 +396,9 @@ func (b *GLBackend) DrawFullscreenQuad(s renderer.ShaderHandle, tex renderer.Tex
 		gl.BindVertexArray(0)
 	}
 	gl.UseProgram(uint32(s))
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, uint32(tex))
+	// The UI shader samples through ourTexture, which is pinned to its own unit
+	// like every other sampler.
+	b.bind2D(unitOurTexture, tex)
 	gl.BindVertexArray(b.quadVAO)
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 	gl.BindVertexArray(0)

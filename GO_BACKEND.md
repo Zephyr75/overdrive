@@ -42,7 +42,7 @@ backend simply reports them as unsupported.
 |---|---|
 | `go_deprecated/` | The Go engine: scene/ECS (entity component system)/physics/UI code, OBJ+XML loading, GLFW input — but OpenGL calls leak into every layer |
 | `cpp/` | A working two-backend renderer with the same feature set. Its Vulkan backend (`cpp/vulkan/Backend.cpp`) is the debugged reference for every hard problem: coordinate conventions, synchronization, shadow-map parity, uniform layout |
-| `cpp/shaders/slang/` | The shader source of truth, written once in Slang and compiled to both GLSL (OpenGL) and SPIR-V (Standard Portable Intermediate Representation — Vulkan's shader binary format) |
+| `cpp/shaders/slang/` | The shader source of truth, written once in Slang and compiled to both GLSL (OpenGL) and SPIR-V (Standard Portable Intermediate Representation — Vulkan's shader binary format). **Since copied into the Go module** (`shaders/slang/`), which now owns it — the C++ copy dies with `cpp/` |
 | `go-vulkan/vk` | Hand-written cgo bindings covering the howtovulkan.com tutorial path (~78 functions), plus a pure-Go substitute for VMA (Vulkan Memory Allocator). The demo `how_to_vulkan/main.go` is working reference code for almost every call the backend needs |
 
 ## 1.3 The design in one page
@@ -90,7 +90,7 @@ The abstraction rests on four ideas, all inherited from the C++ version:
 
 3. **Typed uniforms.** All shader parameters live in a single Go struct
    (`renderer.Uniforms`) whose field order matches the `Uniforms` struct in
-   `cpp/shaders/slang/common.slang`. Scene code fills fields and passes the
+   `shaders/slang/common.slang`. Scene code fills fields and passes the
    struct to each draw call. No `GetUniformLocation`, no name strings, no
    per-backend name→offset tables — the compiler checks every access.
    (§1.4 explains why this deliberately differs from the C++ design.)
@@ -186,7 +186,7 @@ overdrive/ (the Go module — promoted from go_deprecated/)
 ├── scene/                mesh/light/skybox/camera/scene — zero graphics
 │                         imports; each stores a renderer.Backend at setup
 ├── shaders/
-│   ├── slang/            single source (shared with cpp/shaders/slang)
+│   ├── slang/            single source, owned by the Go module
 │   ├── gl/               generated GLSL 4.10   (git-ignored)
 │   └── vk/               generated SPIR-V      (git-ignored)
 ├── ecs/ input/ physics/ settings/ utils/ …   unchanged
@@ -307,7 +307,7 @@ type Backend interface {
 ## 2.3 The Uniforms struct (typed, no strings)
 
 `renderer/uniforms.go` mirrors the `Uniforms` struct in
-`cpp/shaders/slang/common.slang` **field for field, in order**. That struct is
+`shaders/slang/common.slang` **field for field, in order**. That struct is
 the single GPU-facing truth; the C++ mirror is `cpp/vulkan/Uniforms.hpp`.
 
 ```go
@@ -786,7 +786,8 @@ Toolchain (same as `cpp/CMakeLists.txt`, re-hosted in `overdrive_build.sh` or
 a `go generate` step, since the Go build has no CMake):
 
 - **OpenGL**: `slangc -target glsl -profile glsl_410 -preserve-params`, then
-  the mechanical rewrites from `cpp/shaders/slang/downgrade.cmake` (clamp
+  the mechanical rewrites from `downgrade.cmake` / the `downgrade()` shell
+  function in `build_shaders.sh` (clamp
   `#version` to 410, strip `layout(binding=…)`, array-initializer syntax)
   → `shaders/gl/`. The window already requests a 4.1 core context, so the
   output runs unchanged.
@@ -825,22 +826,56 @@ until Phase 3 brings the UBO).
 `UpdateTexture2D` + `DrawFullscreenQuad`. Delete `utils.RenderQuad`.
 *Exit criteria:* `scene/` and `core/` have zero graphics imports.
 
-**Phase 3 — Slang shaders.**
-Share `cpp/shaders/slang/`, write `ui.slang`, write the build step, switch
-the GL backend to the generated GLSL 4.10 + the std140 UBO upload path, and
-make `forward` the main program.
-*Exit criteria:* GL build renders (with shadows) from Slang-generated code
-only.
+**Phase 3 — Slang shaders.** ✅ *Done (2026-07-21).*
+`build_shaders.sh` compiles `shaders/slang/` to both `shaders/gl/` (GLSL 4.10)
+and `shaders/vk/` (SPIR-V). `ui.slang` written. The Slang sources now live in
+the Go module rather than being read out of `cpp/`, and the GLSL downgrade is
+done inline with `sed` instead of `downgrade.cmake`, so the only external tool
+is `slangc` — verified to produce byte-identical output to the CMake path
+(modulo blank lines, which CMake's list iteration silently dropped). The GL backend now uploads one
+std140 UBO shared by every program, with samplers pinned to fixed units at link
+time, replacing the Phase 1 loose-uniform bridge. `forward` is the main program,
+so shadows and the PBR material path are back on both backends. The legacy
+GLSL 3.3 set is deleted.
+*Exit criteria:* met — the GL build renders from Slang-generated code only, with
+no GL errors, at the same frame rate as before.
 
-**Phase 4 — Vulkan backend.**
-First extend the bindings (§6.1 — each item is a small, testable PR against
-go-vulkan). Then build `vulkan/` in the order the C++ backend was built and
-howtovulkan.com teaches: device + swapchain → clear-only frames → forward
-pass without shadows (bindless set + ring + lazy pipelines) → skybox →
-2D shadows → cube shadows → UI. Wire `-backend` / `OVERDRIVE_BACKEND`. Run
-with validation layers from day one [HTV: Validation layers].
-*Exit criteria:* demo renders identically on both backends (screenshot
-diff); swapchain survives resize.
+The hand-written std140 offsets are covered by `opengl/uniforms_test.go`, which
+re-derives the layout from the generated GLSL and compares; it catches a
+one-byte drift. That closes the "std140 marshal correctness" risk in Part 7.
+
+Not ported to Slang, and deleted with the rest of the GLSL 3.3 set (recoverable
+from git history, but a Slang rewrite is the intended path — Phase 5):
+`clouds`, `water`, `depth_debug`, `cubes`. None were reachable from `App.Run`.
+
+**Phase 4 — Vulkan backend.** 🟡 *Implemented (2026-07-21); parity unverified.*
+`vulkan/` implements the full `renderer.Backend` interface on the §6.1
+bindings: instance/device/swapchain, 2 frames in flight, the bindless
+descriptor set, the BDA uniform ring, lazy pipelines keyed by (shader, pass,
+vertex layout), shadow 2D + cube targets, skybox and UI. `OVERDRIVE_BACKEND=vulkan`
+selects it; `OVERDRIVE_VK_VALIDATION=1` enables the layers.
+
+Status against the exit criteria:
+
+- Runs clean under the validation layers at the same frame rate as the GL
+  build, but **the rendered image has not been compared**: this machine is
+  Wayland-only with no working screenshot path (an X11 grab captures an empty
+  root for both backends identically), so the screenshot diff is still owed.
+- **Swapchain resize is untested** for the same reason. The recreate path
+  exists and is wired to `ErrOutOfDateKHR` on both acquire and present.
+- Both backends now run the same Slang shader set (Phase 3 landed), so the
+  comparison is finally meaningful — it just hasn't been made.
+
+Two deviations from what this document assumed, both following the C++ backend
+and `common.slang` rather than the text above:
+
+- **The shadow maps are not bindless.** `common.slang` gives them dedicated
+  descriptors (binding 2 = `Sampler2D`, binding 3 = `SamplerCube[4]`) because
+  the PCF kernels tap them 9x/20x per fragment and a dynamically-indexed
+  bindless descriptor is re-fetched per tap on some drivers. Only the material
+  and skybox handles are patched into bindless slots. §3.2's table is stale here.
+- **The UI pass uses a real vertex buffer**, not the bufferless fullscreen
+  triangle §3.1 recommends — see the `ShaderDrawParameters` gap in §6.1a.
 
 **Phase 5 — Polish and ports.**
 `depth_debug` / `clouds` / `water` Slang ports as wanted; optional parity
@@ -959,6 +994,41 @@ type SamplerCreateInfo struct {
     // … existing fields …
 }
 ```
+
+## 6.1a Found while writing the Go backend (2026-07-21)
+
+Everything in §6.1 landed and was enough to build the backend. Two further gaps
+turned up; neither blocks it, both have workarounds in place.
+
+**1. `ShaderDrawParameters` feature bit** (`vk/device.go`) — Slang lowers
+`SV_VertexID` to `(VertexIndex - BaseVertex)`, which makes the SPIR-V declare
+the `DrawParameters` capability. Enabling that needs a Vulkan 1.1 feature the
+`Features` struct does not expose, and on Vulkan 1.1+ the
+`VK_KHR_shader_draw_parameters` *extension* does not substitute for it:
+
+```go
+type Features struct {
+    ShaderDrawParameters bool // NEW — 1.1 feature
+    // …
+}
+```
+
+*Workaround:* `ui.slang` takes a real vertex buffer (the same quad the GL
+backend uses) instead of generating a fullscreen triangle from the vertex
+index. With this bit the UI pass could drop its vertex buffer and draw 3
+vertices. Note `[[vk::builtin("VertexIndex")]]` is **not** a way around it —
+the Slang version in the C++ build tree ignores the attribute with a warning
+and silently turns the parameter into a `Location 0` vertex input.
+
+**2. `Access2DepthStencilAttachmentRead`** (`vk/types.go`) — the depth-attachment
+barriers want `VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT`; only the `…_WRITE`
+constant exists. *Workaround:* the shadow-target barriers use the broader
+`Access2MemoryRead|Access2MemoryWrite`, which is correct but over-synchronises.
+
+Also worth noting (not a gap, but a sharp edge): `vk.VmaAllocation` is a struct,
+not a handle type, so "no allocation" is `vk.VmaAllocation{}` rather than `0` —
+unlike every other `vk` handle. The shadow-map texture entries need that,
+because their image is owned by the shadow target rather than the texture.
 
 ## 6.2 Wanted — quality/performance; workarounds exist
 

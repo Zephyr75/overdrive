@@ -21,3 +21,10 @@
 go.work
 
 **/build*
+
+# Generated shaders (built from shaders/slang by build_shaders.sh)
+go_deprecated/shaders/vk/
+go_deprecated/shaders/gl/
+
+# ...but the Go shader build script is source, not a build directory
+!go_deprecated/build_shaders.sh

@@ -8,7 +8,8 @@ Two implementations of the Overdrive engine:
 
 - `go_deprecated/` — the Go engine (ECS, Verlet physics, UI, Blender export plugin), being made backend-agnostic (OpenGL + Vulkan) per `GO_BACKEND.md`. **This is becoming the main implementation; active development happens here** (the directory keeps its old name for now so diffs stay readable — it will be renamed to `go/` once the refactor is committed). Phases 0–2 are done: scene/core code has zero graphics imports, everything goes through the `renderer.Backend` interface + typed `renderer.Uniforms` struct, implemented by the `opengl` package. The Vulkan backend (Phase 4) will use the bindings from the sibling `go-vulkan` repo. Read `GO_BACKEND.md` before touching the renderer.
 - `cpp/` — C++17 rewrite with a backend-agnostic renderer (OpenGL and Vulkan backends). Documented in `cpp/BACKEND.md`. Serves as the debugged reference for the Go backend work.
-- `notes/` — design notes; `notes/VULKAN.md` prescribes the Vulkan techniques both Vulkan backends must follow (Vulkan 1.3, dynamic rendering, BDA + scalar layout, bindless descriptor indexing, synchronization2, VMA, 2 frames in flight).
+- `notes/` — design notes; `notes/VULKAN.md` prescribes the Vulkan techniques both Vulkan backends must follow (Vulkan 1.3, dynamic rendering, BDA + scalar layout, bindless descriptor indexing, synchronization2, VMA, 2 frames in flight). `notes/FEATURES.md` is the C++ engine's feature report.
+- `GO_PARITY.md` — the checklist of what the Go engine still owes the C++ one. The renderer is at parity; the remaining gaps are in the scene layer (shadow-caster selection, multi-cube shadows, portable texture paths) and backend polish.
 
 ## C++ build & run
 
@@ -39,10 +40,35 @@ Key Vulkan-backend conventions (details in `cpp/BACKEND.md`):
 
 ```sh
 cd go_deprecated  # will be renamed to go/ after the refactor lands
+./build_shaders.sh   # Slang -> shaders/gl/*.glsl + shaders/vk/*.spv (required)
 go build ./...
-go run .          # run from the module root — relative asset paths
-                  # OVERDRIVE_BACKEND=gl (default; vulkan lands in Phase 4)
+go test ./...        # std140 layout checks; no GPU needed
+go run .             # run from the module root — relative asset paths
+                     # OVERDRIVE_BACKEND=gl (default) | vulkan
+                     # OVERDRIVE_VK_VALIDATION=1 enables the validation layers
 ```
+
+Shaders are authored **once in Slang**, in `go_deprecated/shaders/slang/`, and
+compiled per backend by `build_shaders.sh` into `shaders/gl/` (GLSL 4.10) and
+`shaders/vk/` (SPIR-V). Both output dirs are git-ignored, so the script must run
+before the first build and after every shader edit — neither backend reads
+`.slang` at runtime. Its only external tool is `slangc`, taken from `$SLANGC`,
+then PATH, then (as a temporary convenience) the SDK the C++ Vulkan build tree
+fetched. The GLSL 4.10 downgrade is done inline with `sed`, so no cmake needed.
+
+The Go module owns its shader sources; `cpp/shaders/slang/` is now a redundant
+duplicate that dies with the C++ tree. Until then the two can drift — edit the
+Go copy, and mirror into `cpp/` only if you still need that build.
+
+The Vulkan backend lives in `vulkan/` and links against the `vk` package in the
+sibling `go-vulkan` repo (a `replace` directive points at `../../go-vulkan`).
+
+Uniforms travel as one `renderer.Uniforms` struct mirroring the block in
+`common.slang`. Vulkan memcpys it straight into its ring buffer (Go's struct
+packing *is* scalar layout); OpenGL marshals it into a std140 UBO by hand in
+`opengl/uniforms.go`. Those std140 offsets are the only hand-written layout in
+the engine — `opengl/uniforms_test.go` re-derives them from the generated GLSL
+and fails on drift, so run `go test ./opengl/` after touching `common.slang`.
 
 Pass-based frame rule (same as C++): clears and viewports exist only inside
 `Backend.BeginPass`; never add free-floating clear calls to scene/core code.

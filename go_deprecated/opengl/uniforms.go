@@ -1,152 +1,187 @@
 package opengl
 
 import (
-	"fmt"
-	"time"
+	"encoding/binary"
+	"math"
 
 	"github.com/go-gl/gl/v4.1-core/gl"
+	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// Fixed texture units, matching the sampler uniforms in the GLSL sources:
-// 0 = shadowMap (2D), 1 = ourTexture (2D), 2 = shadowCubeMap (cube),
-// 3 = skybox (cube).
+// std140 layout of the Uniforms block in shaders/slang/common.slang, as
+// slangc reflects it for the GLSL target. This is the one hand-written layout
+// in the engine: the Vulkan backend gets its (scalar) layout for free because
+// Go structs are already packed that way, but OpenGL 4.1 uniform blocks must be
+// std140, where vec3s pad to 16 bytes and array elements round up to 16.
+//
+// uniforms_test.go re-derives these from the generated GLSL and fails on drift.
+const (
+	offView             = 0
+	offProjection       = 64
+	offModel            = 128
+	offLightSpaceMatrix = 192
+	offShadowMatrices   = 256 // 6 x mat4
+	offViewPos          = 640 // vec3
+	offFarPlane         = 652
+	offLightPos         = 656 // vec3, padded to 16
+	offMatAmbient       = 672 // vec3
+	offMatDiffuse       = 688 // vec3
+	offMatSpecular      = 704 // vec3
+	offMatShininess     = 716
+	offLights           = 720 // MaxLights x lightStride
+	lightStride         = 96
 
-type lightLocs struct {
-	typ, constant, linear, quadratic       int32
-	cutoff, color, intensity               int32
-	diffuse, specular, position, direction int32
+	// The five texture-slot ints are Vulkan-only (GL samples through named
+	// samplers), but they occupy block space and so fix everything after them.
+	offUseNormalMap   = 1508
+	offLightCount     = 1512
+	offShadowDirIndex = 1516
+	offMatMetallic    = 1520
+	offMatRoughness   = 1524
+	offMatAo          = 1528
+	// An int array in std140 has a 16-byte element stride and 16-byte alignment,
+	// so it starts at 1536 (1532 rounded up) and ends the block at 1600.
+	offPointShadowLights = 1536
+	pointShadowStride    = 16
+
+	blockSize = 1600
+)
+
+// Per-light member offsets, relative to that light's base.
+const (
+	lOffType      = 0
+	lOffConstant  = 4
+	lOffLinear    = 8
+	lOffQuadratic = 12
+	lOffCutoff    = 16
+	lOffColor     = 32 // vec3
+	lOffIntensity = 44
+	lOffDiffuse   = 48
+	lOffSpecular  = 52
+	lOffPosition  = 64 // vec3
+	lOffDirection = 80 // vec3
+)
+
+// Texture units, assigned to the generated samplers once at link time
+// (see assignSamplerUnits). Every cube sampler needs its own unit: leaving
+// shadowCubeMap[1..3] at unit 0 would collide with the 2D shadow sampler and
+// GL rejects the draw with GL_INVALID_OPERATION.
+const (
+	unitShadowMap    = 0
+	unitOurTexture   = 1
+	unitNormalMap    = 2
+	unitShadowCube0  = 3 // .. unitShadowCube0 + MaxShadowCubes - 1
+	unitSkybox       = unitShadowCube0 + renderer.MaxShadowCubes
+	samplerUnitCount = unitSkybox + 1
+)
+
+func putF32(dst []byte, off int, v float32) {
+	binary.LittleEndian.PutUint32(dst[off:], math.Float32bits(v))
 }
 
-// progLocs caches every uniform location of one program, resolved once.
-// Uniforms a given shader doesn't declare resolve to -1, which GL ignores —
-// so all programs (depth, skybox, forward, ...) share this one struct.
-type progLocs struct {
-	view, projection, model int32
-	lightSpaceMatrix        int32
-	shadowMatrices          [6]int32
-	viewPos, lightPos       int32
-	farPlane, timeLoc       int32
-	matAmbient, matDiffuse  int32
-	matSpecular, matShine   int32
-	lights                  [renderer.MaxLights]lightLocs
+func putI32(dst []byte, off int, v int32) {
+	binary.LittleEndian.PutUint32(dst[off:], uint32(v))
 }
 
-func loc(program uint32, name string) int32 {
-	return gl.GetUniformLocation(program, gl.Str(name+"\x00"))
+func putVec3(dst []byte, off int, v [3]float32) {
+	putF32(dst, off+0, v[0])
+	putF32(dst, off+4, v[1])
+	putF32(dst, off+8, v[2])
 }
 
-func resolveLocs(program uint32) *progLocs {
-	l := &progLocs{
-		view:             loc(program, "view"),
-		projection:       loc(program, "projection"),
-		model:            loc(program, "model"),
-		lightSpaceMatrix: loc(program, "lightSpaceMatrix"),
-		viewPos:          loc(program, "viewPos"),
-		lightPos:         loc(program, "lightPos"),
-		farPlane:         loc(program, "farPlane"),
-		timeLoc:          loc(program, "time"),
-		matAmbient:       loc(program, "material.ambient"),
-		matDiffuse:       loc(program, "material.diffuse"),
-		matSpecular:      loc(program, "material.specular"),
-		matShine:         loc(program, "material.shininess"),
+func putMat4(dst []byte, off int, m mgl32.Mat4) {
+	for i := 0; i < 16; i++ {
+		putF32(dst, off+i*4, m[i])
 	}
+}
+
+// marshalStd140 writes the uniform snapshot into the block layout above.
+// dst must be at least blockSize bytes.
+func marshalStd140(u *renderer.Uniforms, dst []byte) {
+	putMat4(dst, offView, u.View)
+	putMat4(dst, offProjection, u.Projection)
+	putMat4(dst, offModel, u.Model)
+	putMat4(dst, offLightSpaceMatrix, u.LightSpaceMatrix)
 	for i := 0; i < 6; i++ {
-		l.shadowMatrices[i] = loc(program, fmt.Sprintf("shadowMatrices[%d]", i))
+		putMat4(dst, offShadowMatrices+i*64, u.ShadowMatrices[i])
 	}
+
+	putVec3(dst, offViewPos, u.ViewPos)
+	putF32(dst, offFarPlane, u.FarPlane)
+	putVec3(dst, offLightPos, u.LightPos)
+
+	putVec3(dst, offMatAmbient, u.MatAmbient)
+	putVec3(dst, offMatDiffuse, u.MatDiffuse)
+	putVec3(dst, offMatSpecular, u.MatSpecular)
+	putF32(dst, offMatShininess, u.MatShininess)
+
 	for i := 0; i < renderer.MaxLights; i++ {
-		p := fmt.Sprintf("lights[%d].", i)
-		l.lights[i] = lightLocs{
-			typ:       loc(program, p+"type"),
-			constant:  loc(program, p+"constant"),
-			linear:    loc(program, p+"linear"),
-			quadratic: loc(program, p+"quadratic"),
-			cutoff:    loc(program, p+"cutoff"),
-			color:     loc(program, p+"color"),
-			intensity: loc(program, p+"intensity"),
-			diffuse:   loc(program, p+"diffuse"),
-			specular:  loc(program, p+"specular"),
-			position:  loc(program, p+"position"),
-			direction: loc(program, p+"direction"),
-		}
+		base := offLights + i*lightStride
+		l := &u.Lights[i]
+		putI32(dst, base+lOffType, l.Type)
+		putF32(dst, base+lOffConstant, l.Constant)
+		putF32(dst, base+lOffLinear, l.Linear)
+		putF32(dst, base+lOffQuadratic, l.Quadratic)
+		putF32(dst, base+lOffCutoff, l.Cutoff)
+		putVec3(dst, base+lOffColor, l.Color)
+		putF32(dst, base+lOffIntensity, l.Intensity)
+		putF32(dst, base+lOffDiffuse, l.Diffuse)
+		putF32(dst, base+lOffSpecular, l.Specular)
+		putVec3(dst, base+lOffPosition, l.Position)
+		putVec3(dst, base+lOffDirection, l.Direction)
 	}
 
-	// Sampler units never change: set them once here.
-	gl.UseProgram(program)
-	if s := loc(program, "shadowMap"); s >= 0 {
-		gl.Uniform1i(s, 0)
+	putI32(dst, offUseNormalMap, u.UseNormalMap)
+	putI32(dst, offLightCount, u.LightCount)
+	putI32(dst, offShadowDirIndex, u.ShadowDirIndex)
+	putF32(dst, offMatMetallic, u.MatMetallic)
+	putF32(dst, offMatRoughness, u.MatRoughness)
+	putF32(dst, offMatAo, u.MatAo)
+	for i := 0; i < renderer.MaxShadowCubes; i++ {
+		putI32(dst, offPointShadowLights+i*pointShadowStride, u.PointShadowLights[i])
 	}
-	if s := loc(program, "ourTexture"); s >= 0 {
-		gl.Uniform1i(s, 1)
-	}
-	if s := loc(program, "shadowCubeMap"); s >= 0 {
-		gl.Uniform1i(s, 2)
-	}
-	if s := loc(program, "skybox"); s >= 0 {
-		gl.Uniform1i(s, 3)
-	}
-	return l
 }
 
-// applyUniforms uploads the renderer.Uniforms snapshot into the program's
-// loose GLSL 3.3 uniforms and binds the referenced textures to their fixed
-// units. This is the Phase 1 bridge; the Slang migration (GO_BACKEND.md
-// Phase 3) replaces it with a single std140 uniform-buffer upload.
-func (b *GLBackend) applyUniforms(s renderer.ShaderHandle, u *renderer.Uniforms) {
-	program := uint32(s)
-	l, ok := b.locs[s]
-	if !ok {
-		l = resolveLocs(program)
-		b.locs[s] = l
-	}
+// applyUniforms uploads the snapshot into the shared uniform buffer and binds
+// the referenced textures to the units their samplers were assigned at link
+// time. Replaces the Phase 1 loose-uniform bridge.
+func (b *GLBackend) applyUniforms(u *renderer.Uniforms) {
+	marshalStd140(u, b.blockScratch)
+	gl.BindBuffer(gl.UNIFORM_BUFFER, b.ubo)
+	gl.BufferSubData(gl.UNIFORM_BUFFER, 0, blockSize, gl.Ptr(b.blockScratch))
+	gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
 
-	gl.UniformMatrix4fv(l.view, 1, false, &u.View[0])
-	gl.UniformMatrix4fv(l.projection, 1, false, &u.Projection[0])
-	gl.UniformMatrix4fv(l.model, 1, false, &u.Model[0])
-	gl.UniformMatrix4fv(l.lightSpaceMatrix, 1, false, &u.LightSpaceMatrix[0])
-	for i := 0; i < 6; i++ {
-		gl.UniformMatrix4fv(l.shadowMatrices[i], 1, false, &u.ShadowMatrices[i][0])
-	}
+	b.bind2D(unitShadowMap, u.TexShadowMap)
+	b.bind2D(unitOurTexture, u.TexDiffuse)
+	b.bind2D(unitNormalMap, u.TexNormalMap)
 
-	gl.Uniform3f(l.viewPos, u.ViewPos[0], u.ViewPos[1], u.ViewPos[2])
-	gl.Uniform3f(l.lightPos, u.LightPos[0], u.LightPos[1], u.LightPos[2])
-	gl.Uniform1f(l.farPlane, u.FarPlane)
-	if l.timeLoc >= 0 {
-		gl.Uniform1f(l.timeLoc, float32(time.Since(b.start).Seconds()))
+	// Only one point-shadow caster is tracked by the scene layer today; the
+	// remaining cube units still need a valid binding of the right type.
+	b.bindCube(unitShadowCube0, u.TexShadowCubeMap)
+	for i := 1; i < renderer.MaxShadowCubes; i++ {
+		b.bindCube(unitShadowCube0+i, 0)
 	}
+	b.bindCube(unitSkybox, u.TexSkybox)
+}
 
-	gl.Uniform3f(l.matAmbient, u.MatAmbient[0], u.MatAmbient[1], u.MatAmbient[2])
-	gl.Uniform3f(l.matDiffuse, u.MatDiffuse[0], u.MatDiffuse[1], u.MatDiffuse[2])
-	gl.Uniform3f(l.matSpecular, u.MatSpecular[0], u.MatSpecular[1], u.MatSpecular[2])
-	gl.Uniform1f(l.matShine, u.MatShininess)
-
-	for i := 0; i < int(u.LightCount) && i < renderer.MaxLights; i++ {
-		ll, ld := &l.lights[i], &u.Lights[i]
-		gl.Uniform1i(ll.typ, ld.Type)
-		gl.Uniform1f(ll.constant, ld.Constant)
-		gl.Uniform1f(ll.linear, ld.Linear)
-		gl.Uniform1f(ll.quadratic, ld.Quadratic)
-		gl.Uniform1f(ll.cutoff, ld.Cutoff)
-		gl.Uniform3f(ll.color, ld.Color[0], ld.Color[1], ld.Color[2])
-		gl.Uniform1f(ll.intensity, ld.Intensity)
-		gl.Uniform1f(ll.diffuse, ld.Diffuse)
-		gl.Uniform1f(ll.specular, ld.Specular)
-		gl.Uniform3f(ll.position, ld.Position[0], ld.Position[1], ld.Position[2])
-		gl.Uniform3f(ll.direction, ld.Direction[0], ld.Direction[1], ld.Direction[2])
+// bind2D binds a 2D texture, substituting the built-in white pixel for handle
+// 0 ("no texture"), which reads as unlit-white / fully-lit in the shaders.
+func (b *GLBackend) bind2D(unit int, h renderer.TextureHandle) {
+	tex := uint32(h)
+	if tex == 0 {
+		tex = b.whiteTex
 	}
+	gl.ActiveTexture(gl.TEXTURE0 + uint32(unit))
+	gl.BindTexture(gl.TEXTURE_2D, tex)
+}
 
-	// Texture units (handle 0 = white pixel for the diffuse slot).
-	gl.ActiveTexture(gl.TEXTURE0)
-	gl.BindTexture(gl.TEXTURE_2D, uint32(u.TexShadowMap))
-	diffuse := uint32(u.TexDiffuse)
-	if diffuse == 0 {
-		diffuse = b.whiteTex
+func (b *GLBackend) bindCube(unit int, h renderer.TextureHandle) {
+	tex := uint32(h)
+	if tex == 0 {
+		tex = b.blackCube
 	}
-	gl.ActiveTexture(gl.TEXTURE1)
-	gl.BindTexture(gl.TEXTURE_2D, diffuse)
-	gl.ActiveTexture(gl.TEXTURE2)
-	gl.BindTexture(gl.TEXTURE_CUBE_MAP, uint32(u.TexShadowCubeMap))
-	gl.ActiveTexture(gl.TEXTURE3)
-	gl.BindTexture(gl.TEXTURE_CUBE_MAP, uint32(u.TexSkybox))
+	gl.ActiveTexture(gl.TEXTURE0 + uint32(unit))
+	gl.BindTexture(gl.TEXTURE_CUBE_MAP, tex)
 }
