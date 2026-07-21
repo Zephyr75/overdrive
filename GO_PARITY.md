@@ -1,12 +1,13 @@
-# GO_PARITY.md — what the Go engine still owes the C++ engine
+# GO_PARITY.md — remaining feature checklist
 
-Checklist of feature gaps between `go_deprecated/` (the Go engine, becoming the
-main implementation) and `cpp/` (the debugged reference), as of **2026-07-21**,
-after `GO_BACKEND.md` Phases 0–4 landed.
+What the Go engine still owes the C++ engine it replaced. The C++ tree was
+deleted on 2026-07-22 once the showcase scene was salvaged; these items were
+catalogued against it beforehand, and `notes/FEATURES.md` remains the written
+record of what it did. Its source is in git history if an exact detail is ever
+needed.
 
-Source of truth for the C++ side is `notes/FEATURES.md`. Items the C++ engine
-also lacks (texture-driven PBR maps, real prefiltered IBL, HDR/bloom, ray
-tracing) are **not** listed here — they are roadmap for both and live in
+Items that engine also lacked (texture-driven PBR maps, real prefiltered IBL,
+HDR/bloom, ray tracing) are **not** listed here — they are roadmap, and live in
 `notes/FEATURES.md` Part 2.
 
 Scope note: the renderer itself is at parity. Both engines run the same Slang
@@ -21,21 +22,13 @@ the **scene layer** and in **backend polish**.
 
 ## 1. Correctness — worth doing first
 
-- [ ] **Shadow casters are not selected; every light gets a shadow map.**
-  `Light.setup` (`scene/light.go`) allocates a 2D map or cubemap for *every*
-  light, and `App.Run` runs a depth pass for every light. C++ `Scene` picks the
-  first directional plus the first `MAX_SHADOW_CUBES` point lights, sets
-  `castsShadow`, and only casters allocate or bake. Cost today is unbounded
-  shadow passes as lights are added.
-
-- [ ] **`ShadowDirIndex` and `PointShadowLights[]` are never set** —
-  `Scene.FillFrameUniforms` leaves them at their zero values. `forward.slang`
-  reads `shadowDirIndex` to decide *which* light the 2D shadow map applies to,
-  so index 0 wins by default regardless of that light's type. In
-  `assets/sphere.xml` light 0 is the **point** light and light 1 the sun, so the
-  directional shadow map is currently applied to a point light. Likewise
-  `pointShadowLights[]` is all zeros, so all four cube slots claim light 0.
-  Fix alongside caster selection above; the shader side already works.
+- [x] **Shadow casters are selected** (2026-07-22). `Scene.pickShadowCasters`
+  takes the first directional and first point light; only those allocate a map
+  (`Light.setup` early-returns otherwise) and only those bake a depth pass.
+  `ShadowDirIndex` / `PointShadowLights[]` are now set, so the 2D map is applied
+  to the light that owns it rather than to whichever sits at index 0. The
+  showcase has 5 lights and used to run 5 shadow passes with the sun's map
+  applied to a point light; it now runs 2, correctly.
 
 - [ ] **Only one point-shadow cube is supported.** `renderer.Uniforms` has a
   single `TexShadowCubeMap` handle where the shader has
@@ -44,10 +37,11 @@ the **scene layer** and in **backend polish**.
   scene to assign slots, and the two backends' dedicated-binding writes to loop
   (`vulkan/draw.go` `bindShadowMaps`, `opengl/uniforms.go` `applyUniforms`).
 
-- [ ] **Texture paths are not portable.** `Mesh.setup` loads
-  `material.TexturePath` verbatim, so a Blender-baked absolute path breaks on
-  any other machine. C++ (`cpp/scene/Mesh.cpp`) strips to the basename and
-  resolves against the project-local `textures/` directory.
+- [x] **Texture paths are portable** (2026-07-22). `texturePath`
+  (`scene/mesh.go`) keeps only the basename and resolves it against the
+  engine's `textures/` directory, so a Blender-baked absolute path from another
+  machine still loads. `<mtl>` is also optional now, defaulting to the `.obj`
+  basename.
 
 ## 2. Rendering polish
 
@@ -86,16 +80,18 @@ the **scene layer** and in **backend polish**.
   reason. The recreate path exists and is wired to `ErrOutOfDateKHR` on both
   acquire and present, and `input.FramebufferSizeCallback` updates the settings
   the next frame's passes read.
-- [ ] **No showcase scene.** C++ ships `assets/showcase.xml` exercising every
+- [x] **Showcase scene salvaged** (2026-07-22). `assets/showcase.xml` plus its
+  5 meshes and 8 CC0 PBR textures now live in the Go tree, and
+  `scene/showcase_test.go` asserts the materials parse with real `Pm`/`Pr`
+  values, colour and normal maps, and that every texture it names exists — the
+  material path is no longer unexercised. Was: C++ ships `assets/showcase.xml` exercising every
   feature (metal Suzanne, chrome sphere, normal-mapped ground, sun + point
-  shadow) with CC0 textures in `cpp/textures/`. The Go scenes (`demo`, `sphere`,
-  `cube`) predate PBR and normal mapping, so most of the material path is
-  currently unexercised — which is also why the gaps above went unnoticed.
+  shadow) with CC0 textures. The other Go scenes (`demo`, `sphere`, `cube`) predate PBR
+  and normal mapping.
 
 ## 5. Not gaps — the Go engine is ahead here
 
-These exist in Go with no C++ counterpart, and should not be lost in the
-rename to `go/`: the ECS (`ecs/`), Verlet physics (`physics/`), the gutter-based
+These exist in Go with no C++ counterpart: the ECS (`ecs/`), Verlet physics (`physics/`), the gutter-based
 UI overlay (`core/ui.go` + the `ui` Slang pass), the Blender export plugin
 (`plugin/`), and `algorithms/`.
 

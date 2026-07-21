@@ -1,8 +1,8 @@
 # GO_BACKEND.md — A backend-agnostic Go engine (OpenGL + Vulkan)
 
-Plan for promoting `go_deprecated/` back to the main Overdrive implementation
+Plan for promoting `go/` back to the main Overdrive implementation
 and making it backend-agnostic, using the architecture proven by the C++
-rewrite (`cpp/`) and the hand-written Vulkan bindings in the `go-vulkan` repo
+rewrite (`cpp_deprecated/`) and the hand-written Vulkan bindings in the `go-vulkan` repo
 (its `vk` package).
 
 How to read this document:
@@ -40,9 +40,9 @@ backend simply reports them as unsupported.
 
 | Source | What it gives us |
 |---|---|
-| `go_deprecated/` | The Go engine: scene/ECS (entity component system)/physics/UI code, OBJ+XML loading, GLFW input — but OpenGL calls leak into every layer |
-| `cpp/` | A working two-backend renderer with the same feature set. Its Vulkan backend (`cpp/vulkan/Backend.cpp`) is the debugged reference for every hard problem: coordinate conventions, synchronization, shadow-map parity, uniform layout |
-| `cpp/shaders/slang/` | The shader source of truth, written once in Slang and compiled to both GLSL (OpenGL) and SPIR-V (Standard Portable Intermediate Representation — Vulkan's shader binary format). **Since copied into the Go module** (`shaders/slang/`), which now owns it — the C++ copy dies with `cpp/` |
+| `go/` | The Go engine: scene/ECS (entity component system)/physics/UI code, OBJ+XML loading, GLFW input — but OpenGL calls leak into every layer |
+| `cpp_deprecated/` | A working two-backend renderer with the same feature set. Its Vulkan backend (`cpp_deprecated/vulkan/Backend.cpp`) is the debugged reference for every hard problem: coordinate conventions, synchronization, shadow-map parity, uniform layout |
+| `cpp_deprecated/shaders/slang/` | The shader source of truth, written once in Slang and compiled to both GLSL (OpenGL) and SPIR-V (Standard Portable Intermediate Representation — Vulkan's shader binary format). **Since copied into the Go module** (`shaders/slang/`), which now owns it — the C++ copy dies with `cpp_deprecated/` |
 | `go-vulkan/vk` | Hand-written cgo bindings covering the howtovulkan.com tutorial path (~78 functions), plus a pure-Go substitute for VMA (Vulkan Memory Allocator). The demo `how_to_vulkan/main.go` is working reference code for almost every call the backend needs |
 
 ## 1.3 The design in one page
@@ -164,7 +164,7 @@ documented, debugged, and known to produce identical images on both APIs
 ## 2.1 Package layout
 
 ```
-overdrive/ (the Go module — promoted from go_deprecated/)
+overdrive/ (the Go module — promoted from go/)
 ├── main.go
 ├── core/                 app lifecycle; owns the Backend + window
 │   ├── app.go
@@ -206,7 +206,7 @@ Scene-layer rules (copied from the C++ migration,
 
 ## 2.2 The Backend interface
 
-Translated from `cpp/renderer/Backend.hpp` with C++ out-parameters turned
+Translated from `cpp_deprecated/renderer/Backend.hpp` with C++ out-parameters turned
 into multiple return values, error returns where creation can fail, draws
 taking the uniforms struct, and two additions the C++ version never needed:
 `UpdateTexture2D` + `DrawFullscreenQuad` (for the Go engine's UI overlay) and
@@ -308,7 +308,7 @@ type Backend interface {
 
 `renderer/uniforms.go` mirrors the `Uniforms` struct in
 `shaders/slang/common.slang` **field for field, in order**. That struct is
-the single GPU-facing truth; the C++ mirror is `cpp/vulkan/Uniforms.hpp`.
+the single GPU-facing truth; the C++ mirror is `cpp_deprecated/vulkan/Uniforms.hpp`.
 
 ```go
 package renderer
@@ -390,7 +390,7 @@ noise at this engine's draw count (a few meshes × ≤4 face groups × 3 passes)
 
 ## 2.4 The frame loop after migration (`core/app.go`)
 
-Mirrors `cpp/core/App.cpp`:
+Mirrors `cpp_deprecated/core/App.cpp`:
 
 ```go
 backend.BeginFrame()
@@ -419,7 +419,7 @@ Gone relative to today's `Run` loop (all three are Vulkan requirements):
 the top-of-loop clear, the mid-frame clear between shadow and main passes,
 and every `gl.Viewport`/`gl.BindFramebuffer` inside `Light.RenderLight`
 (replaced by `BeginPass(light.shadowFBO, …)` … `EndPass()` — see
-`cpp/scene/Light.cpp` for the exact shape). `runtime.LockOSThread()` stays:
+`cpp_deprecated/scene/Light.cpp` for the exact shape). `runtime.LockOSThread()` stays:
 GLFW and the Vulkan surface both require the main thread.
 
 ## 2.5 Optional features: ray tracing and other Vulkan-only paths
@@ -714,7 +714,7 @@ This section spells out what every interface method implies on each side.
 
 ## 3.2 Vulkan backend: setup and cross-cutting conventions (`vulkan/`)
 
-Structure and all conventions mirror `cpp/vulkan/Backend.cpp`. The table maps
+Structure and all conventions mirror `cpp_deprecated/vulkan/Backend.cpp`. The table maps
 each piece to the go-vulkan calls that implement it; ✅ = working example in
 the demo (`how_to_vulkan/main.go`).
 
@@ -770,7 +770,7 @@ subtle stuff that makes both backends produce the same image):
 
 # Part 4 — Shaders: one source, two outputs
 
-Do **not** port the GLSL 3.3 files in `go_deprecated/shaders/`. The
+Do **not** port the GLSL 3.3 files in `go/shaders/`. The
 maintained shader set already exists in Slang with all bridging baked in:
 
 | Slang file | Replaces (Go) | Notes |
@@ -782,7 +782,7 @@ maintained shader set already exists in Slang with all bridging baked in:
 | `common.slang` | — | the Uniforms struct; selects per-target resource model (`-DTARGET_VK`) |
 | *(to write)* | `ui.slang` | needed for the UI pass; `clouds`/`water`/`depth_debug` later |
 
-Toolchain (same as `cpp/CMakeLists.txt`, re-hosted in `overdrive_build.sh` or
+Toolchain (same as `cpp_deprecated/CMakeLists.txt`, re-hosted in `overdrive_build.sh` or
 a `go generate` step, since the Go build has no CMake):
 
 - **OpenGL**: `slangc -target glsl -profile glsl_410 -preserve-params`, then
@@ -806,7 +806,7 @@ Ordered so the engine runs at the end of every phase. Phases 1–3 are pure-GL
 refactors; Vulkan starts in Phase 4.
 
 **Phase 0 — Promote and dust off.** ✅ *Done (2026-07-19).*
-`git mv go_deprecated go` (or to the repo root — decide once), `go mod tidy`,
+`git mv` the module to `go/` (done 2026-07-22), `go mod tidy`,
 bump the Go version and go-gl/glfw pins, delete `tutorial/` leftovers,
 confirm the demo runs.
 
@@ -829,7 +829,7 @@ until Phase 3 brings the UBO).
 **Phase 3 — Slang shaders.** ✅ *Done (2026-07-21).*
 `build_shaders.sh` compiles `shaders/slang/` to both `shaders/gl/` (GLSL 4.10)
 and `shaders/vk/` (SPIR-V). `ui.slang` written. The Slang sources now live in
-the Go module rather than being read out of `cpp/`, and the GLSL downgrade is
+the Go module rather than being read out of the C++ tree, and the GLSL downgrade is
 done inline with `sed` instead of `downgrade.cmake`, so the only external tool
 is `slangc` — verified to produce byte-identical output to the CMake path
 (modulo blank lines, which CMake's list iteration silently dropped). The GL backend now uploads one
@@ -1109,7 +1109,7 @@ top of the same acceleration-structure API.
   design (Vulkan gets its layout for free). Cover `marshalStd140` with a
   unit test against offsets dumped from the generated GLSL once at Phase 3.
 - **Wayland teardown order**: destroy the backend before the window (see the
-  comment in `cpp/core/App.cpp`'s destructor); replicate in `App.Shutdown`.
+  comment in `cpp_deprecated/core/App.cpp`'s destructor); replicate in `App.Shutdown`.
 - **Where the module lands** — `go/` subdirectory vs. repository root:
   root makes `go install github.com/Zephyr75/overdrive` work but mixes Go
   and C++ trees. Decide at Phase 0.
