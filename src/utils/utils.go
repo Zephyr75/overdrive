@@ -14,20 +14,19 @@ func ParseVec3(s string) mgl32.Vec3 {
 	return mgl32.Vec3{x, y, z}
 }
 
+// Turns Euler angles in degrees into a unit direction vector, roll being unused
 func EulerToDirection(pitch, yaw, roll float32) mgl32.Vec3 {
-	// Convert degrees to radians for trigonometric functions
 	pitchRad := float64(mgl32.DegToRad(pitch))
 	yawRad := float64(mgl32.DegToRad(yaw))
 
-	// Calculate the direction vector components
 	x := float32(math.Cos(yawRad) * math.Cos(pitchRad))
 	y := float32(math.Sin(pitchRad))
 	z := float32(math.Sin(yawRad) * math.Cos(pitchRad))
 
-	// Create and return the resulting direction vector
 	return mgl32.Vec3{x, y, z}
 }
 
+// Panics on a non-nil error, startup failures not being recoverable
 func HandleError(err error) {
 	if err != nil {
 		panic(err)

@@ -28,14 +28,17 @@ type CameraXml struct {
 	Fov   float32 `xml:"fov"`
 }
 
+// Teleports the camera to a position
 func (c *Camera) Move(pos mgl32.Vec3) {
 	c.Pos = pos
 }
 
+// Points the camera's front vector at a position
 func (c *Camera) LookAt(pos mgl32.Vec3) {
 	c.Front = pos.Sub(c.Pos).Normalize()
 }
 
+// Converts a parsed XML camera into engine coordinates, deriving front from yaw and pitch
 func (c CameraXml) toCamera() Camera {
 	pos := utils.ParseVec3(c.Pos)
 	front := utils.ParseVec3(c.Front)
@@ -63,6 +66,7 @@ func (c CameraXml) toCamera() Camera {
 	}
 }
 
+// Returns a camera with the default overview position and 45° field of view
 func NewCamera() Camera {
 	return Camera{
 		Pos:   mgl32.Vec3{0.0, 20.0, 15.0},

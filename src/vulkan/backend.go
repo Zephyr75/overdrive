@@ -26,8 +26,8 @@ const (
 	// Per-frame uniform ring. Each draw snapshots one Uniforms block (1312
 	// bytes) into it, so this holds a few hundred draws per frame.
 	ringSize = 1 << 20
-	// Bindless array sizes; must match the descriptor set layout the shaders
-	// were compiled against.
+	// Bindless array sizes, which must match the descriptor set layout the
+	// shaders were compiled against.
 	max2DTextures   = 256
 	maxCubeTextures = 64
 
@@ -40,7 +40,7 @@ const (
 const pushStages = vk.ShaderStageVertex | vk.ShaderStageGeometry | vk.ShaderStageFragment
 
 // A pipeline is built per (shader, pass kind, vertex layout). The pass kind
-// decides winding, attachment formats and blending; the layout decides the
+// decides winding, attachment formats and blending, the layout decides the
 // vertex input state.
 type passKind int
 
@@ -56,10 +56,11 @@ type vertexLayout int
 const (
 	layoutMesh       vertexLayout = iota // position(3)|normal(3)|uv(2), 32-byte stride
 	layoutSkybox                         // position(3) only, 12-byte stride
-	layoutFullscreen                     // no vertex input; the UI triangle
+	layoutFullscreen                     // the UI quad, position(3)|uv(2), 20-byte stride
 	layoutCount
 )
 
+// One texture: its image, view, and the bindless slot shaders reach it through
 type texEntry struct {
 	cube bool
 	// Index into the bindless array of its kind (binding 0 for 2D, 1 for cube).
@@ -67,7 +68,7 @@ type texEntry struct {
 	image     vk.Image
 	alloc     vk.VmaAllocation
 	view      vk.ImageView
-	ownsImage bool // false for shadow-map views: the shadowEntry owns the image
+	ownsImage bool // false for shadow-map views, whose image the shadowEntry owns
 	valid     bool
 
 	// Set only on textures the CPU rewrites every frame (the UI overlay): a
@@ -80,6 +81,7 @@ type texEntry struct {
 	pending       bool // staged pixels not yet copied into the image
 }
 
+// One buffer and its persistent mapping
 type bufEntry struct {
 	buffer vk.Buffer
 	alloc  vk.VmaAllocation
@@ -88,6 +90,7 @@ type bufEntry struct {
 	valid  bool
 }
 
+// One face group: a shared vertex buffer plus this group's index buffer
 type meshEntry struct {
 	vbo         renderer.BufferHandle
 	indexBuffer vk.Buffer
@@ -95,19 +98,20 @@ type meshEntry struct {
 	valid       bool
 }
 
+// One shadow render target, holding both views of the same depth image
 type shadowEntry struct {
 	cube           bool
 	image          vk.Image
 	alloc          vk.VmaAllocation
 	attachmentView vk.ImageView           // 2D, or 2D_ARRAY(6) for cubes
 	tex            renderer.TextureHandle // the sampled view, as a texture handle
-	// Tracked so BeginPass knows which transition to record; unlike OpenGL,
-	// an image has no implicit "ready to render into" state.
+	// Tracked so BeginPass knows which transition to record, an image having
+	// no implicit "ready to render into" state the way a GL texture does.
 	layout vk.ImageLayout
 	valid  bool
 }
 
-// retiredTexture is a texture's GPU objects awaiting deferred destruction.
+// A texture's GPU objects awaiting deferred destruction
 type retiredTexture struct {
 	frame        uint64
 	view         vk.ImageView
@@ -117,6 +121,7 @@ type retiredTexture struct {
 	stagingAlloc vk.VmaAllocation
 }
 
+// Everything one in-flight frame owns: its command buffer, sync objects and uniform ring
 type frameData struct {
 	cb         vk.CommandBuffer
 	fence      vk.Fence
@@ -170,7 +175,7 @@ type VKBackend struct {
 	samplerShadow2D   vk.Sampler // nearest, clamp-to-border, white border
 	samplerShadowCube vk.Sampler // nearest, clamp-to-edge
 
-	// Resource tables; the handle is the index. Entry 0 is reserved in every
+	// Resource tables, the handle being the index. Entry 0 is reserved in every
 	// table except textures, where handle 0 is the built-in white pixel.
 	textures      []texEntry
 	buffers       []bufEntry
@@ -204,6 +209,7 @@ type VKBackend struct {
 	depthLequal         bool
 }
 
+// Builds an empty Vulkan backend, before any Vulkan object exists
 func New() *VKBackend {
 	b := &VKBackend{
 		swapFormat:     vk.FormatB8G8R8A8Unorm,
@@ -212,20 +218,18 @@ func New() *VKBackend {
 	for i := range b.shadowCubeHandle {
 		b.shadowCubeHandle[i] = invalidHandle
 	}
-	// Reserve index 0 in the tables whose handle 0 means "none".
+	// Reserve index 0 in the tables whose handle 0 means "none"
 	b.buffers = append(b.buffers, bufEntry{})
 	b.meshes = append(b.meshes, meshEntry{})
 	b.shadowTargets = append(b.shadowTargets, shadowEntry{})
 	return b
 }
 
-// invalidHandle marks "no texture mirrored yet" in the dedicated-binding
-// caches. It cannot collide with a real handle (a table index).
+// Marks "no texture mirrored yet" in the dedicated-binding caches, at a value
+// no real handle (a table index) can collide with.
 const invalidHandle = renderer.TextureHandle(math.MaxUint32)
 
-// fatal aborts on a failed Vulkan call. Resource creation failing mid-run is
-// not recoverable here, and the tutorial-style linear code stays readable
-// without error plumbing at every call site (the C++ backend's VK_CHECK).
+// Aborts on a failed Vulkan call, since resource creation failing mid-run is not recoverable and error plumbing at every call site would bury the code
 func fatal(err error, what string) {
 	if err != nil {
 		panic(fmt.Sprintf("vulkan: %s: %v", what, err))
@@ -234,12 +238,12 @@ func fatal(err error, what string) {
 
 // --- lifecycle ---------------------------------------------------------------
 
+// Asks GLFW for a window with no client API, Vulkan reaching it through the surface created in Init
 func (b *VKBackend) ConfigureWindow() {
-	// No OpenGL context: Vulkan reaches the window through a VkSurfaceKHR
-	// created in Init.
 	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
 }
 
+// Brings up the whole device stack: instance, surface, device, allocator, swapchain, frames, descriptors and default textures
 func (b *VKBackend) Init(window *glfw.Window) error {
 	b.window = window
 	if !glfw.VulkanSupported() {
@@ -280,10 +284,10 @@ func (b *VKBackend) Init(window *glfw.Window) error {
 	return nil
 }
 
+// Creates the instance with the extensions GLFW requires, and the validation layers when OVERDRIVE_VK_VALIDATION is set
 func (b *VKBackend) createInstance() error {
-	// Validation is opt-in because the layers are a separate package on most
-	// distributions and instance creation fails outright when a requested layer
-	// is missing. Set OVERDRIVE_VK_VALIDATION=1 while developing.
+	// Keep validation opt-in, as the layers are a separate package on most
+	// distributions and instance creation fails outright when one is missing
 	var layers []string
 	if os.Getenv("OVERDRIVE_VK_VALIDATION") != "" {
 		layers = append(layers, "VK_LAYER_KHRONOS_validation")
@@ -302,6 +306,7 @@ func (b *VKBackend) createInstance() error {
 	return nil
 }
 
+// Creates the surface, picks a graphics-and-present queue family, and creates the logical device with the features the engine needs
 func (b *VKBackend) createSurfaceAndDevice() error {
 	devices, err := vk.EnumeratePhysicalDevices(b.instance)
 	if err != nil {
@@ -312,8 +317,8 @@ func (b *VKBackend) createSurfaceAndDevice() error {
 	}
 	b.physicalDevice = devices[0]
 
-	// The surface must exist before the device so present support can be
-	// verified on the queue family we are about to request.
+	// Create the surface before the device, so present support can be verified
+	// on the queue family we are about to request
 	surfRaw, err := b.window.CreateWindowSurface((*byte)(unsafe.Pointer(b.instance)), nil)
 	if err != nil {
 		return err
@@ -342,9 +347,10 @@ func (b *VKBackend) createSurfaceAndDevice() error {
 	name := vk.GetPhysicalDeviceProperties2(b.physicalDevice).DeviceName
 	fmt.Printf("Vulkan device: %s\n", name)
 
-	// The feature set the engine's shaders and backend rely on. ScalarBlockLayout
-	// matches the -fvk-use-scalar-layout SPIR-V; GeometryShader is the point
-	// shadow pass; the descriptor-indexing group is the bindless texture arrays.
+	// Enable the features the engine's shaders and backend rely on.
+	// ScalarBlockLayout matches the -fvk-use-scalar-layout SPIR-V,
+	// GeometryShader is the point shadow pass, and the descriptor-indexing
+	// group is what makes the bindless texture arrays legal
 	dev, err := vk.CreateDevice(b.physicalDevice, vk.DeviceCreateInfo{
 		QueueCreateInfos: []vk.DeviceQueueCreateInfo{
 			{QueueFamilyIndex: b.queueFamily, Priorities: []float32{1}},
@@ -373,6 +379,7 @@ func (b *VKBackend) createSurfaceAndDevice() error {
 	return nil
 }
 
+// Allocates the per-frame command buffer, fence, semaphore and mapped uniform ring, one set per frame in flight
 func (b *VKBackend) createFrameData() error {
 	cbs, err := vk.AllocateCommandBuffers(b.device, b.commandPool, framesInFlight)
 	if err != nil {
@@ -381,8 +388,8 @@ func (b *VKBackend) createFrameData() error {
 	for i := range b.frames {
 		f := &b.frames[i]
 		f.cb = cbs[i]
-		// Created signalled so the first frame does not block on a fence that
-		// no submit will ever signal.
+		// Create the fence signalled, so the first frame does not block on a
+		// fence no submit will ever signal
 		if f.fence, err = vk.CreateFence(b.device, vk.FenceCreateSignaled); err != nil {
 			return err
 		}
@@ -405,6 +412,7 @@ func (b *VKBackend) createFrameData() error {
 	return nil
 }
 
+// Creates the four samplers the engine binds: repeating material, clamped cube, and the two nearest-filtered shadow samplers
 func (b *VKBackend) createSamplers() {
 	var err error
 	base := vk.SamplerCreateInfo{
@@ -431,8 +439,8 @@ func (b *VKBackend) createSamplers() {
 	b.samplerShadowCube, err = vk.CreateSampler(b.device, cubeShadow)
 	fatal(err, "create cube shadow sampler")
 
-	// Outside the sun's light frustum must read "fully lit", which is what an
-	// opaque-white border gives (the GL backend's TEXTURE_BORDER_COLOR).
+	// Give the sun's map an opaque-white border, so outside its light frustum
+	// reads "fully lit" (the GL backend's TEXTURE_BORDER_COLOR)
 	shadow2D := cubeShadow
 	shadow2D.AddressModeU = vk.SamplerAddressModeClampToBorder
 	shadow2D.AddressModeV = vk.SamplerAddressModeClampToBorder
@@ -441,10 +449,11 @@ func (b *VKBackend) createSamplers() {
 	fatal(err, "create 2D shadow sampler")
 }
 
+// Creates the one descriptor set the engine binds: two bindless texture arrays plus dedicated shadow-map descriptors
 func (b *VKBackend) createDescriptors() {
 	// Bindings 0/1 are the bindless material texture arrays. Bindings 2/3 are
-	// dedicated single descriptors for the shadow maps: the PCF kernels tap
-	// them 9x/20x per fragment, and sampling through a dynamically-indexed
+	// dedicated single descriptors for the shadow maps, because the PCF kernels
+	// tap them 9x/20x per fragment and sampling through a dynamically-indexed
 	// bindless array makes some drivers re-fetch the descriptor per tap. The
 	// layout matches common.slang.
 	const bindless = vk.DescriptorBindingPartiallyBound | vk.DescriptorBindingUpdateAfterBind
@@ -484,9 +493,8 @@ func (b *VKBackend) createDescriptors() {
 	b.descriptorSet = sets[0]
 }
 
+// Creates the one layout every pipeline shares: the bindless set plus an 8-byte push constant holding this draw's uniform address
 func (b *VKBackend) createGlobalPipelineLayout() {
-	// One layout for every pipeline: the bindless set, plus an 8-byte push
-	// constant holding the address of this draw's uniform block.
 	layout, err := vk.CreatePipelineLayout(b.device, vk.PipelineLayoutCreateInfo{
 		SetLayouts:         []vk.DescriptorSetLayout{b.setLayout},
 		PushConstantRanges: []vk.PushConstantRange{{StageFlags: pushStages, Size: 8}},
@@ -495,30 +503,32 @@ func (b *VKBackend) createGlobalPipelineLayout() {
 	b.pipelineLayout = layout
 }
 
+// Uploads the white pixel and black cube that occupy slot 0 of each bindless array, and seeds the shadow descriptors with them
 func (b *VKBackend) createDefaultTextures() {
-	// 2D slot 0 / handle 0: the white pixel the engine uses for "no texture".
+	// Fill 2D slot 0 (handle 0), the white pixel the engine uses for "no texture"
 	b.uploadTexture([]byte{255, 255, 255, 255}, 1, 1, 1, false, b.samplerRepeat)
-	// Cube slot 0: a black dummy, sampled when no cubemap was ever set.
+	// Fill cube slot 0 with a black dummy, sampled when no cubemap was ever set
 	b.uploadTexture(make([]byte, 4*6), 1, 1, 6, true, b.samplerCubeLinear)
 
 	// Seed the dedicated shadow descriptors so they are valid before the first
-	// shadow map exists; partially-bound would tolerate holes, but every draw
-	// that samples them would still read undefined data.
+	// shadow map exists. Partially-bound would tolerate holes, but every draw
+	// that samples them would still read undefined data
 	b.writeDedicatedTexture(2, 0, b.textures[0].view, b.samplerShadow2D)
 	for i := uint32(0); i < renderer.MaxShadowCubes; i++ {
 		b.writeDedicatedTexture(3, i, b.textures[1].view, b.samplerShadowCube)
 	}
 }
 
+// Waits for the GPU to go idle, then destroys every Vulkan object the backend owns, in reverse creation order
 func (b *VKBackend) Shutdown() {
 	if b.device == 0 {
 		return
 	}
-	// Nothing may be destroyed while the GPU might still read it.
+	// Wait first, as nothing may be destroyed while the GPU might still read it
 	_ = vk.DeviceWaitIdle(b.device)
 
-	// The GPU is idle, so everything still queued for deferred destruction is
-	// now unreferenced.
+	// Age out the deferred-destruction queue, since an idle GPU references none
+	// of it any more
 	b.frameCounter += framesInFlight + 1
 	b.drainRetired()
 
@@ -545,7 +555,7 @@ func (b *VKBackend) Shutdown() {
 		if e.ownsImage {
 			b.allocator.VmaDestroyImage(e.image, e.alloc)
 		}
-		// The UI overlay's persistently mapped staging buffer.
+		// Free the UI overlay's persistently mapped staging buffer
 		if e.staging != 0 {
 			b.allocator.VmaDestroyBuffer(e.staging, e.stagingAlloc)
 		}
@@ -589,13 +599,14 @@ func (b *VKBackend) Shutdown() {
 
 // --- frame -------------------------------------------------------------------
 
+// Waits for this frame slot to be free, acquires a swapchain image, resets the command buffer and records the pending uploads
 func (b *VKBackend) BeginFrame() {
 	if b.device == 0 {
 		return
 	}
 	f := &b.frames[b.frameIndex]
-	// The CPU throttle: without it frame N+2 would overwrite the ring and
-	// command buffer while the GPU still reads them.
+	// Throttle the CPU here, as without it frame N+2 would overwrite the ring
+	// and command buffer while the GPU still reads them
 	fatal(vk.WaitForFences(b.device, []vk.Fence{f.fence}, true, math.MaxUint64), "wait frame fence")
 
 	for {
@@ -618,25 +629,26 @@ func (b *VKBackend) BeginFrame() {
 
 	fatal(vk.ResetCommandBuffer(f.cb), "reset command buffer")
 	fatal(vk.BeginCommandBuffer(f.cb, vk.CommandBufferUsageOneTimeSubmit), "begin command buffer")
-	// One descriptor set for the whole frame; only its contents change.
+	// Bind one descriptor set for the whole frame, only its contents changing
 	vk.CmdBindDescriptorSets(f.cb, vk.PipelineBindPointGraphics, b.pipelineLayout, 0,
 		[]vk.DescriptorSet{b.descriptorSet})
 
-	// Copies must be recorded outside a render pass, so anything staged during
-	// the previous frame's passes is flushed here.
+	// Flush anything staged during the previous frame's passes, copies being
+	// legal only outside a render pass
 	b.flushPendingUploads(f.cb)
 
 	b.boundPipeline = 0
 	b.frameActive = true
 }
 
+// Transitions the swapchain image to present layout, submits the frame's command buffer and presents it
 func (b *VKBackend) EndFrame() {
 	if !b.frameActive {
 		return
 	}
 	f := &b.frames[b.frameIndex]
 
-	// The explicit version of what SwapBuffers hides.
+	// Transition to present layout, the explicit version of what SwapBuffers hides
 	b.imageBarrier(f.cb, b.swapImages[b.imageIndex], vk.ImageAspectColor, 1,
 		vk.ImageLayoutColorAttachmentOptimal, vk.ImageLayoutPresentSrcKHR,
 		vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite,
@@ -644,9 +656,9 @@ func (b *VKBackend) EndFrame() {
 
 	fatal(vk.EndCommandBuffer(f.cb), "end command buffer")
 
-	// The acquire semaphore is per in-flight frame, the render semaphore per
-	// swapchain image: present waits on the image's own semaphore, and the two
-	// index spaces are not interchangeable.
+	// Wait on the frame's acquire semaphore but signal the image's render
+	// semaphore, as present waits on the image's own semaphore and the two
+	// index spaces are not interchangeable
 	fatal(vk.QueueSubmit2(b.queue, []vk.SubmitInfo2{{
 		WaitSemaphores:   []vk.SemaphoreSubmitInfo{{Semaphore: f.acquireSem, StageMask: vk.PipelineStage2ColorAttachmentOutput}},
 		CommandBuffers:   []vk.CommandBuffer{f.cb},
@@ -665,6 +677,7 @@ func (b *VKBackend) EndFrame() {
 	b.frameActive = false
 }
 
+// Transitions the target into attachment layout and begins dynamic rendering on it, with the viewport, scissor and dynamic state this pass needs
 func (b *VKBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear *[4]float32) {
 	if !b.frameActive {
 		return
@@ -706,9 +719,9 @@ func (b *VKBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear
 		info.RenderArea = vk.Rect2D{Extent: b.swapExtent}
 		info.ColorAttachments = []vk.RenderingAttachmentInfo{colorAtt}
 
-		// Negative height flips Vulkan's y-down clip space back to OpenGL's
-		// y-up, which also cancels the winding flip, so the scene's CCW front
-		// faces stay correct without touching any geometry.
+		// Flip the viewport height, turning Vulkan's y-down clip space back into
+		// OpenGL's y-up. That also cancels the winding flip, so the scene's CCW
+		// front faces stay correct without touching any geometry
 		viewport.Y = float32(b.swapExtent.Height)
 		viewport.Width = float32(b.swapExtent.Width)
 		viewport.Height = -float32(b.swapExtent.Height)
@@ -733,9 +746,9 @@ func (b *VKBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear
 		info.RenderArea = vk.Rect2D{Extent: vk.Extent2D{Width: uint32(w), Height: uint32(h)}}
 		info.LayerCount = layers
 
-		// Positive viewport: the shadow map's memory layout then matches
-		// OpenGL's, so the sampling math in the shaders is unchanged. The cost
-		// is inverted winding, which the pipeline declares as CW front faces.
+		// Keep the viewport positive, so the shadow map's memory layout matches
+		// OpenGL's and the sampling math in the shaders is unchanged. The cost
+		// is inverted winding, which the pipeline declares as CW front faces
 		viewport.Width = float32(w)
 		viewport.Height = float32(h)
 
@@ -753,6 +766,7 @@ func (b *VKBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear
 	b.applyDynamicState(cb)
 }
 
+// Ends dynamic rendering and, for a shadow pass, transitions the depth target into shader-read layout
 func (b *VKBackend) EndPass() {
 	if !b.frameActive {
 		return
@@ -760,9 +774,9 @@ func (b *VKBackend) EndPass() {
 	cb := b.frames[b.frameIndex].cb
 	vk.CmdEndRendering(cb)
 
-	// A shadow target has to reach shader-read layout before the main pass
-	// samples it. The swapchain image keeps its attachment layout until
-	// EndFrame's present barrier.
+	// Move a shadow target to shader-read layout before the main pass samples
+	// it. The swapchain image instead keeps its attachment layout until
+	// EndFrame's present barrier
 	if b.currentShadowTarget != 0 {
 		t := &b.shadowTargets[b.currentShadowTarget]
 		layers := uint32(1)
@@ -784,6 +798,7 @@ func (b *VKBackend) EndPass() {
 // immediate calls like their OpenGL counterparts instead of forcing a separate
 // pipeline per combination.
 
+// Records the cull mode, remembering it for the next pass that starts
 func (b *VKBackend) SetCullFace(front bool) {
 	b.cullFront = front
 	if b.frameActive {
@@ -791,6 +806,7 @@ func (b *VKBackend) SetCullFace(front bool) {
 	}
 }
 
+// Records the depth compare op, remembering it for the next pass that starts
 func (b *VKBackend) SetDepthFunc(lequal bool) {
 	b.depthLequal = lequal
 	if b.frameActive {
@@ -798,13 +814,13 @@ func (b *VKBackend) SetDepthFunc(lequal bool) {
 	}
 }
 
-// applyDynamicState re-issues the immediate state at pass start, since the
-// engine sets it between passes as often as inside them.
+// Re-issues the immediate state at pass start, the engine setting it between passes as often as inside them
 func (b *VKBackend) applyDynamicState(cb vk.CommandBuffer) {
 	vk.CmdSetCullMode(cb, cullMode(b.cullFront))
 	vk.CmdSetDepthCompareOp(cb, compareOp(b.depthLequal))
 }
 
+// Translates the engine's front/back flag into a Vulkan cull mode
 func cullMode(front bool) vk.CullModeFlags {
 	if front {
 		return vk.CullModeFront
@@ -812,6 +828,7 @@ func cullMode(front bool) vk.CullModeFlags {
 	return vk.CullModeBack
 }
 
+// Translates the engine's lequal flag into a Vulkan compare op
 func compareOp(lequal bool) vk.CompareOp {
 	if lequal {
 		return vk.CompareOpLessOrEqual
@@ -821,12 +838,12 @@ func compareOp(lequal bool) vk.CompareOp {
 
 // --- capabilities ------------------------------------------------------------
 
-// Ray tracing and compute are not wired up yet (GO_BACKEND.md Phase 6); when
-// they are, this reports what the device actually exposes.
+// Reports no optional capability, ray tracing and compute not being wired up yet (GO_BACKEND.md Phase 6)
 func (b *VKBackend) Supports(renderer.Feature) bool { return false }
 
 // --- helpers -----------------------------------------------------------------
 
+// Records one sync2 layout transition over every layer of an image
 func (b *VKBackend) imageBarrier(cb vk.CommandBuffer, image vk.Image,
 	aspect vk.ImageAspectFlags, layerCount uint32,
 	from, to vk.ImageLayout,
@@ -845,8 +862,7 @@ func (b *VKBackend) imageBarrier(cb vk.CommandBuffer, image vk.Image,
 	}})
 }
 
-// immediateSubmit records a one-off command buffer and blocks until the GPU
-// has run it. Used by the upload paths, which happen at load time only.
+// Records a one-off command buffer and blocks until the GPU has run it, used by the load-time upload paths
 func (b *VKBackend) immediateSubmit(record func(cb vk.CommandBuffer)) {
 	cbs, err := vk.AllocateCommandBuffers(b.device, b.commandPool, 1)
 	fatal(err, "allocate one-time command buffer")
@@ -860,10 +876,9 @@ func (b *VKBackend) immediateSubmit(record func(cb vk.CommandBuffer)) {
 	fatal(vk.QueueWaitIdle(b.queue), "wait one-time")
 }
 
-// waitAllFrames drains the frames in flight. Required before mutating or
-// destroying a resource an already-submitted frame might still be reading.
+// Drains the frames in flight, required before mutating or destroying a resource an already-submitted frame might still read
 //
-// The frame currently being recorded is skipped: its fence was reset in
+// The frame currently being recorded is skipped. Its fence was reset in
 // BeginFrame and is only signalled by EndFrame's submit, so waiting on it from
 // inside the frame would deadlock. Skipping it is also correct — nothing it
 // records has reached the GPU yet.

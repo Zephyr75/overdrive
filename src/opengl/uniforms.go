@@ -12,7 +12,7 @@ import (
 
 // std140 layout of the Uniforms block in shaders/slang/common.slang, as
 // slangc reflects it for the GLSL target. This is the one hand-written layout
-// in the engine: the Vulkan backend gets its (scalar) layout for free because
+// in the engine. The Vulkan backend gets its (scalar) layout for free because
 // Go structs are already packed that way, but OpenGL 4.1 uniform blocks must be
 // std140, where vec3s pad to 16 bytes and array elements round up to 16.
 //
@@ -49,7 +49,7 @@ const (
 	blockSize = 1600
 )
 
-// Per-light member offsets, relative to that light's base.
+// Per-light member offsets, relative to that light's base
 const (
 	lOffType      = 0
 	lOffConstant  = 4
@@ -64,10 +64,10 @@ const (
 	lOffDirection = 80 // vec3
 )
 
-// Texture units, assigned to the generated samplers once at link time
-// (see assignSamplerUnits). Every cube sampler needs its own unit: leaving
-// shadowCubeMap[1..3] at unit 0 would collide with the 2D shadow sampler and
-// GL rejects the draw with GL_INVALID_OPERATION.
+// Texture units, assigned to the generated samplers once at link time (see
+// setupProgramInterface). Every cube sampler needs its own unit, because
+// leaving shadowCubeMap[1..3] at unit 0 would collide with the 2D shadow
+// sampler and GL rejects such a draw with GL_INVALID_OPERATION.
 const (
 	unitShadowMap    = 0
 	unitOurTexture   = 1
@@ -77,28 +77,31 @@ const (
 	samplerUnitCount = unitSkybox + 1
 )
 
+// Writes one float at a byte offset
 func putF32(dst []byte, off int, v float32) {
 	binary.LittleEndian.PutUint32(dst[off:], math.Float32bits(v))
 }
 
+// Writes one int at a byte offset
 func putI32(dst []byte, off int, v int32) {
 	binary.LittleEndian.PutUint32(dst[off:], uint32(v))
 }
 
+// Writes three floats, the std140 padding to 16 bytes being left to the caller's offsets
 func putVec3(dst []byte, off int, v [3]float32) {
 	putF32(dst, off+0, v[0])
 	putF32(dst, off+4, v[1])
 	putF32(dst, off+8, v[2])
 }
 
+// Writes a column-major 4x4 matrix
 func putMat4(dst []byte, off int, m mgl32.Mat4) {
 	for i := 0; i < 16; i++ {
 		putF32(dst, off+i*4, m[i])
 	}
 }
 
-// marshalStd140 writes the uniform snapshot into the block layout above.
-// dst must be at least blockSize bytes.
+// Writes the uniform snapshot into the block layout above, dst being at least blockSize bytes
 func marshalStd140(u *renderer.Uniforms, dst []byte) {
 	putMat4(dst, offView, u.View)
 	putMat4(dst, offProjection, u.Projection)
@@ -144,9 +147,7 @@ func marshalStd140(u *renderer.Uniforms, dst []byte) {
 	}
 }
 
-// applyUniforms uploads the snapshot into the shared uniform buffer and binds
-// the referenced textures to the units their samplers were assigned at link
-// time. Replaces the Phase 1 loose-uniform bridge.
+// Uploads the snapshot into the shared uniform buffer and binds its textures to the units their samplers were assigned at link time
 func (b *GLBackend) applyUniforms(u *renderer.Uniforms) {
 	marshalStd140(u, b.blockScratch)
 	gl.BindBuffer(gl.UNIFORM_BUFFER, b.ubo)
@@ -157,8 +158,8 @@ func (b *GLBackend) applyUniforms(u *renderer.Uniforms) {
 	b.bind2D(unitOurTexture, u.TexDiffuse)
 	b.bind2D(unitNormalMap, u.TexNormalMap)
 
-	// Only one point-shadow caster is tracked by the scene layer today; the
-	// remaining cube units still need a valid binding of the right type.
+	// Bind the one point-shadow caster the scene layer tracks, then fill the
+	// remaining cube units, which still need a valid binding of the right type
 	b.bindCube(unitShadowCube0, u.TexShadowCubeMap)
 	for i := 1; i < renderer.MaxShadowCubes; i++ {
 		b.bindCube(unitShadowCube0+i, 0)
@@ -166,8 +167,7 @@ func (b *GLBackend) applyUniforms(u *renderer.Uniforms) {
 	b.bindCube(unitSkybox, u.TexSkybox)
 }
 
-// bind2D binds a 2D texture, substituting the built-in white pixel for handle
-// 0 ("no texture"), which reads as unlit-white / fully-lit in the shaders.
+// Binds a 2D texture to a unit, substituting the white pixel for handle 0, which reads as unlit-white or fully-lit in the shaders
 func (b *GLBackend) bind2D(unit int, h renderer.TextureHandle) {
 	tex := uint32(h)
 	if tex == 0 {
@@ -177,6 +177,7 @@ func (b *GLBackend) bind2D(unit int, h renderer.TextureHandle) {
 	gl.BindTexture(gl.TEXTURE_2D, tex)
 }
 
+// Binds a cubemap to a unit, substituting the black dummy cube for handle 0
 func (b *GLBackend) bindCube(unit int, h renderer.TextureHandle) {
 	tex := uint32(h)
 	if tex == 0 {

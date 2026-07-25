@@ -20,13 +20,11 @@ var (
 	uiTexture    renderer.TextureHandle
 )
 
-// renderUI draws the widget tree into a CPU-side RGBA image, uploads it to a
-// texture through the backend, and draws it as a fullscreen quad. It runs
-// inside the main pass.
+// Rasterises the widget tree into an RGBA image, uploads it through the backend and draws it as a fullscreen quad, inside the main pass
 func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.ShaderHandle) {
 	window := app.Window
 
-	// Initialize image
+	// Allocate the canvas the widgets rasterise into
 	img := image.NewRGBA(image.Rect(0, 0, settings.WindowWidth, settings.WindowHeight))
 	var instance ui.UIElement = nil
 	if widget != nil {
@@ -42,7 +40,7 @@ func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.Shad
 		}
 	}
 
-	// Draw debug information
+	// Draw the debug crosshair
 	if app.Debug {
 		radius := 50
 		for i := 0; i < 360; i++ {
@@ -53,7 +51,7 @@ func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.Shad
 	}
 
 	if instance != nil {
-		// Only redraw if the UI has changed
+		// Redraw only when the widget tree or the hover state changed
 		if lastInstance != instance.ToString() || !equal {
 			lastInstance = instance.ToString()
 			areas = instance.Draw(img, window)

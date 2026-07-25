@@ -1,5 +1,5 @@
 // Package opengl implements renderer.Backend on OpenGL 4.1 core. Every gl.*
-// call in the engine lives in this package.
+// call in the engine lives in this package
 package opengl
 
 import (
@@ -16,9 +16,10 @@ import (
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
+// One drawable mesh: its vertex array plus the index buffer of one face group
 type meshEntry struct {
 	vao uint32
-	vbo uint32 // owned only by skybox meshes; regular meshes share the caller's
+	vbo uint32 // owned only by skybox meshes, regular meshes share the caller's
 	ebo uint32
 }
 
@@ -41,6 +42,7 @@ type GLBackend struct {
 	blockScratch []byte
 }
 
+// Builds an empty OpenGL backend, before any GL context exists
 func New() *GLBackend {
 	return &GLBackend{
 		meshes:       make(map[renderer.MeshHandle]meshEntry),
@@ -50,6 +52,7 @@ func New() *GLBackend {
 
 // --- lifecycle ---------------------------------------------------------------
 
+// Asks GLFW for a 4.1 core forward-compatible context with 4x multisampling
 func (b *GLBackend) ConfigureWindow() {
 	glfw.WindowHint(glfw.ContextVersionMajor, 4)
 	glfw.WindowHint(glfw.ContextVersionMinor, 1)
@@ -58,6 +61,7 @@ func (b *GLBackend) ConfigureWindow() {
 	glfw.WindowHint(glfw.Samples, 4)
 }
 
+// Makes the context current and creates the built-in textures and shared uniform buffer
 func (b *GLBackend) Init(window *glfw.Window) error {
 	b.window = window
 	window.MakeContextCurrent()
@@ -70,7 +74,7 @@ func (b *GLBackend) Init(window *glfw.Window) error {
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 	gl.Enable(gl.BLEND)
 
-	// Built-in 1x1 white pixel: the "no texture" texture (handle 0 maps here).
+	// Create the 1x1 white pixel that stands in for "no texture" (handle 0 maps here)
 	gl.GenTextures(1, &b.whiteTex)
 	gl.BindTexture(gl.TEXTURE_2D, b.whiteTex)
 	white := []uint8{255, 255, 255, 255}
@@ -78,7 +82,7 @@ func (b *GLBackend) Init(window *glfw.Window) error {
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 
-	// Built-in 1x1 black cubemap, for cube sampler units with nothing bound.
+	// Create the 1x1 black cubemap bound to cube sampler units the scene leaves unused
 	gl.GenTextures(1, &b.blackCube)
 	gl.BindTexture(gl.TEXTURE_CUBE_MAP, b.blackCube)
 	black := []uint8{0, 0, 0, 255}
@@ -89,8 +93,8 @@ func (b *GLBackend) Init(window *glfw.Window) error {
 	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 
-	// The shared uniform block, permanently bound to binding point 0; every
-	// program's block is pointed at the same buffer in setupProgramInterface.
+	// Create the shared uniform block, permanently bound to binding point 0.
+	// setupProgramInterface points every program's block at this same buffer
 	gl.GenBuffers(1, &b.ubo)
 	gl.BindBuffer(gl.UNIFORM_BUFFER, b.ubo)
 	gl.BufferData(gl.UNIFORM_BUFFER, blockSize, nil, gl.DYNAMIC_DRAW)
@@ -100,18 +104,21 @@ func (b *GLBackend) Init(window *glfw.Window) error {
 	return nil
 }
 
+// Does nothing, since GL objects die with the context, which dies with the window
 func (b *GLBackend) Shutdown() {
-	// GL objects die with the context, which dies with the window.
 }
 
 // --- frame -------------------------------------------------------------------
 
+// Does nothing, as GL has no per-frame setup to record
 func (b *GLBackend) BeginFrame() {}
 
+// Presents the frame by swapping the window's buffers
 func (b *GLBackend) EndFrame() {
 	b.window.SwapBuffers()
 }
 
+// Binds the target framebuffer, sets the viewport and clears depth, plus color when asked
 func (b *GLBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear *[4]float32) {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, uint32(target))
 	gl.Viewport(0, 0, int32(w), int32(h))
@@ -123,10 +130,12 @@ func (b *GLBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear
 	gl.Clear(bits)
 }
 
+// Rebinds the backbuffer, so a target is never left bound between passes
 func (b *GLBackend) EndPass() {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }
 
+// Culls front faces during the sun's shadow pass and back faces everywhere else
 func (b *GLBackend) SetCullFace(front bool) {
 	if front {
 		gl.CullFace(gl.FRONT)
@@ -135,6 +144,7 @@ func (b *GLBackend) SetCullFace(front bool) {
 	}
 }
 
+// Switches the depth test to LEQUAL for the skybox and back to LESS afterwards
 func (b *GLBackend) SetDepthFunc(lequal bool) {
 	if lequal {
 		gl.DepthFunc(gl.LEQUAL)
@@ -145,6 +155,7 @@ func (b *GLBackend) SetDepthFunc(lequal bool) {
 
 // --- shaders -----------------------------------------------------------------
 
+// Compiles and links one GLSL program from shaders/gl, the handle being the program name
 func (b *GLBackend) CreateShader(name string, hasGeometry bool) (renderer.ShaderHandle, error) {
 	program, err := createProgram(name, hasGeometry)
 	if err != nil {
@@ -156,6 +167,7 @@ func (b *GLBackend) CreateShader(name string, hasGeometry bool) (renderer.Shader
 
 // --- textures ----------------------------------------------------------------
 
+// Decodes an image file into a repeat-wrapped, linearly filtered 2D texture
 func (b *GLBackend) LoadTexture(path string) (renderer.TextureHandle, error) {
 	rgba, err := loadRGBA(path)
 	if err != nil {
@@ -174,6 +186,7 @@ func (b *GLBackend) LoadTexture(path string) (renderer.TextureHandle, error) {
 	return renderer.TextureHandle(tex), nil
 }
 
+// Decodes six face images into one clamped cubemap texture
 func (b *GLBackend) LoadCubemap(faces [6]string) (renderer.TextureHandle, error) {
 	var tex uint32
 	gl.GenTextures(1, &tex)
@@ -195,10 +208,12 @@ func (b *GLBackend) LoadCubemap(faces [6]string) (renderer.TextureHandle, error)
 	return renderer.TextureHandle(tex), nil
 }
 
+// Returns the built-in white pixel, which in GL is a real texture name
 func (b *GLBackend) WhiteTexture() renderer.TextureHandle {
 	return renderer.TextureHandle(b.whiteTex)
 }
 
+// Reuploads the UI overlay's pixels immediately, allocating the texture when handle 0 is passed
 func (b *GLBackend) UpdateTexture2D(h renderer.TextureHandle, w, hgt int, pixels []byte) renderer.TextureHandle {
 	tex := uint32(h)
 	if tex == 0 {
@@ -215,6 +230,7 @@ func (b *GLBackend) UpdateTexture2D(h renderer.TextureHandle, w, hgt int, pixels
 	return renderer.TextureHandle(tex)
 }
 
+// Deletes a texture, the driver deferring the free until no draw still reads it
 func (b *GLBackend) DestroyTexture(h renderer.TextureHandle) {
 	tex := uint32(h)
 	if tex != 0 {
@@ -224,6 +240,7 @@ func (b *GLBackend) DestroyTexture(h renderer.TextureHandle) {
 
 // --- buffers and meshes ------------------------------------------------------
 
+// Uploads float data into a new vertex buffer, hinting STATIC or DYNAMIC draw
 func (b *GLBackend) CreateBuffer(data []float32, dynamic bool) renderer.BufferHandle {
 	usage := uint32(gl.STATIC_DRAW)
 	if dynamic {
@@ -236,16 +253,19 @@ func (b *GLBackend) CreateBuffer(data []float32, dynamic bool) renderer.BufferHa
 	return renderer.BufferHandle(vbo)
 }
 
+// Respecifies a buffer's contents, the driver ghosting the old storage if a draw still reads it
 func (b *GLBackend) UpdateBuffer(h renderer.BufferHandle, data []float32) {
 	gl.BindBuffer(gl.ARRAY_BUFFER, uint32(h))
 	gl.BufferData(gl.ARRAY_BUFFER, len(data)*4, gl.Ptr(data), gl.DYNAMIC_DRAW)
 }
 
+// Deletes a buffer object
 func (b *GLBackend) DestroyBuffer(h renderer.BufferHandle) {
 	vbo := uint32(h)
 	gl.DeleteBuffers(1, &vbo)
 }
 
+// Builds a VAO recording the fixed vertex layout plus this face group's index buffer
 func (b *GLBackend) CreateMesh(vbo renderer.BufferHandle, indices []uint32) renderer.MeshHandle {
 	var vao, ebo uint32
 	gl.GenVertexArrays(1, &vao)
@@ -270,6 +290,7 @@ func (b *GLBackend) CreateMesh(vbo renderer.BufferHandle, indices []uint32) rend
 	return h
 }
 
+// Deletes a mesh's VAO and the buffers it owns
 func (b *GLBackend) DestroyMesh(m renderer.MeshHandle) {
 	e, ok := b.meshes[m]
 	if !ok {
@@ -285,6 +306,7 @@ func (b *GLBackend) DestroyMesh(m renderer.MeshHandle) {
 	delete(b.meshes, m)
 }
 
+// Builds the skybox VAO, which owns its position-only vertex buffer and has no indices
 func (b *GLBackend) CreateSkyboxMesh(verts []float32) renderer.MeshHandle {
 	var vao, vbo uint32
 	gl.GenVertexArrays(1, &vao)
@@ -303,6 +325,7 @@ func (b *GLBackend) CreateSkyboxMesh(verts []float32) renderer.MeshHandle {
 
 // --- shadow targets ----------------------------------------------------------
 
+// Creates a depth-only FBO with a 2D depth texture the main pass samples
 func (b *GLBackend) CreateShadowMap2D(w, h int) (renderer.FramebufferHandle, renderer.TextureHandle) {
 	var fbo, tex uint32
 	gl.GenFramebuffers(1, &fbo)
@@ -314,7 +337,7 @@ func (b *GLBackend) CreateShadowMap2D(w, h int) (renderer.FramebufferHandle, ren
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_BORDER)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_BORDER)
-	// Outside the light frustum reads "fully lit".
+	// Make everything outside the light frustum read as "fully lit"
 	borderColor := []float32{1.0, 1.0, 1.0, 1.0}
 	gl.TexParameterfv(gl.TEXTURE_2D, gl.TEXTURE_BORDER_COLOR, &borderColor[0])
 
@@ -326,6 +349,7 @@ func (b *GLBackend) CreateShadowMap2D(w, h int) (renderer.FramebufferHandle, ren
 	return renderer.FramebufferHandle(fbo), renderer.TextureHandle(tex)
 }
 
+// Creates a depth-only FBO with a cubemap depth texture, attached as one layered target
 func (b *GLBackend) CreateShadowCubemap(w, h int) (renderer.FramebufferHandle, renderer.TextureHandle) {
 	var fbo, tex uint32
 	gl.GenFramebuffers(1, &fbo)
@@ -342,7 +366,7 @@ func (b *GLBackend) CreateShadowCubemap(w, h int) (renderer.FramebufferHandle, r
 	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
-	// Layered attachment: the geometry shader routes triangles to faces.
+	// Attach all six faces at once, the geometry shader routing triangles to them
 	gl.FramebufferTexture(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, tex, 0)
 	gl.DrawBuffer(gl.NONE)
 	gl.ReadBuffer(gl.NONE)
@@ -350,6 +374,7 @@ func (b *GLBackend) CreateShadowCubemap(w, h int) (renderer.FramebufferHandle, r
 	return renderer.FramebufferHandle(fbo), renderer.TextureHandle(tex)
 }
 
+// Deletes a framebuffer object, leaving its depth texture to DestroyTexture
 func (b *GLBackend) DestroyFramebuffer(f renderer.FramebufferHandle) {
 	fbo := uint32(f)
 	if fbo != 0 {
@@ -359,6 +384,7 @@ func (b *GLBackend) DestroyFramebuffer(f renderer.FramebufferHandle) {
 
 // ---- draws ------------------------------------------------------------------
 
+// Binds the program, uploads the uniforms and draws one indexed face group
 func (b *GLBackend) DrawMesh(s renderer.ShaderHandle, m renderer.MeshHandle, indexCount int, u *renderer.Uniforms) {
 	gl.UseProgram(uint32(s))
 	b.applyUniforms(u)
@@ -367,6 +393,7 @@ func (b *GLBackend) DrawMesh(s renderer.ShaderHandle, m renderer.MeshHandle, ind
 	gl.BindVertexArray(0)
 }
 
+// Draws the skybox cube as 36 non-indexed vertices
 func (b *GLBackend) DrawSkybox(s renderer.ShaderHandle, m renderer.MeshHandle, u *renderer.Uniforms) {
 	gl.UseProgram(uint32(s))
 	b.applyUniforms(u)
@@ -375,6 +402,7 @@ func (b *GLBackend) DrawSkybox(s renderer.ShaderHandle, m renderer.MeshHandle, u
 	gl.BindVertexArray(0)
 }
 
+// Composites the UI overlay over the scene, building the quad on first use
 func (b *GLBackend) DrawFullscreenQuad(s renderer.ShaderHandle, tex renderer.TextureHandle) {
 	if b.quadVAO == 0 {
 		quadVertices := []float32{
@@ -396,8 +424,7 @@ func (b *GLBackend) DrawFullscreenQuad(s renderer.ShaderHandle, tex renderer.Tex
 		gl.BindVertexArray(0)
 	}
 	gl.UseProgram(uint32(s))
-	// The UI shader samples through ourTexture, which is pinned to its own unit
-	// like every other sampler.
+	// Bind through ourTexture, the unit the UI shader's sampler was pinned to at link time
 	b.bind2D(unitOurTexture, tex)
 	gl.BindVertexArray(b.quadVAO)
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
@@ -406,10 +433,12 @@ func (b *GLBackend) DrawFullscreenQuad(s renderer.ShaderHandle, tex renderer.Tex
 
 // ---- capabilities -----------------------------------------------------------
 
+// Reports no optional capability, since ray tracing and compute are Vulkan-only
 func (b *GLBackend) Supports(renderer.Feature) bool { return false }
 
 // ---- helpers ----------------------------------------------------------------
 
+// Decodes an image file into a tightly packed RGBA8 buffer
 func loadRGBA(path string) (*image.RGBA, error) {
 	f, err := os.Open(path)
 	if err != nil {

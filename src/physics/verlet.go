@@ -6,7 +6,9 @@ import (
 )
 
 type Collider interface {
+	// Resolves this collider against another, moving only itself
 	Collide(c Collider)
+	// Returns the Verlet state the integrator steps
 	GetVerlet() *Verlet
 
 	// Collider() string
@@ -19,11 +21,12 @@ type Verlet struct {
 	Fixed   bool
 }
 
+// Creates Verlet state at rest, fixed bodies never being integrated
 func NewVerlet(pos mgl32.Vec3, fixed bool) Verlet {
 	return Verlet{pos, pos, mgl32.Vec3{0.0, 0.0, 0.0}, fixed}
 }
 
-// Run Verlet integration
+// Runs one Verlet integration step, velocity being implied by the previous position
 func (v *Verlet) UpdatePosition(dt float32) {
 	if v.Fixed {
 		return
@@ -34,6 +37,7 @@ func (v *Verlet) UpdatePosition(dt float32) {
 	v.Accel = mgl32.Vec3{0.0, 0.0, 0.0}
 }
 
+// Accumulates acceleration for this step, cleared by UpdatePosition
 func (v *Verlet) Accelerate(accel mgl32.Vec3) {
 	v.Accel = v.Accel.Add(accel)
 }

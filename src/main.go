@@ -14,6 +14,7 @@ import (
 
 /////////////
 
+// An immovable body, its collider driving nothing of its own
 type StaticCollider struct {
 	physics.Collider
 }
@@ -23,6 +24,7 @@ func (s *StaticCollider) Update(world *ecs.World)       {}
 func (s *StaticCollider) GetType() string               { return "StaticCollider" }
 func (s *StaticCollider) GetCollider() physics.Collider { return s.Collider }
 
+// A falling ball, its mesh following the collider each frame
 type Sphere struct {
 	*physics.Sphere
 	*scene.Mesh
@@ -39,6 +41,7 @@ func (s *Sphere) GetType() string { return "Sphere" }
 
 func (s *Sphere) GetCollider() physics.Collider { return s.Sphere }
 
+// A static ball the falling one collides against
 type Sphere2 struct {
 	name string
 	*physics.Sphere
@@ -64,9 +67,7 @@ func main() {
 
 }
 
-// createWorld wires the physics bodies this demo needs. Meshes are looked up by
-// name and simply skipped when a scene doesn't have them, so any scene loads —
-// the showcase, for instance, is a rendering scene with no physics props.
+// Wires the physics bodies this demo needs, skipping any mesh the scene lacks so every scene still loads
 func createWorld(s *scene.Scene) *ecs.World {
 	world := ecs.World{}
 
@@ -88,6 +89,7 @@ var (
 	counter int = 10
 )
 
+// Builds the demo's widget tree, one frame's worth of UI
 func MainWindow(app core.App) ui.UIElement {
 	return ui.Row{
 		Style: ui.Style{

@@ -6,9 +6,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
-// createSwapchain builds the swapchain, its image views, the per-image render
-// semaphores and the shared depth buffer. The create info is kept on the
-// backend so recreateSwapchain can reuse it with a new extent.
+// Builds the swapchain, its image views, the per-image render semaphores and the shared depth buffer
 func (b *VKBackend) createSwapchain() error {
 	caps, err := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(b.physicalDevice, b.surface)
 	if err != nil {
@@ -16,12 +14,15 @@ func (b *VKBackend) createSwapchain() error {
 	}
 	extent := caps.CurrentExtent
 	if extent.Width == 0xFFFFFFFF {
-		// "Surface size is defined by the swapchain" — use the window's size.
+		// Fall back to the window's size, which is what "surface size is
+		// defined by the swapchain" means
 		w, h := b.window.GetSize()
 		extent = vk.Extent2D{Width: uint32(w), Height: uint32(h)}
 	}
 	b.swapExtent = extent
 
+	// Keep the create info on the backend, so recreation can reuse it with a
+	// new extent
 	b.swapchainCI = vk.SwapchainCreateInfo{
 		Surface:         b.surface,
 		MinImageCount:   caps.MinImageCount,
@@ -31,7 +32,7 @@ func (b *VKBackend) createSwapchain() error {
 		ImageUsage:      vk.ImageUsageColorAttachment,
 		PreTransform:    vk.SurfaceTransformIdentityKHR,
 		CompositeAlpha:  vk.CompositeAlphaOpaqueKHR,
-		PresentMode:     vk.PresentModeFifoKHR, // vsync; always supported
+		PresentMode:     vk.PresentModeFifoKHR, // vsync, always supported
 	}
 	sc, err := vk.CreateSwapchainKHR(b.device, b.swapchainCI)
 	if err != nil {
@@ -55,8 +56,8 @@ func (b *VKBackend) createSwapchain() error {
 		}
 	}
 
-	// One render-complete semaphore per swapchain image: present waits on the
-	// semaphore belonging to the image it is showing, not to the frame slot.
+	// Create one render-complete semaphore per swapchain image, present waiting
+	// on the semaphore belonging to the image it shows rather than to the frame slot
 	b.renderSems = make([]vk.Semaphore, len(b.swapImages))
 	for i := range b.renderSems {
 		if b.renderSems[i], err = vk.CreateSemaphore(b.device); err != nil {
@@ -67,6 +68,7 @@ func (b *VKBackend) createSwapchain() error {
 	return b.createDepthBuffer()
 }
 
+// Creates the one depth image and view every main pass renders into
 func (b *VKBackend) createDepthBuffer() error {
 	img, alloc, err := b.allocator.VmaCreateImage(vk.ImageCreateInfo{
 		ImageType: vk.ImageType2D,
@@ -91,6 +93,7 @@ func (b *VKBackend) createDepthBuffer() error {
 	return err
 }
 
+// Destroys the swapchain and everything sized to it
 func (b *VKBackend) destroySwapchain() {
 	for _, v := range b.swapViews {
 		vk.DestroyImageView(b.device, v)
@@ -111,11 +114,9 @@ func (b *VKBackend) destroySwapchain() {
 	}
 }
 
-// recreateSwapchain rebuilds everything that depends on the window size. Called
-// when acquire or present reports the surface is out of date, which is how a
-// resize surfaces in Vulkan (the OpenGL backend just gets a new viewport).
+// Rebuilds everything sized to the window, after acquire or present reports the surface out of date, which is how a resize reaches a Vulkan app
 func (b *VKBackend) recreateSwapchain() {
-	// A minimised window has a zero-sized surface, which no swapchain accepts.
+	// Block while minimised, as a zero-sized surface is one no swapchain accepts
 	w, h := b.window.GetSize()
 	for w == 0 || h == 0 {
 		glfw.WaitEvents()

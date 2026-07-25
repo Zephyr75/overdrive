@@ -6,19 +6,19 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// Must match MAX_LIGHTS / MAX_SHADOW_CUBES in shaders/slang/common.slang.
+// Must match MAX_LIGHTS / MAX_SHADOW_CUBES in shaders/slang/common.slang
 const (
 	MaxLights      = 8
 	MaxShadowCubes = 4
 )
 
-// Light types, matching the integer the shaders switch on.
+// Light types, matching the integer the shaders switch on
 const (
 	LightSun   = 0
 	LightPoint = 1
 )
 
-// LightData mirrors the Light struct in common.slang (scalar layout, 68 bytes).
+// LightData mirrors the Light struct in common.slang (scalar layout, 68 bytes)
 type LightData struct {
 	Type                         int32
 	Constant, Linear, Quadratic  float32
@@ -30,10 +30,11 @@ type LightData struct {
 
 // Uniforms mirrors the Uniforms struct in common.slang field for field
 // (scalar layout, 1312 bytes). Scene code fills fields and passes the struct
-// to each draw; backends translate it (GL: std140/loose-uniform upload +
-// fixed texture units; VK: ring-buffer memcpy + bindless slot patching).
+// to each draw, and each backend translates it. GL marshals it into a std140
+// buffer and binds textures to fixed units, VK memcpys it into a ring buffer
+// and patches the texture fields into bindless slots.
 //
-// The Tex* fields hold plain TextureHandles; 0 means "white pixel".
+// The Tex* fields hold plain TextureHandles, where 0 means "white pixel".
 type Uniforms struct {
 	View, Projection, Model mgl32.Mat4
 	LightSpaceMatrix        mgl32.Mat4
@@ -60,8 +61,8 @@ type Uniforms struct {
 }
 
 func init() {
-	// Go packs float32/int32 structs with no padding, which is exactly
-	// Vulkan's scalar block layout — guard that this stays true.
+	// Go packs float32/int32 structs with no padding, which is exactly Vulkan's
+	// scalar block layout, so guard that this stays true
 	if unsafe.Sizeof(LightData{}) != 68 || unsafe.Sizeof(Uniforms{}) != 1312 {
 		panic("renderer.Uniforms no longer matches common.slang scalar layout")
 	}

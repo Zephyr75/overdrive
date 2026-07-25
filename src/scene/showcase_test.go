@@ -13,9 +13,8 @@ import (
 // parse actually produced those values instead of silently falling back to
 // defaults, and that every texture it names is present on disk.
 //
-// Tests run with the package dir as the working directory, but the loader
-// resolves assets/ and textures/ relative to the module root — so move there
-// once for the whole package rather than per test.
+// Moves to the module root once for the whole package, tests running in the
+// package dir while the loader resolves assets/ and textures/ from the root.
 func TestMain(m *testing.M) {
 	if err := os.Chdir(".."); err != nil {
 		panic(err)
@@ -23,6 +22,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+// Loads the showcase scene, skipping the test when its assets are absent
 func loadShowcase(t *testing.T) Scene {
 	t.Helper()
 	if _, err := os.Stat("assets/showcase.xml"); err != nil {
@@ -31,6 +31,7 @@ func loadShowcase(t *testing.T) Scene {
 	return LoadScene("assets/showcase.xml")
 }
 
+// Checks the scene parses into the expected meshes and lights, and picks both shadow casters
 func TestShowcaseLoads(t *testing.T) {
 	s := loadShowcase(t)
 
@@ -41,8 +42,8 @@ func TestShowcaseLoads(t *testing.T) {
 		t.Errorf("lights = %d, want 5 (4 point + 1 sun)", len(s.Lights))
 	}
 
-	// Shadow budget: the first directional and first point light, resolved by
-	// index so XML ordering doesn't matter.
+	// Check the shadow budget goes to the first directional and first point
+	// light, resolved by index so XML ordering does not matter
 	s.pickShadowCasters()
 	if s.shadowDirIndex < 0 {
 		t.Error("no directional shadow caster picked, but the scene has a sun")
@@ -56,22 +57,23 @@ func TestShowcaseLoads(t *testing.T) {
 	}
 }
 
+// Checks the MTL parse produced real PBR scalars and that every texture it names exists
 func TestShowcaseMaterials(t *testing.T) {
 	s := loadShowcase(t)
 
 	var withColour, withNormal, metallic, customRoughness int
 	for _, m := range s.Meshes {
 		for _, mat := range m.Materials {
-			// Roughness 0 would make every surface a mirror — the bug that hid
-			// while nothing set these scalars. Ao 0 kills the ambient term.
+			// Catch a roughness of 0, which would make every surface a mirror,
+			// and an Ao of 0, which kills the ambient term
 			if mat.Roughness == 0 {
 				t.Errorf("%s: roughness is 0 — material defaults not applied?", m.Name)
 			}
 			if mat.Ao == 0 {
 				t.Errorf("%s: ao is 0 — material defaults not applied?", m.Name)
 			}
-			// Every showcase material sets Pr to something below the 1.0
-			// default, so an all-default result means Pr stopped being read.
+			// Count materials below the 1.0 default, every showcase material
+			// setting Pr, so an all-default result means Pr stopped being read
 			if mat.Roughness != 1 {
 				customRoughness++
 			}

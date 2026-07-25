@@ -8,6 +8,7 @@ var (
 	inGame bool = true
 )
 
+// Applies the built-in keyboard bindings: WASDQE flight, shift to sprint, tab to release the cursor, escape to quit
 func DefaultInput(window *glfw.Window, deltaTime float32) {
 	if window.GetKey(glfw.KeyEscape) == glfw.Press {
 		window.SetShouldClose(true)

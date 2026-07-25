@@ -10,22 +10,25 @@ type World struct {
 	entities []Entity
 }
 
+// Adds entities to the world
 func (w *World) AddEntities(entities ...Entity) {
 	w.entities = append(w.entities, entities...)
 }
 
+// Runs every entity's Init once, before the first frame
 func (w *World) Init() {
 	for _, entity := range w.entities {
 		entity.Init(w)
 	}
 }
 
+// Steps every entity, resolves collisions pairwise, then integrates the Verlet positions
 func (w *World) Update(timeInterval time.Duration) {
 	for _, entity := range w.entities {
 		entity.Update(w)
 	}
 
-	// Handle collisions
+	// Collide every ordered pair, each collider resolving its own half
 	for i, entity := range w.entities {
 		for j, otherEntity := range w.entities {
 			if i != j {
@@ -45,6 +48,7 @@ func (w *World) Update(timeInterval time.Duration) {
 	// }
 }
 
+// Returns every entity reporting a type
 func (w *World) GetEntities(entityType string) []Entity {
 	var entities []Entity
 	for _, entity := range w.entities {
@@ -55,6 +59,7 @@ func (w *World) GetEntities(entityType string) []Entity {
 	return entities
 }
 
+// Returns the first entity reporting a type, or nil
 func (w *World) GetEntity(entityType string) Entity {
 	for _, entity := range w.entities {
 		if entity.GetType() == entityType {
@@ -65,9 +70,13 @@ func (w *World) GetEntity(entityType string) Entity {
 }
 
 type Entity interface {
+	// Runs once, before the first frame
 	Init(world *World)
+	// Runs once per frame, before collisions are resolved
 	Update(world *World)
+	// Names this entity's kind, for lookups by type
 	GetType() string
+	// Returns the collider the physics step drives
 	GetCollider() physics.Collider
 }
 

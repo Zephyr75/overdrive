@@ -8,6 +8,7 @@ import (
 	"github.com/go-gl/gl/v4.1-core/gl"
 )
 
+// Compiles one GLSL stage, returning the compiler log as the error
 func createShader(source string, shaderType uint32) (uint32, error) {
 	shader := gl.CreateShader(shaderType)
 
@@ -31,6 +32,7 @@ func createShader(source string, shaderType uint32) (uint32, error) {
 	return shader, nil
 }
 
+// Reads one generated GLSL stage from shaders/gl and NUL-terminates it for gl.Strs
 func readStage(name, stage string) (string, error) {
 	path := "shaders/gl/" + name + "." + stage + ".glsl"
 	src, err := os.ReadFile(path)
@@ -40,8 +42,7 @@ func readStage(name, stage string) (string, error) {
 	return string(src) + "\x00", nil
 }
 
-// stripSuffix removes the "_<n>" slangc appends to disambiguate identifiers
-// (ourTexture_0), recovering the logical name the engine binds by.
+// Removes the "_<n>" slangc appends to disambiguate identifiers (ourTexture_0), recovering the logical name the engine binds by
 func stripSuffix(name string) string {
 	us := strings.LastIndex(name, "_")
 	if us < 0 || us+1 >= len(name) {
@@ -55,12 +56,10 @@ func stripSuffix(name string) string {
 	return name[:us]
 }
 
-// setupProgramInterface wires a freshly linked program to the shared uniform
-// buffer and pins each sampler to its fixed texture unit. Both are link-time
-// decisions, so nothing here repeats per draw.
+// Wires a freshly linked program to the shared uniform buffer and pins each sampler to its fixed unit, both being link-time decisions that never repeat per draw
 func (b *GLBackend) setupProgramInterface(program uint32) {
-	// Point every uniform block at binding 0; there is exactly one (the shared
-	// Uniforms block from common.slang).
+	// Point every uniform block at binding 0, there being exactly one (the
+	// shared Uniforms block from common.slang)
 	var numBlocks int32
 	gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &numBlocks)
 	for i := int32(0); i < numBlocks; i++ {
@@ -80,8 +79,8 @@ func (b *GLBackend) setupProgramInterface(program uint32) {
 		}
 		raw := string(buf[:length])
 
-		// An array sampler is reported once, as "shadowCubeMap_0[0]" with
-		// size > 1. Each element needs its own unit assigned by name.
+		// Assign each element of an array sampler its own unit by name, as GL
+		// reports the array once, as "shadowCubeMap_0[0]" with size > 1
 		if bracket := strings.IndexByte(raw, '['); bracket >= 0 {
 			mangled := raw[:bracket]
 			logical := stripSuffix(mangled)
@@ -99,7 +98,7 @@ func (b *GLBackend) setupProgramInterface(program uint32) {
 	}
 }
 
-// samplerUnit maps a logical sampler name (and array index) to its texture unit.
+// Maps a logical sampler name and array index to its fixed texture unit
 func samplerUnit(logical string, index int) int32 {
 	switch logical {
 	case "shadowMap":
@@ -116,6 +115,7 @@ func samplerUnit(logical string, index int) int32 {
 	return 0
 }
 
+// Compiles the stages of a shader set and links them into one program
 func createProgram(name string, addGeometry bool) (uint32, error) {
 	vertexShaderSource, err := readStage(name, "vert")
 	if err != nil {

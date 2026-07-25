@@ -12,6 +12,7 @@ type Skybox struct {
 	Texture renderer.TextureHandle
 }
 
+// Uploads the skybox cube and loads its six face images as a cubemap
 func (s *Skybox) setup(b renderer.Backend) {
 	vertices := []float32{
 		// positions
@@ -73,15 +74,16 @@ func (s *Skybox) setup(b renderer.Backend) {
 	s.Texture = tex
 }
 
+// Draws the skybox first in the main pass, with a depth test that lets it fill the far plane
 func (s *Scene) RenderSkybox(shader renderer.ShaderHandle, u *renderer.Uniforms) {
-	// View with the translation stripped, so the skybox follows the camera.
+	// Strip the view translation, so the skybox follows the camera
 	view := mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
 	u.View = view.Mat3().Mat4()
 	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
 	u.TexSkybox = s.Skybox.Texture
 
-	s.backend.SetDepthFunc(true) // depth <= 1.0 passes at the far plane
+	s.backend.SetDepthFunc(true) // depth <= 1.0 passes, so the far plane is drawable
 	s.backend.DrawSkybox(shader, s.Skybox.mesh, u)
 	s.backend.SetDepthFunc(false)
 }

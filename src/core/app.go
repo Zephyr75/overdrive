@@ -30,18 +30,20 @@ type App struct {
 	MouseCallback func(window *glfw.Window, x float64, y float64)
 }
 
+// Pins the package to the main OS thread, where GLFW event handling must run
 func init() {
-	// GLFW event handling must run on the main OS thread
 	runtime.LockOSThread()
 }
 
+// Asks the window to close, ending the frame loop after the current iteration
 func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
-// createBackend selects the graphics backend. It lives here rather than in
-// renderer/ because the backend packages import renderer (an import cycle
-// otherwise). Selection: OVERDRIVE_BACKEND env var, default "gl".
+// Selects the graphics backend from OVERDRIVE_BACKEND, defaulting to "gl"
+//
+// It lives here rather than in renderer/ because the backend packages import
+// renderer, which would otherwise be an import cycle.
 func createBackend() renderer.Backend {
 	switch os.Getenv("OVERDRIVE_BACKEND") {
 	case "", "gl", "opengl":
@@ -53,6 +55,7 @@ func createBackend() renderer.Backend {
 	}
 }
 
+// Creates the backend, the window and its input callbacks, then initialises the backend on that window
 func NewApp(name string, width int, height int, debug bool, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App {
 
 	app := App{
@@ -64,7 +67,7 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 		InputHandler:  inputHandler,
 	}
 
-	// The backend is created before the window so it can set its own hints.
+	// Create the backend before the window, so it can set its own hints
 	app.Backend = createBackend()
 
 	glfw.Init()
@@ -76,7 +79,7 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	}
 	app.Window = window
 
-	// Callbacks
+	// Wire the input callbacks, falling back to the built-in handlers
 	window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
 	window.SetScrollCallback(input.ScrollCallback)
 	if app.MouseCallback != nil {
@@ -91,6 +94,7 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	return app
 }
 
+// Loads the shader sets and runs the frame loop until the window closes
 func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) {
 	b := app.Backend
 
@@ -112,7 +116,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		input.SetScene(&emptyScene)
 	}
 
-	// Time init
+	// Init the frame timing
 	frames := 0
 	curTime := glfw.GetTime()
 	var deltaTime float32 = 0.0
@@ -121,14 +125,14 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 	const nearPlane = float32(1.0)
 	const farPlane = float32(50.0)
 
-	// Window lifecycle
+	// Run one iteration per frame until the window closes
 	for !app.Window.ShouldClose() {
 
 		world.Update(time.Second / 60)
 
 		s.UpdateMeshes()
 
-		// Process input
+		// Process input before anything is recorded, so the camera is current
 		if app.InputHandler != nil {
 			app.InputHandler(app.Window, deltaTime)
 		} else {
@@ -143,9 +147,9 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		if s != nil {
 			s.FillFrameUniforms(&u)
 
-			// Shadow passes — one per shadow-casting light. Non-casters own no
-			// depth target and are lit unshadowed in the main pass. The sun's
-			// pass leaves its light-space matrix in u for the main pass.
+			// Bake one shadow pass per casting light. Non-casters own no depth
+			// target and are lit unshadowed in the main pass, and the sun's
+			// pass leaves its light-space matrix in u for the main pass
 			dirCaster, pointCaster := s.ShadowCasters()
 			for _, i := range [2]int32{dirCaster, pointCaster} {
 				if i >= 0 {
@@ -154,7 +158,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 			}
 		}
 
-		// Main pass — the only pass that clears color.
+		// Run the main pass, the only one that clears color
 		b.BeginPass(0, settings.WindowWidth, settings.WindowHeight,
 			&[4]float32{0.1, 0.1, 0.1, 1.0})
 
@@ -168,7 +172,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		b.EndPass()
 		b.EndFrame()
 
-		// Time management
+		// Advance the clock and print the FPS once a second
 		frames++
 		deltaTime = float32(glfw.GetTime()) - float32(lastFrame)
 		lastFrame = glfw.GetTime()

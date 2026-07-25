@@ -15,6 +15,7 @@ import (
 
 // --- loading -----------------------------------------------------------------
 
+// Decodes an image file and uploads it as a sampled 2D texture
 func (b *VKBackend) LoadTexture(path string) (renderer.TextureHandle, error) {
 	rgba, err := loadRGBA(path)
 	if err != nil {
@@ -24,9 +25,10 @@ func (b *VKBackend) LoadTexture(path string) (renderer.TextureHandle, error) {
 	return b.uploadTexture(rgba.Pix, size.X, size.Y, 1, false, b.samplerRepeat), nil
 }
 
+// Decodes six face images and uploads them as one 6-layer cube image
 func (b *VKBackend) LoadCubemap(faces [6]string) (renderer.TextureHandle, error) {
-	// All six faces go into one 6-layer image, so they are staged as one
-	// contiguous block and copied in a single command.
+	// Stage all six faces as one contiguous block, so a single copy command
+	// fills the whole image
 	var pixels []byte
 	var w, h int
 	for i, path := range faces {
@@ -45,8 +47,10 @@ func (b *VKBackend) LoadCubemap(faces [6]string) (renderer.TextureHandle, error)
 	return b.uploadTexture(pixels, w, h, 6, true, b.samplerCubeLinear), nil
 }
 
+// Returns the built-in white pixel, which is handle 0 and bindless slot 0
 func (b *VKBackend) WhiteTexture() renderer.TextureHandle { return 0 }
 
+// Decodes an image file into a tightly packed RGBA8 buffer
 func loadRGBA(path string) (*image.RGBA, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -62,8 +66,7 @@ func loadRGBA(path string) (*image.RGBA, error) {
 	return rgba, nil
 }
 
-// uploadTexture creates a sampled image, fills it through a staging buffer, and
-// registers it in the bindless array of its kind.
+// Creates a sampled image, fills it through a staging buffer, and registers it in the bindless array of its kind
 func (b *VKBackend) uploadTexture(pixels []byte, w, h, layers int, cube bool, sampler vk.Sampler) renderer.TextureHandle {
 	flags := vk.ImageCreateFlags(0)
 	if cube {
@@ -108,9 +111,10 @@ func (b *VKBackend) uploadTexture(pixels []byte, w, h, layers int, cube bool, sa
 	return b.registerTexture(cube, image, alloc, view, sampler, true)
 }
 
-// recordImageUpload records the two layout transitions around a full-image
-// buffer copy. The old layout is always Undefined: every caller overwrites the
-// whole image, so discarding the previous contents is free and correct.
+// Records a full-image buffer copy between its two layout transitions
+//
+// The old layout is always Undefined, as every caller overwrites the whole
+// image, so discarding the previous contents is free and correct.
 func (b *VKBackend) recordImageUpload(cb vk.CommandBuffer, img vk.Image, staging vk.Buffer, w, h, layers int) {
 	b.imageBarrier(cb, img, vk.ImageAspectColor, uint32(layers),
 		vk.ImageLayoutUndefined, vk.ImageLayoutTransferDstOptimal,
@@ -130,8 +134,7 @@ func (b *VKBackend) recordImageUpload(cb vk.CommandBuffer, img vk.Image, staging
 		vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
 }
 
-// registerTexture records the image in the handle table and writes its
-// descriptor into the bindless array, so shaders can reach it by slot index.
+// Records the image in the handle table and writes its descriptor into the bindless array, so shaders can reach it by slot index
 func (b *VKBackend) registerTexture(cube bool, img vk.Image, alloc vk.VmaAllocation,
 	view vk.ImageView, sampler vk.Sampler, ownsImage bool) renderer.TextureHandle {
 
@@ -158,9 +161,7 @@ func (b *VKBackend) registerTexture(cube bool, img vk.Image, alloc vk.VmaAllocat
 	return renderer.TextureHandle(len(b.textures) - 1)
 }
 
-// writeDedicatedTexture writes one image into a non-bindless binding (the
-// shadow maps, bindings 2 and 3). Binding 3 is an array, one cube per
-// point-shadow caster, selected by arrayElement.
+// Writes one image into a non-bindless binding, bindings 2 and 3 being the shadow maps and 3 holding one cube per point-shadow caster
 func (b *VKBackend) writeDedicatedTexture(binding, arrayElement uint32, view vk.ImageView, sampler vk.Sampler) {
 	vk.UpdateDescriptorSets(b.device, []vk.WriteDescriptorSet{{
 		DstSet: b.descriptorSet, DstBinding: binding, DstArrayElement: arrayElement,
@@ -171,9 +172,7 @@ func (b *VKBackend) writeDedicatedTexture(binding, arrayElement uint32, view vk.
 	}})
 }
 
-// slot2D / slotCube translate an engine texture handle into the bindless array
-// index the shader indexes with. An unset or mismatched handle falls back to
-// slot 0, which is the white pixel (2D) or the black dummy (cube).
+// Translates a texture handle into its 2D bindless slot, an unset or mismatched handle falling back to the white pixel in slot 0
 func (b *VKBackend) slot2D(h renderer.TextureHandle) int32 {
 	if int(h) < len(b.textures) && b.textures[h].valid && !b.textures[h].cube {
 		return int32(b.textures[h].slot)
@@ -181,6 +180,7 @@ func (b *VKBackend) slot2D(h renderer.TextureHandle) int32 {
 	return 0
 }
 
+// Translates a texture handle into its cube bindless slot, an unset or mismatched handle falling back to the black dummy in slot 0
 func (b *VKBackend) slotCube(h renderer.TextureHandle) int32 {
 	if int(h) < len(b.textures) && b.textures[h].valid && b.textures[h].cube {
 		return int32(b.textures[h].slot)
@@ -190,27 +190,26 @@ func (b *VKBackend) slotCube(h renderer.TextureHandle) int32 {
 
 // --- the UI overlay texture --------------------------------------------------
 
-// UpdateTexture2D (re)uploads the UI's CPU-rasterised pixels.
+// Stages the UI's CPU-rasterised pixels for a copy at the next BeginFrame
 //
 // The engine calls this from inside the main pass, where a copy cannot be
-// recorded, so the pixels are staged here and the copy is recorded at the top
-// of the next BeginFrame instead. That costs the overlay one frame of latency
-// and avoids stalling the queue every frame, which an immediate submit here
-// would do.
+// recorded, so the copy is deferred instead. That costs the overlay one frame
+// of latency and avoids stalling the queue every frame, which an immediate
+// submit here would do.
 func (b *VKBackend) UpdateTexture2D(h renderer.TextureHandle, w, hgt int, pixels []byte) renderer.TextureHandle {
 	needed := uint64(len(pixels))
 
-	// Handle 0 means "allocate one" here, matching the OpenGL backend's
-	// contract. It must not be looked up: handle 0 is the built-in white pixel.
+	// Treat handle 0 as "allocate one", matching the OpenGL backend's contract.
+	// It must not be looked up, handle 0 being the built-in white pixel
 	var e *texEntry
 	if h != 0 {
 		e = b.texture(h)
 	}
 
-	// First call, or the widget canvas resized: build a new image and staging
-	// pair. The old one is retired rather than destroyed — this runs inside the
-	// main pass, and the command buffer being recorded already references it
-	// (BeginFrame flushed a copy into it).
+	// Build a new image and staging pair on the first call and whenever the
+	// widget canvas resizes. The old one is retired rather than destroyed,
+	// since this runs inside the main pass and the command buffer being
+	// recorded already references it (BeginFrame flushed a copy into it)
 	if e == nil || e.stagingSize != needed {
 		if e != nil {
 			b.retire(e)
@@ -228,6 +227,7 @@ func (b *VKBackend) UpdateTexture2D(h renderer.TextureHandle, w, hgt int, pixels
 	return h
 }
 
+// Creates the UI overlay's image, view and persistently mapped staging buffer
 func (b *VKBackend) createUpdatableTexture(w, h int, size uint64) renderer.TextureHandle {
 	img, alloc, err := b.allocator.VmaCreateImage(vk.ImageCreateInfo{
 		ImageType:   vk.ImageType2D,
@@ -246,7 +246,7 @@ func (b *VKBackend) createUpdatableTexture(w, h int, size uint64) renderer.Textu
 	})
 	fatal(err, "create UI image view")
 
-	// Persistently mapped: the per-frame update is then a plain memcpy.
+	// Keep it persistently mapped, making the per-frame update a plain memcpy
 	staging, stagingAlloc, info, err := b.allocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: size, Usage: vk.BufferUsageTransferSrc},
 		vk.VmaAllocationCreateInfo{
@@ -262,8 +262,7 @@ func (b *VKBackend) createUpdatableTexture(w, h int, size uint64) renderer.Textu
 	return handle
 }
 
-// flushPendingUploads records the staged UI copies into this frame's command
-// buffer. Called from BeginFrame, before any pass has begun.
+// Records the staged UI copies into this frame's command buffer, from BeginFrame, before any pass has begun
 func (b *VKBackend) flushPendingUploads(cb vk.CommandBuffer) {
 	for _, h := range b.pendingUploads {
 		e := b.texture(h)
@@ -276,10 +275,11 @@ func (b *VKBackend) flushPendingUploads(cb vk.CommandBuffer) {
 	b.pendingUploads = b.pendingUploads[:0]
 }
 
-// retire queues a texture's GPU objects for destruction once every frame that
-// could reference them has completed. Vulkan has no driver-side refcounting, so
-// replacing a resource mid-frame needs this: destroying it immediately would
-// invalidate the command buffer currently being recorded.
+// Queues a texture's GPU objects for destruction once every frame that could reference them has completed
+//
+// Vulkan has no driver-side refcounting, so replacing a resource mid-frame
+// needs this. Destroying it immediately would invalidate the command buffer
+// currently being recorded.
 func (b *VKBackend) retire(e *texEntry) {
 	b.retired = append(b.retired, retiredTexture{
 		frame: b.frameCounter,
@@ -288,9 +288,10 @@ func (b *VKBackend) retire(e *texEntry) {
 	})
 }
 
-// drainRetired destroys everything retired long enough ago to be unreferenced.
+// Destroys everything retired long enough ago to be unreferenced
+//
 // An item retired during frame F is referenced by F's command buffer at the
-// latest; that buffer has certainly completed once framesInFlight further
+// latest, and that buffer has certainly completed once framesInFlight further
 // frames have begun, because BeginFrame waits on the fence of the slot it
 // reuses.
 func (b *VKBackend) drainRetired() {
@@ -309,6 +310,7 @@ func (b *VKBackend) drainRetired() {
 	b.retired = kept
 }
 
+// Resolves a texture handle, returning nil for out-of-range or destroyed entries
 func (b *VKBackend) texture(h renderer.TextureHandle) *texEntry {
 	if int(h) >= len(b.textures) || !b.textures[h].valid {
 		return nil
@@ -316,6 +318,7 @@ func (b *VKBackend) texture(h renderer.TextureHandle) *texEntry {
 	return &b.textures[h]
 }
 
+// Destroys a texture's view, image and staging buffer once the frames in flight have drained
 func (b *VKBackend) DestroyTexture(h renderer.TextureHandle) {
 	e := b.texture(h)
 	if e == nil || h == 0 {
@@ -334,18 +337,20 @@ func (b *VKBackend) DestroyTexture(h renderer.TextureHandle) {
 
 // --- shadow render targets ---------------------------------------------------
 
+// Creates a single-layer depth target for the sun's shadow map
 func (b *VKBackend) CreateShadowMap2D(w, h int) (renderer.FramebufferHandle, renderer.TextureHandle) {
 	return b.createShadowTarget(w, h, false)
 }
 
+// Creates a 6-layer depth target for a point light's shadow cube
 func (b *VKBackend) CreateShadowCubemap(w, h int) (renderer.FramebufferHandle, renderer.TextureHandle) {
 	return b.createShadowTarget(w, h, true)
 }
 
-// createShadowTarget builds a depth image that is both rendered into and
-// sampled. It needs two views of the same image: one to attach (a plain 2D
-// view, or a 6-layer 2D-array view that the geometry shader routes faces into)
-// and one to sample (2D, or cube).
+// Builds a depth image that is both rendered into and sampled, plus the two views that need
+//
+// One view is attached — a plain 2D view, or a 6-layer 2D-array view the
+// geometry shader routes faces into — and the other is sampled, as 2D or cube.
 func (b *VKBackend) createShadowTarget(w, h int, cube bool) (renderer.FramebufferHandle, renderer.TextureHandle) {
 	layers := uint32(1)
 	flags := vk.ImageCreateFlags(0)
@@ -384,7 +389,8 @@ func (b *VKBackend) createShadowTarget(w, h int, cube bool) (renderer.Framebuffe
 	sampleView, err := vk.CreateImageView(b.device, viewCI)
 	fatal(err, "create shadow sample view")
 
-	// ownsImage=false: the shadowEntry frees the image, not the texture entry.
+	// Register with ownsImage=false, the shadowEntry freeing the image rather
+	// than the texture entry
 	tex := b.registerTexture(cube, img, vk.VmaAllocation{}, sampleView, sampler, false)
 
 	b.shadowTargets = append(b.shadowTargets, shadowEntry{
@@ -395,6 +401,7 @@ func (b *VKBackend) createShadowTarget(w, h int, cube bool) (renderer.Framebuffe
 	return renderer.FramebufferHandle(len(b.shadowTargets) - 1), tex
 }
 
+// Destroys a shadow target's attachment view and depth image once the frames in flight have drained
 func (b *VKBackend) DestroyFramebuffer(f renderer.FramebufferHandle) {
 	if f == 0 || int(f) >= len(b.shadowTargets) || !b.shadowTargets[f].valid {
 		return

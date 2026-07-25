@@ -9,15 +9,16 @@ import (
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// shaderEntry holds the compiled SPIR-V modules plus the pipelines built from
-// them. Unlike OpenGL there is no single "program" object: a pipeline bakes in
-// the pass's attachment formats and the mesh's vertex layout, so one shader
-// needs one pipeline per combination it is actually drawn with.
+// The compiled SPIR-V modules plus the pipelines built from them. Unlike
+// OpenGL there is no single "program" object, because a pipeline bakes in the
+// pass's attachment formats and the mesh's vertex layout, so one shader needs
+// one pipeline per combination it is actually drawn with.
 type shaderEntry struct {
 	vert, frag, geo vk.ShaderModule
 	pipelines       [passCount][layoutCount]vk.Pipeline
 }
 
+// Loads the SPIR-V modules of a shader set, no pipeline being built yet
 func (b *VKBackend) CreateShader(name string, hasGeometry bool) (renderer.ShaderHandle, error) {
 	var e shaderEntry
 	var err error
@@ -33,12 +34,13 @@ func (b *VKBackend) CreateShader(name string, hasGeometry bool) (renderer.Shader
 		}
 	}
 
-	// No pipeline is built here: which ones are needed depends on the passes
-	// and meshes this shader is drawn with, so they are built lazily.
+	// Build no pipeline here, as which ones are needed depends on the passes
+	// and meshes this shader is drawn with, so they are built lazily
 	b.shaders = append(b.shaders, e)
 	return renderer.ShaderHandle(len(b.shaders)), nil // handle 0 stays invalid
 }
 
+// Reads one precompiled SPIR-V stage from shaders/vk into a shader module
 func (b *VKBackend) loadModule(name, stage string) (vk.ShaderModule, error) {
 	path := fmt.Sprintf("shaders/vk/%s.%s.spv", name, stage)
 	code, err := os.ReadFile(path)
@@ -48,6 +50,7 @@ func (b *VKBackend) loadModule(name, stage string) (vk.ShaderModule, error) {
 	return vk.CreateShaderModule(b.device, code)
 }
 
+// Resolves a shader handle, returning nil for 0 or out-of-range entries
 func (b *VKBackend) shader(h renderer.ShaderHandle) *shaderEntry {
 	if h == 0 || int(h) > len(b.shaders) {
 		return nil
@@ -55,8 +58,7 @@ func (b *VKBackend) shader(h renderer.ShaderHandle) *shaderEntry {
 	return &b.shaders[h-1]
 }
 
-// getPipeline returns the pipeline for this (shader, pass, layout), building it
-// on first use.
+// Returns the pipeline for this (shader, pass, layout), building it on first use
 func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout vertexLayout) vk.Pipeline {
 	if p := s.pipelines[pass][layout]; p != 0 {
 		return p
@@ -84,18 +86,18 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout vertexLayo
 			PolygonMode: vk.PolygonModeFill,
 			// Vulkan's y-down framebuffer flips winding relative to OpenGL. The
 			// main pass's negative-height viewport flips it back, so GL's CCW
-			// front face survives there; shadow passes use a positive viewport
-			// and therefore need CW.
+			// front face survives there. Shadow passes use a positive viewport
+			// and therefore need CW
 			FrontFace: frontFace(pass),
 			LineWidth: 1,
 		},
 		MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: vk.SampleCount1Bit},
 		DepthStencilState: &vk.PipelineDepthStencilStateCreateInfo{
 			DepthTestEnable: true,
-			// The UI overlay composites over the finished scene, so it tests
-			// (its triangle sits on the near plane) but must not write.
+			// Let the UI overlay test but not write, as it composites over the
+			// finished scene from the near plane
 			DepthWriteEnable: layout != layoutFullscreen,
-			DepthCompareOp:   vk.CompareOpLess, // dynamic; this is only the default
+			DepthCompareOp:   vk.CompareOpLess, // dynamic, so this is only the default
 		},
 		ColorBlendState: colorBlendState(pass),
 		DynamicState: &vk.PipelineDynamicStateCreateInfo{
@@ -104,8 +106,8 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout vertexLayo
 				vk.DynamicStateCullMode, vk.DynamicStateDepthCompareOp,
 			},
 		},
-		// Dynamic rendering: the pipeline declares the attachment formats it
-		// will be used with instead of pointing at a render-pass object.
+		// Declare the attachment formats this pipeline will be used with, which
+		// under dynamic rendering replaces pointing at a render-pass object
 		Rendering: renderingInfo(pass, b.swapFormat),
 	}
 
@@ -115,9 +117,10 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout vertexLayo
 	return p
 }
 
+// Builds the vertex input state for a layout, dropping the attributes a depth-only pass never reads
 func vertexInputState(pass passKind, layout vertexLayout) *vk.PipelineVertexInputStateCreateInfo {
 	if layout == layoutFullscreen {
-		// The UI quad: clip-space position(3) | uv(2), 20-byte stride.
+		// Describe the UI quad, clip-space position(3) | uv(2), 20-byte stride
 		return &vk.PipelineVertexInputStateCreateInfo{
 			Bindings: []vk.VertexInputBinding{{Binding: 0, Stride: 5 * 4, InputRate: vk.VertexInputRateVertex}},
 			Attributes: []vk.VertexInputAttribute{
@@ -134,8 +137,8 @@ func vertexInputState(pass passKind, layout vertexLayout) *vk.PipelineVertexInpu
 	attrs := []vk.VertexInputAttribute{
 		{Location: 0, Binding: 0, Format: vk.FormatR32G32B32Sfloat, Offset: 0},
 	}
-	// Only the main pass consumes normals and UVs; the depth-only shaders take
-	// position alone, and declaring unread attributes would be rejected.
+	// Add normals and UVs for the main pass only, the depth-only shaders taking
+	// position alone and declaring unread attributes being rejected
 	if layout == layoutMesh && pass == passMain {
 		attrs = append(attrs,
 			vk.VertexInputAttribute{Location: 1, Binding: 0, Format: vk.FormatR32G32B32Sfloat, Offset: 3 * 4},
@@ -148,6 +151,7 @@ func vertexInputState(pass passKind, layout vertexLayout) *vk.PipelineVertexInpu
 	}
 }
 
+// Picks the winding a pass treats as front-facing, CCW in the main pass and CW in the shadow passes
 func frontFace(pass passKind) vk.FrontFace {
 	if pass == passMain {
 		return vk.FrontFaceCounterClockwise
@@ -155,7 +159,7 @@ func frontFace(pass passKind) vk.FrontFace {
 	return vk.FrontFaceClockwise
 }
 
-// Shadow passes have no color attachment, so they get no blend state.
+// Builds the alpha-blend state of the main pass, shadow passes having no color attachment to blend into
 func colorBlendState(pass passKind) *vk.PipelineColorBlendStateCreateInfo {
 	if pass != passMain {
 		return &vk.PipelineColorBlendStateCreateInfo{}
@@ -174,6 +178,7 @@ func colorBlendState(pass passKind) *vk.PipelineColorBlendStateCreateInfo {
 	}
 }
 
+// Declares the attachment formats of a pass, depth alone for the shadow passes
 func renderingInfo(pass passKind, swapFormat vk.Format) *vk.PipelineRenderingCreateInfo {
 	info := &vk.PipelineRenderingCreateInfo{DepthAttachmentFormat: depthFormat}
 	if pass == passMain {

@@ -36,10 +36,12 @@ type Light struct {
 	castsShadow  bool                   // set by Scene at load time
 }
 
+// Offsets the light's position
 func (l *Light) Move(x float32, y float32, z float32) {
 	l.Pos = l.Pos.Add(mgl32.Vec3{x, y, z})
 }
 
+// Converts a parsed XML light into engine coordinates and units
 func (l LightXml) toLight() Light {
 	t := renderer.LightSun
 	name := l.Name
@@ -70,9 +72,10 @@ func (l LightXml) toLight() Light {
 	}
 }
 
-// setup allocates this light's shadow map, but only if the scene picked it as
-// a caster: shadow maps and their depth passes are the expensive part, so
-// non-casters cost nothing beyond the forward-pass lighting term.
+// Allocates this light's shadow map, but only when the scene picked it as a caster
+//
+// Shadow maps and their depth passes are the expensive part, so non-casters
+// cost nothing beyond the forward-pass lighting term.
 func (l *Light) setup(b renderer.Backend, castsShadow bool) {
 	l.backend = b
 	l.castsShadow = castsShadow
@@ -86,9 +89,9 @@ func (l *Light) setup(b renderer.Backend, castsShadow bool) {
 	}
 }
 
-// RenderLight runs this light's shadow pass: one BeginPass/EndPass on its
-// depth target, drawing every mesh with the matching depth shader. Returns
-// the light-space matrix (identity for point lights) for the main pass.
+// Runs this light's shadow pass, drawing every mesh into its depth target with the matching depth shader
+//
+// Returns the light-space matrix, identity for point lights, for the main pass.
 func (l *Light) RenderLight(nearPlane, farPlane float32,
 	depthShader, depthCubeShader renderer.ShaderHandle,
 	s *Scene, u *renderer.Uniforms) mgl32.Mat4 {
@@ -105,7 +108,7 @@ func (l *Light) RenderLight(nearPlane, farPlane float32,
 		lightSpaceMatrix = lightProjection.Mul4(lightView)
 		u.LightSpaceMatrix = lightSpaceMatrix
 
-		// Front-face culling avoids peter-panning on the shadow's near edge.
+		// Cull front faces, which avoids peter-panning on the shadow's near edge
 		b.SetCullFace(true)
 		for i := range s.Meshes {
 			s.Meshes[i].draw(depthShader, u)

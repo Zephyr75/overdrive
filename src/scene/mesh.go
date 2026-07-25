@@ -41,6 +41,7 @@ type Mesh struct {
 	initialPosition mgl32.Vec3
 }
 
+// Offsets the mesh and rebuilds its vertex data for the next upload
 func (m *Mesh) MoveBy(x float32, y float32, z float32) {
 	m.Position[0] += x
 	m.Position[1] += y
@@ -49,12 +50,14 @@ func (m *Mesh) MoveBy(x float32, y float32, z float32) {
 	m.needsUpdate = true
 }
 
+// Moves the mesh to a position and rebuilds its vertex data for the next upload
 func (m *Mesh) MoveTo(dest mgl32.Vec3) {
 	m.Position = dest
 	m.fillVertices()
 	m.needsUpdate = true
 }
 
+// Parses the OBJ and MTL files an XML mesh names into geometry and materials
 func (mXml MeshXml) toMesh() Mesh {
 	objFile, err := os.Open("assets/meshes/" + mXml.Obj)
 	if err != nil {
@@ -121,8 +124,8 @@ func (mXml MeshXml) toMesh() Mesh {
 
 	m.fillVertices()
 
-	// Scenes may omit <mtl>: OBJ files name their own material library, and it
-	// conventionally matches the .obj basename.
+	// Fall back to the .obj basename, scenes being allowed to omit <mtl> because
+	// an OBJ file names its own material library and it conventionally matches
 	mtlName := mXml.Mtl
 	if mtlName == "" {
 		mtlName = strings.TrimSuffix(mXml.Obj, ".obj") + ".mtl"
@@ -187,7 +190,8 @@ func (mXml MeshXml) toMesh() Mesh {
 	return m
 }
 
-// texturePath resolves an MTL texture reference to a project-local path.
+// Resolves an MTL texture reference to a project-local path
+//
 // Blender bakes the absolute path of the machine that exported the scene, so
 // only the basename is kept and resolved against the engine's own textures/
 // directory — otherwise a scene only loads on the machine it was authored on.
@@ -196,6 +200,7 @@ func texturePath(ref string) string {
 	return "textures/" + path.Base(ref)
 }
 
+// Flattens the OBJ face lists into the interleaved vertex array and per-group index lists
 func (m *Mesh) fillVertices() {
 	var value []float32
 	var faces [][]uint32
@@ -225,17 +230,19 @@ func (m *Mesh) fillVertices() {
 	m.indexGroups = faces
 }
 
+// Uploads the mesh's vertex buffer, one mesh handle per face group, and its material textures
 func (m *Mesh) setup(b renderer.Backend) {
 	m.backend = b
 
-	// One shared vertex buffer; one mesh handle (index list) per face group.
+	// Share one vertex buffer across the face groups, each group owning only
+	// its index list
 	m.vertexBuf = b.CreateBuffer(m.vertexData, true)
 	m.gpu = make([]renderer.MeshHandle, len(m.indexGroups))
 	for i, face := range m.indexGroups {
 		m.gpu[i] = b.CreateMesh(m.vertexBuf, face)
 	}
 
-	// GPU-load the material textures recorded at parse time.
+	// Load the material textures recorded at parse time
 	for i := range m.Materials {
 		mat := &m.Materials[i]
 		if mat.TexturePath != "" {
@@ -255,6 +262,7 @@ func (m *Mesh) setup(b renderer.Backend) {
 	}
 }
 
+// Reuploads the vertex buffer when a Move marked it dirty
 func (m *Mesh) updateVertices() {
 	if !m.needsUpdate {
 		return
@@ -263,8 +271,7 @@ func (m *Mesh) updateVertices() {
 	m.needsUpdate = false
 }
 
-// draw renders every face group of the mesh: the per-group material fields
-// are written into u, then the group is drawn through the backend.
+// Draws every face group of the mesh, writing that group's material fields into u before each draw
 func (m *Mesh) draw(shader renderer.ShaderHandle, u *renderer.Uniforms) {
 	for i, face := range m.indexGroups {
 		mat := m.Materials[i]
@@ -276,10 +283,10 @@ func (m *Mesh) draw(shader renderer.ShaderHandle, u *renderer.Uniforms) {
 		u.MatMetallic = mat.Metallic
 		u.MatRoughness = mat.Roughness
 		u.MatAo = mat.Ao
-		u.TexDiffuse = mat.Texture // 0 = the backend's white pixel
+		u.TexDiffuse = mat.Texture // 0 means the backend's white pixel
 
-		// Normal mapping is per-submesh: without a map the shader falls back to
-		// the interpolated geometric normal.
+		// Flag normal mapping per face group, the shader falling back to the
+		// interpolated geometric normal without a map
 		u.TexNormalMap = mat.NormalMap
 		u.UseNormalMap = 0
 		if mat.NormalMap != 0 {

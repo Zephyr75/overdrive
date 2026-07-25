@@ -19,7 +19,7 @@ type Material struct {
 	Roughness float32
 	Ao        float32
 
-	// Texture file paths recorded at MTL-parse time; the GPU handles are
+	// Texture file paths recorded at MTL-parse time, the GPU handles being
 	// created in Mesh.setup once a backend is available.
 	TexturePath   string
 	NormalMapPath string
@@ -27,10 +27,11 @@ type Material struct {
 	NormalMap     renderer.TextureHandle
 }
 
-// newMaterial returns the defaults a material carries before its MTL entry is
-// parsed. Roughness and Ao must not start at zero: a legacy material with no
-// PBR keys would otherwise read as a perfect mirror with no ambient light.
-// Matches the C++ engine's dielectric/matte default.
+// Returns the defaults a material carries before its MTL entry is parsed
+//
+// Roughness and Ao must not start at zero, or a legacy material with no PBR
+// keys would read as a perfect mirror with no ambient light. Matches the C++
+// engine's dielectric/matte default.
 func newMaterial() Material {
 	return Material{Metallic: 0, Roughness: 1, Ao: 1}
 }

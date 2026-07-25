@@ -27,15 +27,14 @@ type Scene struct {
 	// Indices into Lights of the lights that own a shadow map. Shadows are a
 	// bounded budget — one 2D map for a directional light, one cube map for a
 	// point light — so which lights get one is decided once, at load, rather
-	// than depending on the order they appear in the XML. -1 = nobody.
+	// than depending on the order they appear in the XML. -1 means nobody.
 	shadowDirIndex   int32
 	shadowPointIndex int32
 
 	backend renderer.Backend
 }
 
-// pickShadowCasters selects the first directional and the first point light as
-// the shadow casters.
+// Selects the first directional and the first point light as the shadow casters
 func (s *Scene) pickShadowCasters() {
 	s.shadowDirIndex = -1
 	s.shadowPointIndex = -1
@@ -49,17 +48,17 @@ func (s *Scene) pickShadowCasters() {
 	}
 }
 
-// casts reports whether the light at index i owns a shadow map.
+// Reports whether the light at index i owns a shadow map
 func (s *Scene) casts(i int32) bool {
 	return i == s.shadowDirIndex || i == s.shadowPointIndex
 }
 
-// ShadowCasters returns the caster indices, so the frame loop can bake only
-// those lights' depth passes.
+// Returns the caster indices, so the frame loop bakes only those lights' depth passes
 func (s *Scene) ShadowCasters() (dir, point int32) {
 	return s.shadowDirIndex, s.shadowPointIndex
 }
 
+// Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
 func NewScene(path string, b renderer.Backend) Scene {
 	s := LoadScene(path)
 	s.backend = b
@@ -68,14 +67,15 @@ func NewScene(path string, b renderer.Backend) Scene {
 	}
 	s.pickShadowCasters()
 	for i := range s.Lights {
-		// Only casters allocate a shadow map, and only casters bake a depth
-		// pass each frame; every other light is evaluated unshadowed.
+		// Allocate a shadow map for casters alone, every other light being
+		// evaluated unshadowed in the main pass
 		s.Lights[i].setup(b, s.casts(int32(i)))
 	}
 	s.Skybox.setup(b)
 	return s
 }
 
+// Returns a scene with nothing in it, for running the app with UI only
 func EmptyScene() Scene {
 	var s Scene
 	s.Meshes = make([]Mesh, 0)
@@ -85,6 +85,7 @@ func EmptyScene() Scene {
 	return s
 }
 
+// Reuploads the vertices of every mesh a physics step moved this frame
 func (s *Scene) UpdateMeshes() {
 	if s != nil {
 		for i := range s.Meshes {
@@ -93,6 +94,7 @@ func (s *Scene) UpdateMeshes() {
 	}
 }
 
+// Finds a mesh by name, returning nil when the scene has none
 func (s *Scene) GetMesh(name string) *Mesh {
 	for i, mesh := range s.Meshes {
 		if mesh.Name == name {
@@ -102,6 +104,7 @@ func (s *Scene) GetMesh(name string) *Mesh {
 	return nil
 }
 
+// Finds a light by name, returning nil when the scene has none
 func (s *Scene) GetLight(name string) *Light {
 	for i, light := range s.Lights {
 		if light.Name == name {
@@ -111,10 +114,12 @@ func (s *Scene) GetLight(name string) *Light {
 	return nil
 }
 
+// Returns the scene's camera
 func (s *Scene) GetCamera() *Camera {
 	return &s.Cam
 }
 
+// Parses a scene XML file into meshes, lights and a camera, with no GPU work
 func LoadScene(path string) Scene {
 	xmlFile, err := os.Open(path)
 	if err != nil {
@@ -154,8 +159,7 @@ func LoadScene(path string) Scene {
 	return s
 }
 
-// FillFrameUniforms writes the per-frame values into u: camera matrices,
-// the light array, and the scene-wide texture handles (shadow maps, skybox).
+// Writes the per-frame values into u: camera matrices, the light array, and the scene-wide texture handles
 func (s *Scene) FillFrameUniforms(u *renderer.Uniforms) {
 	u.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
 	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
@@ -188,7 +192,7 @@ func (s *Scene) FillFrameUniforms(u *renderer.Uniforms) {
 
 	// Tell the shader which light each shadow map belongs to, and hand the
 	// backend the maps themselves. Without the indices the shader would apply
-	// the directional shadow to whichever light happens to sit at index 0.
+	// the directional shadow to whichever light happens to sit at index 0
 	u.ShadowDirIndex = s.shadowDirIndex
 	for i := range u.PointShadowLights {
 		u.PointShadowLights[i] = -1
@@ -202,11 +206,12 @@ func (s *Scene) FillFrameUniforms(u *renderer.Uniforms) {
 	}
 }
 
-// cos(45°), the spot cutoff the old per-draw uniform code hardcoded.
+// cos(45°), the spot cutoff the old per-draw uniform code hardcoded
 const cos45 = float32(0.7071067811865476)
 
+// Draws every mesh of the scene with the forward shader, inside the main pass
 func (s *Scene) RenderScene(shader renderer.ShaderHandle, u *renderer.Uniforms) {
-	// Restore the full view matrix (the skybox pass strips its translation).
+	// Restore the full view matrix, the skybox pass having stripped its translation
 	u.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
 	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)

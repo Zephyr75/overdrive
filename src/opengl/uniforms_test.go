@@ -27,7 +27,7 @@ type member struct {
 	count     int // 0 = not an array
 }
 
-// parseBlock returns the members of the named brace-delimited declaration.
+// Returns the members of the named brace-delimited declaration
 func parseBlock(src, header string) []member {
 	i := strings.Index(src, header)
 	if i < 0 {
@@ -57,7 +57,7 @@ func parseBlock(src, header string) []member {
 	return out
 }
 
-// std140 alignment and unpadded size of a scalar/vector/matrix type.
+// Returns the std140 alignment and unpadded size of a scalar, vector, matrix or struct type
 func baseTypeLayout(typ string, structs map[string][]member) (align, size int) {
 	switch typ {
 	case "float", "int", "uint", "bool":
@@ -72,14 +72,15 @@ func baseTypeLayout(typ string, structs map[string][]member) (align, size int) {
 		return 16, 64
 	}
 	if members, ok := structs[typ]; ok {
-		// A struct aligns to the largest member alignment, rounded up to 16,
-		// and its size is rounded up to that alignment.
+		// Align a struct to the largest member alignment rounded up to 16, and
+		// round its size up to that alignment
 		a, s := 16, layoutOf(members, structs)
 		return a, roundUp(s, a)
 	}
 	panic("unhandled GLSL type " + typ)
 }
 
+// Rounds a value up to a multiple of an alignment
 func roundUp(v, a int) int {
 	if v%a == 0 {
 		return v
@@ -87,7 +88,7 @@ func roundUp(v, a int) int {
 	return v + a - v%a
 }
 
-// layoutOf walks members applying std140 and returns the total size.
+// Walks members applying std140 and returns the total size
 func layoutOf(members []member, structs map[string][]member) int {
 	off := 0
 	for _, m := range members {
@@ -96,12 +97,12 @@ func layoutOf(members []member, structs map[string][]member) int {
 	return off
 }
 
-// offsetOf places one member at or after off and returns the next free offset.
+// Places one member at or after off and returns the next free offset
 func offsetOf(off int, m member, structs map[string][]member) int {
 	align, size := baseTypeLayout(m.typ, structs)
 	if m.count > 0 {
-		// Array elements always align to at least 16 and are padded to a
-		// multiple of that alignment.
+		// Align array elements to at least 16 and pad them to a multiple of
+		// that alignment
 		if align < 16 {
 			align = 16
 		}
@@ -111,7 +112,7 @@ func offsetOf(off int, m member, structs map[string][]member) int {
 	return roundUp(off, align) + size
 }
 
-// offsets returns each member's std140 byte offset by name.
+// Returns each member's std140 byte offset by name
 func offsets(members []member, structs map[string][]member) map[string]int {
 	out := map[string]int{}
 	off := 0
@@ -126,15 +127,16 @@ func offsets(members []member, structs map[string][]member) map[string]int {
 	return out
 }
 
-// slangc suffixes identifiers with _<n>; strip it to get the logical name.
+// Strips the _<n> slangc suffixes identifiers with, giving the logical name
 func logical(name string) string { return stripSuffix(name) }
 
+// Parses the generated GLSL and returns the block's offsets, size and struct table
 func loadGeneratedBlock(t *testing.T) (map[string]int, int, map[string][]member) {
 	t.Helper()
 	const path = "../shaders/gl/forward.frag.glsl"
 	src, err := os.ReadFile(path)
 	if err != nil {
-		t.Skipf("generated GLSL missing (%v); run ./build_shaders.sh", err)
+		t.Skipf("generated GLSL missing (%v), run ./build_shaders.sh", err)
 	}
 	text := string(src)
 
@@ -156,6 +158,7 @@ func loadGeneratedBlock(t *testing.T) (map[string]int, int, map[string][]member)
 	return byLogical, layoutOf(blockMembers, structs), structs
 }
 
+// Checks every hand-written block offset against the generated GLSL
 func TestStd140BlockOffsets(t *testing.T) {
 	got, size, _ := loadGeneratedBlock(t)
 
@@ -192,12 +195,13 @@ func TestStd140BlockOffsets(t *testing.T) {
 		}
 	}
 
-	// blockSize must cover the whole block, or glBufferSubData truncates it.
+	// Check blockSize covers the whole block, or glBufferSubData truncates it
 	if roundUp(size, 16) != blockSize {
 		t.Errorf("blockSize = %d, generated block needs %d", blockSize, roundUp(size, 16))
 	}
 }
 
+// Checks the per-light stride and member offsets against the generated LightData struct
 func TestStd140LightStride(t *testing.T) {
 	_, _, structs := loadGeneratedBlock(t)
 	members := structs["LightData_0"]
@@ -216,7 +220,7 @@ func TestStd140LightStride(t *testing.T) {
 	for name, off := range offsets(members, structs) {
 		expect, ok := want[logical(name)]
 		if !ok {
-			t.Errorf("%s: unexpected LightData member; uniforms.go does not write it", logical(name))
+			t.Errorf("%s: unexpected LightData member, which uniforms.go does not write", logical(name))
 			continue
 		}
 		if off != expect {
@@ -225,7 +229,7 @@ func TestStd140LightStride(t *testing.T) {
 	}
 }
 
-// The marshal must stay inside the buffer it is handed.
+// Checks the marshal stays inside the buffer it is handed
 func TestMarshalStd140StaysInBounds(t *testing.T) {
 	dst := make([]byte, blockSize)
 	var u renderer.Uniforms

@@ -14,10 +14,12 @@ type Plane struct {
 	CrossHalf float32
 }
 
+// Fits a plane collider to a mesh's first quad
 func NewPlaneFromMesh(mesh *scene.Mesh, fixed bool) *Plane {
 	return NewPlane(mesh.Vertices[0], mesh.Vertices[1], mesh.Vertices[3], mesh.Vertices[2], fixed)
 }
 
+// Builds a finite plane from four corners, deriving its centre, normal and half-extents
 func NewPlane(p1 mgl32.Vec3, p2 mgl32.Vec3, p3 mgl32.Vec3, p4 mgl32.Vec3, fixed bool) *Plane {
 	mainAxis := p2.Sub(p1)
 	crossAxis := p4.Sub(p1)
@@ -30,8 +32,10 @@ func NewPlane(p1 mgl32.Vec3, p2 mgl32.Vec3, p3 mgl32.Vec3, p4 mgl32.Vec3, fixed 
 	return &Plane{verlet, normal, mainAxis.Normalize(), crossAxis.Normalize(), mainAxis.Len() * 0.5, crossAxis.Len() * 0.5}
 }
 
+// Does nothing, the sphere side of the pair resolving plane contacts
 func (p *Plane) Collide(c Collider) {
 	// TODO: Implement
 }
 
+// Returns the Verlet state the integrator steps
 func (p *Plane) GetVerlet() *Verlet { return &p.Verlet }
