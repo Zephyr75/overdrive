@@ -7,6 +7,6 @@ float4 vsMain(float3 aPos) : SV_Position {
     return pos;
 }
 
-// Depth-only pass: depth is written automatically, the fragment stage is empty.
+// Depth-only pass, depth is written automatically and the fragment stage is empty
 [shader("fragment")]
 void fsMain() {}

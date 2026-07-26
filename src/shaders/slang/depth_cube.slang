@@ -1,7 +1,8 @@
 #include "common.slang"
 
-// The vertex stage emits world-space positions; the geometry stage fans each
-// triangle out to all six cubemap faces, applying that face's view-projection.
+// The vertex stage emits world-space positions
+// The geometry stage fans each triangle out to all six cubemap faces
+// Each face gets its own view-projection applied
 
 struct VSOut {
     float4 worldPos : SV_Position;
@@ -15,10 +16,10 @@ VSOut vsMain(float3 aPos) {
 }
 
 struct GSOut {
-    // Named clipPos, not position: on the GLSL target slangc would otherwise
-    // disambiguate this against LightData.position by renaming the *block's*
-    // field (position_0 -> position_1) in this stage only, and GL rejects a
-    // program whose uniform-block struct members differ by name across stages.
+    // Named clipPos, not position
+    // On the GLSL target slangc disambiguates a clash with LightData.position
+    // It renames the block's field, position_0 -> position_1, in this stage only
+    // GL rejects a program whose block members differ by name across stages
     float4 clipPos : SV_Position;
     float4 fragPos : TEXCOORD0;
     uint layer : SV_RenderTargetArrayIndex;

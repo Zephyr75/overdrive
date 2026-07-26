@@ -14,21 +14,20 @@ VSOut vsMain(float3 aPos, float3 aNormal, float2 aTexCoord) {
     o.fragPos = fragPos;
     o.texCoord = aTexCoord;
     o.normal = mul(transpose(inverse3((float3x3)U.model)), aNormal);
-    // The light-space position used to be precomputed here, but the shadow
-    // test now applies a normal-offset bias to the world position first, so it
-    // re-projects in the fragment shader instead.
+    // The light-space position is not precomputed here any more
+    // The shadow test offsets the world position along the normal first
+    // So it re-projects in the fragment shader instead
     o.position = mul(U.projection, mul(U.view, float4(fragPos, 1.0)));
     TO_VK_DEPTH(o.position);
     return o;
 }
 
-// Normal-offset shadow bias: rather than offsetting the stored/compared *depth*
-// (which detaches the contact shadow = peter-panning), we push the receiver
-// sample point along its surface normal, in world space, before projecting it
-// into the shadow map. The offset grows toward grazing light angles where acne
-// is worst. This keeps contact shadows attached while still escaping self-
-// shadow acne, so the leftover constant depth bias can be tiny.
-// Tuned for the showcase's ~10-unit scene scale; see FEATURES.md (Shadow bias).
+// Normal-offset shadow bias
+// Offsetting the compared depth would detach contact shadows, aka peter-panning
+// Instead push the receiver sample along its world-space normal before projecting
+// The offset grows toward grazing light angles where acne is worst
+// Contact shadows stay attached and the leftover constant depth bias can be tiny
+// Tuned for the showcase's ~10-unit scene scale, see FEATURES.md
 static const float NORMAL_OFFSET_2D = 0.08;   // ortho 2D map, world units
 static const float NORMAL_OFFSET_CUBE = 0.10; // point cube map, world units
 
@@ -42,32 +41,30 @@ static const float3 gridSamplingDisk[20] = {
 
 float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos,
                             int slot) {
-    // Normal-offset bias: nudge the sample off the surface along its normal so
-    // self-shadow acne is escaped geometrically, letting the depth bias shrink.
+    // Nudge the sample off the surface along its normal
+    // Acne is escaped geometrically, so the depth bias can shrink
     float3 offsetPos = fragPos + normal * NORMAL_OFFSET_CUBE;
     float3 fragToLight = offsetPos - lightPos;
     float currentDepth = length(fragToLight);
     float shadow = 0.0;
     float bias = 0.04;
     int samples = 20;
-    // Hoist the cubemap and the loop-invariant uniforms into locals so the
-    // 20-tap loop touches registers, not memory. On Vulkan shadowCubeMap[slot]
-    // is a dynamically-indexed dedicated descriptor; resolving it once here is
-    // the most we do about that (see OPTIMISATION.md — the residual per-tap
-    // descriptor cost is an Intel-iGPU artifact we deliberately don't chase).
+    // Hoist the cubemap and the loop-invariant uniforms into locals
+    // The 20-tap loop then touches registers, not memory
+    // On Vulkan shadowCubeMap[slot] is a dynamically indexed descriptor
+    // Resolving it once here is the most we do, see OPTIMISATION.md
     SamplerCube shadowCube = shadowCubeMap[slot];
     float farPlane = U.farPlane;
     float viewDistance = length(U.viewPos - fragPos);
     float diskRadius = (1.0 + (viewDistance / farPlane)) / 25.0;
 
-    // Early-bail PCF: 4 spread taps first. If they unanimously agree (fully lit
-    // or fully shadowed — true for almost every fragment outside a penumbra),
-    // skip the full 20-tap kernel. Only soft edges pay the full price. This is
-    // the main shadow-sampling cost saver; it disproportionately helps the
-    // Vulkan/Intel path, where these taps dominated the frame.
+    // Early-bail PCF, 4 spread taps first
+    // If they all agree, fully lit or fully shadowed, skip the 20-tap kernel
+    // Almost every fragment outside a penumbra agrees, only soft edges pay full
+    // This is the main shadow-sampling saver, and it helps Vulkan on Intel most
     float early = 0.0;
-    // No [unroll]: slangc would emit GL_EXT_control_flow_attributes, which the
-    // GL 4.10 fragment profile (Mesa) rejects. The early-bail itself is the win.
+    // No [unroll], slangc would emit GL_EXT_control_flow_attributes
+    // The GL 4.10 fragment profile on Mesa rejects that
     for (int j = 0; j < 4; ++j) {
         float cd = shadowCube.Sample(fragToLight + gridSamplingDisk[j * 5] *
                                                        diskRadius).r * farPlane;
@@ -77,9 +74,9 @@ float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos,
     if (early == 0.0)
         return 0.0; // unanimously lit
     if (early == 4.0)
-        return 5.0; // unanimously shadowed (shadow = 1.0, scaled by 5)
+        return 5.0; // unanimously shadowed, shadow 1.0 scaled by 5
 
-    // Penumbra: full kernel for a smooth edge.
+    // Penumbra, full kernel for a smooth edge
     for (int i = 0; i < samples; ++i) {
         float closestDepth =
             shadowCube.Sample(fragToLight + gridSamplingDisk[i] * diskRadius).r;
@@ -92,9 +89,9 @@ float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos,
 }
 
 float shadowCalculation(float3 fragPos, float3 normal, float3 lightDir) {
-    // Normal-offset bias: offset the world-space sample along its normal, more
-    // at grazing angles, then re-project into light space. Replaces the old
-    // slope-scaled *depth* bias that caused peter-panning at contact points.
+    // Offset the world-space sample along its normal, more at grazing angles
+    // Then re-project into light space
+    // Replaces the slope-scaled depth bias that peter-panned at contact points
     float ndl = clamp(dot(normal, lightDir), 0.0, 1.0);
     float offset = NORMAL_OFFSET_2D * (1.0 - ndl);
     float4 fragPosLightSpace =
@@ -102,21 +99,21 @@ float shadowCalculation(float3 fragPos, float3 normal, float3 lightDir) {
     float3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
     float currentDepth = projCoords.z;
-    // Small residual depth bias; the normal offset does the heavy lifting.
+    // Small residual depth bias, the normal offset does the heavy lifting
     float bias = 0.0015;
     float shadow = 0.0;
-    // Resolve the bindless 2D shadow map once (see shadowCalculationCube).
+    // Resolve the 2D shadow map once, see shadowCalculationCube
     Sampler2D shadowMap = TEX_SHADOWMAP;
     uint w, h;
     shadowMap.GetDimensions(w, h);
     float2 texelSize = 1.0 / float2(w, h);
 
-    // Early-bail: test the 4 corners; skip the 3x3 kernel if they agree (same
-    // idea as the cube path).
+    // Early-bail, test the 4 corners and skip the 3x3 kernel if they agree
+    // Same idea as the cube path
     float2 corners[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1),
                          float2(1, 1)};
     float early = 0.0;
-    // No [unroll] (see shadowCalculationCube): avoids GL_EXT_control_flow_attributes.
+    // No [unroll], see shadowCalculationCube
     for (int c = 0; c < 4; ++c) {
         float pcfDepth =
             shadowMap.Sample(projCoords.xy + corners[c] * texelSize).r;
@@ -125,7 +122,7 @@ float shadowCalculation(float3 fragPos, float3 normal, float3 lightDir) {
     if (early == 0.0)
         return 0.0; // fully lit
     if (early == 4.0)
-        return projCoords.z > 1.0 ? 0.0 : 1.0; // fully shadowed (unless past far)
+        return projCoords.z > 1.0 ? 0.0 : 1.0; // fully shadowed unless past far
 
     for (int x = -1; x <= 1; ++x) {
         for (int y = -1; y <= 1; ++y) {
@@ -142,16 +139,18 @@ float shadowCalculation(float3 fragPos, float3 normal, float3 lightDir) {
 
 // ---- Cook-Torrance metallic-roughness PBR -----------------------------------
 //
-// Replaces the old Blinn-Phong terms with a microfacet BRDF: GGX/Trowbridge-
-// Reitz normal distribution, Smith height-correlated geometry (Schlick-GGX
-// with the direct-lighting k), and a Fresnel-Schlick term. matDiffuse is the
-// base colour (albedo); metallic blends the F0 reflectance from the 0.04
-// dielectric default toward the albedo, and kills the diffuse lobe.
+// A microfacet BRDF, three terms
+//   GGX/Trowbridge-Reitz normal distribution
+//   Smith height-correlated geometry, Schlick-GGX with the direct-lighting k
+//   Fresnel-Schlick reflectance
+// matDiffuse is the base colour, aka albedo
+// metallic blends F0 from the 0.04 dielectric default toward the albedo
+// metallic also kills the diffuse lobe
 static const float PI = 3.14159265358979;
 
-// Material params hoisted out of the per-light loop. On Vulkan U is a
-// buffer_reference pointer, so reads inside the loop cannot be proven
-// loop-invariant and would re-fetch every iteration; locals stay in registers.
+// Material params hoisted out of the per-light loop
+// U is a buffer_reference pointer on Vulkan, so loop reads are never invariant
+// They would re-fetch every iteration, locals stay in registers instead
 struct MatParams {
     float3 albedo;
     float metallic;
@@ -182,13 +181,13 @@ float3 fresnelSchlick(float cosTheta, float3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// Roughness-aware Fresnel for the environment ambient term (Sébastien Lagarde).
+// Roughness-aware Fresnel for the environment ambient term, from Sébastien Lagarde
 float3 fresnelSchlickRoughness(float cosTheta, float3 F0, float roughness) {
     float3 Fr = max(float3(1.0 - roughness), F0);
     return F0 + (Fr - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-// Outgoing radiance from one light, given its incoming radiance at the surface.
+// Outgoing radiance from one light, given its incoming radiance at the surface
 float3 cookTorrance(MatParams mat, float3 N, float3 V, float3 L, float3 radiance) {
     float3 H = normalize(V + L);
     float NdotL = max(dot(N, L), 0.0);
@@ -197,8 +196,8 @@ float3 cookTorrance(MatParams mat, float3 N, float3 V, float3 L, float3 radiance
     float3 F = fresnelSchlick(max(dot(H, V), 0.0), mat.F0);
     float3 specular = (NDF * G * F) /
                       max(4.0 * max(dot(N, V), 0.0) * NdotL, 1e-4);
-    // Energy conservation: what is not reflected (kS = F) is refracted/diffused,
-    // and metals have no diffuse lobe.
+    // Energy conservation, what is not reflected as kS = F gets diffused
+    // Metals have no diffuse lobe at all
     float3 kD = (float3(1.0) - F) * (1.0 - mat.metallic);
     return (kD * mat.albedo / PI + specular) * radiance * NdotL;
 }
@@ -212,16 +211,15 @@ float3 calcDirLight(LightData light, MatParams mat, float3 normal, float3 viewDi
 float3 calcPointLight(LightData light, MatParams mat, float3 normal, float3 fragPos, float3 viewDir) {
     float3 lightDir = normalize(light.position - fragPos);
     float distance = length(light.position - fragPos);
-    // Inverse-square falloff (physical), kept off zero by kConstant.
+    // Physical inverse-square falloff, kept off zero by kConstant
     float attenuation = 1.0 / (light.kConstant + distance * distance);
     float3 radiance = light.color * light.diffuse * light.intensity * attenuation;
     return cookTorrance(mat, normal, viewDir, lightDir, radiance);
 }
 
-// Perturb the geometric normal by a tangent-space normal map without
-// precomputed tangents: derive the TBN basis from screen-space derivatives of
-// fragPos and uv (Schüler's cotangent frame). Avoids adding tangents to the
-// vertex layout.
+// Perturb the geometric normal with a tangent-space normal map
+// No precomputed tangents, the TBN basis comes from derivatives of fragPos and uv
+// Schüler's cotangent frame, so tangents stay out of the vertex layout
 float3 perturbNormal(float3 N, float3 fragPos, float2 uv) {
     float3 tangentNormal = TEX_NORMAL.Sample(uv).xyz * 2.0 - 1.0;
 
@@ -248,19 +246,18 @@ float4 fsMain(VSOut i) : SV_Target {
         norm = perturbNormal(norm, i.fragPos, flippedTex);
     float3 viewDir = normalize(U.viewPos - i.fragPos);
 
-    // Albedo = sRGB base-colour texture (linearised) tinted by matDiffuse. The
-    // default white texture makes untextured materials fall back to matDiffuse.
+    // Albedo is the sRGB base-colour texture, linearised, tinted by matDiffuse
+    // The default white texture makes untextured materials fall back to matDiffuse
     float3 texColor = TEX_OUR.Sample(flippedTex).rgb;
     float3 albedo = pow(texColor, float3(2.2)) * U.matDiffuse;
 
-    // Hoist loop-invariant material reads into locals so the per-light loop
-    // touches registers instead of re-loading through U's buffer_reference
-    // pointer (Vulkan) every iteration.
+    // Hoist loop-invariant material reads into locals
+    // Otherwise the per-light loop re-loads through U's pointer every iteration
     MatParams mat;
     mat.albedo = albedo;
     mat.metallic = U.matMetallic;
     mat.roughness = clamp(U.matRoughness, 0.04, 1.0);
-    // Dielectrics reflect ~4%; metals tint their reflectance with the albedo.
+    // Dielectrics reflect ~4%, metals tint their reflectance with the albedo
     mat.F0 = lerp(float3(0.04), albedo, U.matMetallic);
     float ao = U.matAo;
     int lightCount = U.lightCount;
@@ -278,10 +275,10 @@ float4 fsMain(VSOut i) : SV_Target {
                                            normalize(light.direction));
         } else {
             contrib = calcPointLight(light, mat, norm, i.fragPos, viewDir);
-            // Does this point light own a cube shadow slot? Up to
-            // MAX_SHADOW_CUBES casters; the rest light unshadowed. The cube is
-            // indexed dynamically (shadowCubeMap[s]); see OPTIMISATION.md for why
-            // we deliberately keep this generic rather than constant-fold it.
+            // Does this point light own a cube shadow slot
+            // Up to MAX_SHADOW_CUBES casters, the rest light unshadowed
+            // shadowCubeMap[s] stays dynamically indexed on purpose
+            // See OPTIMISATION.md for why we do not constant-fold it
             for (int s = 0; s < MAX_SHADOW_CUBES; s++)
                 if (U.pointShadowLights[s] == l)
                     shadow = shadowCalculationCube(i.fragPos, norm,
@@ -290,25 +287,27 @@ float4 fsMain(VSOut i) : SV_Target {
         Lo += contrib * (1.0 - shadow);
     }
 
-    // Ambient image-based lighting. The skybox cubemap stands in for both the
-    // irradiance (diffuse) and the prefiltered specular environment — a crude
-    // probe (no prefiltered mips or BRDF LUT yet; see FEATURES roadmap). The
-    // split-sum is approximated by a Fresnel-weighted mix so metals mirror the
-    // sky and dielectrics pick up a soft tint.
+    // Ambient image-based lighting
+    // The skybox cubemap stands in for both irradiance and prefiltered specular
+    // A crude probe, no prefiltered mips or BRDF LUT yet, see FEATURES.md
+    // A Fresnel-weighted mix approximates the split-sum
+    // Metals mirror the sky and dielectrics pick up a soft tint
     float3 F = fresnelSchlickRoughness(max(dot(norm, viewDir), 0.0), mat.F0,
                                        mat.roughness);
     float3 kD = (float3(1.0) - F) * (1.0 - mat.metallic);
-    // Damp the diffuse irradiance: a single raw cubemap tap massively
-    // over-estimates true hemispherical irradiance and washes out direct
-    // lighting. Specular reflection (prefiltered) stays full so metals still
-    // mirror the sky. (Proper prefiltered IBL would remove the fudge factor.)
+    // Damp the diffuse irradiance
+    // One raw cubemap tap over-estimates hemispherical irradiance badly
+    // It washes out the direct lighting, so scale it down
+    // Specular stays full so metals still mirror the sky
+    // Proper prefiltered IBL would remove this fudge factor
     float3 irradiance = TEX_SKYBOX.Sample(norm).rgb * 0.35;
     float3 R = reflect(-viewDir, norm);
     float3 prefiltered = TEX_SKYBOX.Sample(R).rgb;
     float3 ambient = (kD * irradiance * albedo + prefiltered * F) * ao;
 
-    // HDR -> LDR: Reinhard tonemap + gamma. A dedicated HDR/bloom pass is on the
-    // roadmap; until then this keeps the unbounded PBR radiance displayable.
+    // HDR to LDR, Reinhard tonemap then gamma
+    // A dedicated HDR/bloom pass is on the roadmap
+    // Until then this keeps the unbounded PBR radiance displayable
     float3 color = ambient + Lo;
     color = color / (color + float3(1.0));
     color = pow(color, float3(1.0 / 2.2));

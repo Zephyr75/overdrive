@@ -1,18 +1,17 @@
 #include "common.slang"
 
-// Fullscreen UI overlay. The engine rasterises its widget tree into an RGBA
-// texture on the CPU each frame and this pass composites it over the scene.
+// Fullscreen UI overlay
+// The engine rasterises its widget tree into an RGBA texture each frame
+// This pass composites that texture over the scene
 //
-// The quad is a real two-triangle vertex buffer rather than the usual
-// bufferless "generate a big triangle from SV_VertexID": Slang lowers
-// SV_VertexID to (VertexIndex - BaseVertex), which pulls in the SPIR-V
-// DrawParameters capability, and enabling that needs the
-// shaderDrawParameters device feature the go-vulkan bindings do not expose yet.
-// The vertex data is the same quad the OpenGL backend has always used.
+// The quad is a real two-triangle vertex buffer, not the bufferless trick
+// Slang lowers SV_VertexID to (VertexIndex - BaseVertex)
+// That pulls in the SPIR-V DrawParameters capability
+// Enabling it needs shaderDrawParameters, which the go-vulkan bindings lack
+// So we send the same quad the OpenGL backend has always used
 //
-// Vertex positions are already in clip space, so no matrices are involved and
-// no TO_VK_DEPTH remap is needed: z = 0 sits on the near plane in both
-// conventions, keeping the overlay in front of the scene.
+// Positions are already in clip space, so no matrices and no TO_VK_DEPTH
+// z = 0 sits on the near plane both ways, keeping the overlay in front
 
 struct VSOut {
     float4 position : SV_Position;
