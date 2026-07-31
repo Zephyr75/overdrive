@@ -134,8 +134,14 @@ func (b *VKBackend) pushUniforms(cb vk.CommandBuffer, u *renderer.Uniforms) {
 }
 
 // Mirrors the scene's current shadow maps into the dedicated bindings 2 and 3, rewriting them only when a handle changes
+//
+// Handle 0 means "this draw carries no shadow map" — the UI overlay's quad
+// fills only TexDiffuse — and must leave the bindings alone. Treating it as the
+// white pixel (which is what texture(0) resolves to) would rewrite binding 2
+// every frame, and the forward pass of the frame still in flight is dynamically
+// sampling it.
 func (b *VKBackend) bindShadowMaps(u *renderer.Uniforms) {
-	if u.TexShadowMap != b.shadow2DHandle {
+	if u.TexShadowMap != 0 && u.TexShadowMap != b.shadow2DHandle {
 		if e := b.texture(u.TexShadowMap); e != nil && !e.cube {
 			b.shadow2DHandle = u.TexShadowMap
 			b.writeDedicatedTexture(2, 0, e.view, b.samplerShadow2D)
@@ -144,7 +150,7 @@ func (b *VKBackend) bindShadowMaps(u *renderer.Uniforms) {
 	// Give the scene layer's single point-shadow caster cube slot 0.
 	// Uniforms.PointShadowLights maps the remaining slots once more casters
 	// are wired up
-	if u.TexShadowCubeMap != b.shadowCubeHandle[0] {
+	if u.TexShadowCubeMap != 0 && u.TexShadowCubeMap != b.shadowCubeHandle[0] {
 		if e := b.texture(u.TexShadowCubeMap); e != nil && e.cube {
 			b.shadowCubeHandle[0] = u.TexShadowCubeMap
 			b.writeDedicatedTexture(3, 0, e.view, b.samplerShadowCube)
