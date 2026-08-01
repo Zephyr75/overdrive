@@ -1032,6 +1032,14 @@ because their image is owned by the shadow target rather than the texture.
 
 ## 6.2 Wanted — quality/performance; workarounds exist
 
+### Half-float image formats (added 2026-08-01)
+
+`vk.Format` exposes no `R16G16B16A16_SFLOAT`. Offscreen colour render targets
+(`renderer.TargetColor`) therefore fall back to `R8G8B8A8_UNORM`, which cannot
+hold values above 1.0 — so HDR, tone mapping and bloom cannot be built on them
+as they stand. The backend side is one constant, `offscreenColorFormat` in
+`vulkan/backend.go`; everything else is already in place.
+
 **7. Buffer→buffer copy** (`vk/cmd.go`) — staging uploads into device-local
 vertex/index buffers [HTV: Buffers → staging upload]:
 

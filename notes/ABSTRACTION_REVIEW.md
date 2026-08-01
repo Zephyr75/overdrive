@@ -45,6 +45,10 @@ means cross-referencing the other.
 
 ## 2. Three real limits
 
+**Status: all three implemented, 2026-08-01.** The interface went from 28 methods
+to 27. Each subsection below keeps the original diagnosis and ends with what was
+actually built.
+
 ### 2.1 The interface can create depth targets but not colour targets
 
 This is the one that actually bites.
@@ -65,6 +69,20 @@ Fix: one `CreateRenderTarget(spec RenderTargetSpec) (FramebufferHandle,
 TextureHandle)` where the spec carries format, layers, cube-ness, and colour vs
 depth. The two shadow methods become callers of it. `passKind` gains entries
 driven by the spec rather than by a hardcoded enum.
+
+**Done.** `RenderTargetSpec{Width, Height, Format, Cube}` with
+`TargetDepth`/`TargetColor`; both shadow methods deleted and `scene/light.go`
+fills a spec instead. Vulkan's `shadowEntry` became `targetEntry` with
+`pass()`/`aspect()`/`layers()` helpers, `BeginPass` and `EndPass` branch on
+format for the attachment and the two barriers, and `passOffscreenColor` joined
+the pipeline tables (flipped viewport, CCW, no depth attachment). GL builds a
+colour texture plus a depth renderbuffer, tracked in `targetDepthRBOs` so
+`DestroyFramebuffer` frees it.
+
+One caveat: the colour format is `R8G8B8A8_UNORM`, not the `R16G16B16A16_SFLOAT`
+that HDR actually wants — go-vulkan exposes no half-float format yet. It is a
+one-constant change (`offscreenColorFormat`) once the binding exists, and it is
+now listed in `archive/GO_BACKEND.md` §6.2.
 
 ### 2.2 `Uniforms` is a 1312-byte god-struct pushed per draw
 
@@ -90,6 +108,22 @@ attacks the per-fragment BDA loads at `shaders/slang/common.slang:98`.
 Rank this first. It is the change that makes every future feature cheaper
 instead of more expensive.
 
+**Done.** `FrameUniforms` (1184 B scalar / 1456 B std140) and `DrawUniforms`
+(128 B / 144 B), plus a new `BindFrameUniforms` called once per pass. Vulkan
+pushes two device addresses in a 16-byte push constant; GL uses two UBOs at
+binding points 0 and 1, routed by block name in `setupProgramInterface`. The
+guard test now checks both blocks and additionally fails on any generated member
+that has no hand-written offset.
+
+The per-draw payload dropped from 1312→128 bytes on Vulkan and 1600→144 on GL.
+It did **not** move the frame rate measurably on this Intel iGPU (Vulkan 45-46,
+OpenGL 51-55, same as before), so the performance theory in the paragraph above
+remains unproven — the win here is structural, not measured.
+
+Naming note: the obvious shader macros `F` and `D` collide with the standard PBR
+names for the Fresnel and distribution terms, which `forward.slang` already
+uses. They are `FRAME` and `DRAW`.
+
 ### 2.3 Draws are per-object-kind
 
 `DrawMesh` / `DrawSkybox` / `DrawFullscreenQuad` — three methods differing only in
@@ -102,6 +136,14 @@ so it belongs on `meshEntry`. Collapse to one `Draw(shader, mesh, u)`.
 
 Lowest priority — three kinds works fine — but this is the seam that gets in the
 way soonest once anything new becomes drawable.
+
+**Done.** `Draw(shader, mesh, *DrawUniforms)` replaces all three. Both backends'
+`meshEntry` now records `layout`, `count` and `indexed` at creation, so the draw
+path branches on the mesh rather than on the call site, and `indexCount` left the
+interface. `CreateFullscreenQuad` makes the overlay an ordinary mesh built once
+in `App.Run`; GL's quad changed from a 4-vertex triangle strip to the same
+6-vertex two-triangle list Vulkan uses, so the two backends now submit identical
+geometry.
 
 ---
 

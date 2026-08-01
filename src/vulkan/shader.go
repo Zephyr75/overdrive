@@ -93,7 +93,8 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout vertexLayo
 		},
 		MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: vk.SampleCount1Bit},
 		DepthStencilState: &vk.PipelineDepthStencilStateCreateInfo{
-			DepthTestEnable: true,
+			// An offscreen colour pass has no depth attachment to test against
+			DepthTestEnable: pass != passOffscreenColor,
 			// Let the UI overlay test but not write, as it composites over the
 			// finished scene from the near plane
 			DepthWriteEnable: layout != layoutFullscreen,
@@ -137,9 +138,10 @@ func vertexInputState(pass passKind, layout vertexLayout) *vk.PipelineVertexInpu
 	attrs := []vk.VertexInputAttribute{
 		{Location: 0, Binding: 0, Format: vk.FormatR32G32B32Sfloat, Offset: 0},
 	}
-	// Add normals and UVs for the main pass only, the depth-only shaders taking
-	// position alone and declaring unread attributes being rejected
-	if layout == layoutMesh && pass == passMain {
+	// Add normals and UVs for the passes with a colour attachment, the
+	// depth-only shaders taking position alone and declaring unread attributes
+	// being rejected
+	if layout == layoutMesh && (pass == passMain || pass == passOffscreenColor) {
 		attrs = append(attrs,
 			vk.VertexInputAttribute{Location: 1, Binding: 0, Format: vk.FormatR32G32B32Sfloat, Offset: 3 * 4},
 			vk.VertexInputAttribute{Location: 2, Binding: 0, Format: vk.FormatR32G32Sfloat, Offset: 6 * 4},
@@ -151,17 +153,21 @@ func vertexInputState(pass passKind, layout vertexLayout) *vk.PipelineVertexInpu
 	}
 }
 
-// Picks the winding a pass treats as front-facing, CCW in the main pass and CW in the shadow passes
+// Picks the winding a pass treats as front-facing
+//
+// The passes that flip the viewport (main and offscreen colour) keep GL's CCW,
+// because the flip cancels Vulkan's winding inversion. The shadow passes use a
+// positive viewport to match GL's shadow-map memory layout, and pay for it here.
 func frontFace(pass passKind) vk.FrontFace {
-	if pass == passMain {
+	if pass == passMain || pass == passOffscreenColor {
 		return vk.FrontFaceCounterClockwise
 	}
 	return vk.FrontFaceClockwise
 }
 
-// Builds the alpha-blend state of the main pass, shadow passes having no color attachment to blend into
+// Builds the alpha-blend state of the passes that own a color attachment, the shadow passes having none to blend into
 func colorBlendState(pass passKind) *vk.PipelineColorBlendStateCreateInfo {
-	if pass != passMain {
+	if pass != passMain && pass != passOffscreenColor {
 		return &vk.PipelineColorBlendStateCreateInfo{}
 	}
 	return &vk.PipelineColorBlendStateCreateInfo{
@@ -178,11 +184,22 @@ func colorBlendState(pass passKind) *vk.PipelineColorBlendStateCreateInfo {
 	}
 }
 
-// Declares the attachment formats of a pass, depth alone for the shadow passes
+// Declares the attachment formats of a pass, which under dynamic rendering is what a pipeline is compatible with
+//
+// Shadow passes are depth-only; an offscreen colour pass is colour-only, since
+// post-processing reads a finished image and needs no depth test.
 func renderingInfo(pass passKind, swapFormat vk.Format) *vk.PipelineRenderingCreateInfo {
-	info := &vk.PipelineRenderingCreateInfo{DepthAttachmentFormat: depthFormat}
-	if pass == passMain {
-		info.ColorAttachmentFormats = []vk.Format{swapFormat}
+	switch pass {
+	case passMain:
+		return &vk.PipelineRenderingCreateInfo{
+			DepthAttachmentFormat:  depthFormat,
+			ColorAttachmentFormats: []vk.Format{swapFormat},
+		}
+	case passOffscreenColor:
+		return &vk.PipelineRenderingCreateInfo{
+			ColorAttachmentFormats: []vk.Format{offscreenColorFormat},
+		}
+	default:
+		return &vk.PipelineRenderingCreateInfo{DepthAttachmentFormat: depthFormat}
 	}
-	return info
 }

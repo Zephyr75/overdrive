@@ -95,7 +95,8 @@ func (b *VKBackend) CreateMesh(vertexBuf renderer.BufferHandle, indices []uint32
 	}
 
 	b.meshes = append(b.meshes, meshEntry{
-		vbo: vertexBuf, indexBuffer: buf, indexAlloc: alloc, valid: true,
+		vbo: vertexBuf, indexBuffer: buf, indexAlloc: alloc,
+		layout: layoutMesh, count: uint32(len(indices)), indexed: true, valid: true,
 	})
 	return renderer.MeshHandle(len(b.meshes) - 1)
 }
@@ -103,7 +104,18 @@ func (b *VKBackend) CreateMesh(vertexBuf renderer.BufferHandle, indices []uint32
 // Creates the skybox mesh, which owns its 36 non-indexed positions and has no index buffer
 func (b *VKBackend) CreateSkyboxMesh(verts []float32) renderer.MeshHandle {
 	vbo := b.createBuffer(verts, vk.BufferUsageVertexBuffer)
-	b.meshes = append(b.meshes, meshEntry{vbo: vbo, valid: true})
+	b.meshes = append(b.meshes, meshEntry{
+		vbo: vbo, layout: layoutSkybox, count: uint32(len(verts) / 3), valid: true,
+	})
+	return renderer.MeshHandle(len(b.meshes) - 1)
+}
+
+// Creates the UI overlay's screen-covering quad as an ordinary mesh
+func (b *VKBackend) CreateFullscreenQuad() renderer.MeshHandle {
+	vbo := b.createBuffer(quadVertices, vk.BufferUsageVertexBuffer)
+	b.meshes = append(b.meshes, meshEntry{
+		vbo: vbo, layout: layoutFullscreen, count: 6, valid: true,
+	})
 	return renderer.MeshHandle(len(b.meshes) - 1)
 }
 

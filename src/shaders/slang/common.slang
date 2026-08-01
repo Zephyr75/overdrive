@@ -4,9 +4,10 @@
 //   -DTARGET_VK -target spirv -> Vulkan, BDA push constant + bindless arrays
 //   no define   -target glsl  -> OpenGL, std140 UBO + named samplers
 //
-// Uniforms is the same struct either way, only the binding model differs
-// Vulkan memcpys renderer.Uniforms straight in, Go packing is scalar layout
-// OpenGL marshals the same struct into std140 by hand in opengl/uniforms.go
+// The block is split by update frequency: FrameUniforms once per pass,
+// DrawUniforms once per draw. Both backends see the same two structs
+// Vulkan memcpys them into a ring and pushes two device addresses, Go packing is scalar layout
+// OpenGL marshals each into its own std140 UBO by hand in opengl/uniforms.go
 
 // Slang has no matrix inverse intrinsic, so here is the adjugate/det one
 // Used to build the normal matrix transpose(inverse(mat3(model)))
@@ -53,49 +54,65 @@ struct LightData {
 // Keep in sync with MaxShadowCubes in renderer/uniforms.go
 #define MAX_SHADOW_CUBES 4
 
-struct Uniforms {
+// The uniform data is split by how often it changes, not by what it describes
+//
+// FrameUniforms is written once per pass (three times a frame: two shadow bakes
+// and the main pass), DrawUniforms once per draw (~15 times a frame). Before the
+// split every draw re-sent all of it, ~1200 bytes of which never varied between
+// draws. Keep each struct's field order identical to renderer/uniforms.go — that
+// order *is* the Vulkan scalar layout.
+
+// Camera, lights and shadow maps: constant across every draw of a pass
+struct FrameUniforms {
     float4x4 view;
     float4x4 projection;
-    float4x4 model;
     float4x4 lightSpaceMatrix;
     float4x4 shadowMatrices[6];
     float3 viewPos;
     float farPlane;
     float3 lightPos;
-    float3 matAmbient;
-    float3 matDiffuse;
-    float3 matSpecular;
-    float matShininess;
+    // Active lights in lights[], 0 to MAX_LIGHTS
+    int lightCount;
     LightData lights[MAX_LIGHTS];
     // Bindless texture-array slots, Vulkan only
     // The GL shader samples the named samplers below instead
     int texShadowMap;
-    int texOurTexture;
     int texShadowCubeMap;
     int texSkybox;
-    int texNormalMap;
-    // 1 when the bound material has a normal map, 0 uses the geometric normal
-    int useNormalMap;
-    // Active lights in lights[], 0 to MAX_LIGHTS
-    int lightCount;
     // The one directional light owning the 2D shadow map, -1 for no caster
     // Every other directional light renders unshadowed
     int shadowDirIndex;
-    // Metallic-roughness PBR scalars, matDiffuse is the base-colour tint
-    float matMetallic;
-    float matRoughness;
-    float matAo;
     // Light index owning each cube slot, -1 when the slot is unused
     // Point light l casts a cube shadow when some slot s holds l
     // It then samples shadowCubeMap[s]
     int pointShadowLights[MAX_SHADOW_CUBES];
 };
 
+// Transform and material of one face group: the only things a draw changes
+struct DrawUniforms {
+    float4x4 model;
+    float3 matAmbient;
+    float3 matDiffuse;
+    float3 matSpecular;
+    float matShininess;
+    // Bindless texture-array slots, Vulkan only
+    int texOurTexture;
+    int texNormalMap;
+    // 1 when the bound material has a normal map, 0 uses the geometric normal
+    int useNormalMap;
+    // Metallic-roughness PBR scalars, matDiffuse is the base-colour tint
+    float matMetallic;
+    float matRoughness;
+    float matAo;
+};
+
 #ifdef TARGET_VK
 
-// BDA, a pointer to the uniform block lives in a push constant
-// It matches the buffer_reference UBO the backend uploads into a host-visible ring
-struct PushConstants { Uniforms *ubo; };
+// BDA, one pointer per block lives in a 16-byte push constant
+// Both point into the host-visible ring the backend uploads into: the frame
+// entry is written once per pass and its address re-pushed per draw, the draw
+// entry is written per draw
+struct PushConstants { FrameUniforms *frame; DrawUniforms *draw; };
 [[vk::push_constant]] PushConstants pc;
 
 // One bindless descriptor set, sampler2D[] at binding 0 and samplerCube[] at 1
@@ -110,18 +127,22 @@ struct PushConstants { Uniforms *ubo; };
 [[vk::binding(2, 0)]] Sampler2D shadowMap2D;
 [[vk::binding(3, 0)]] SamplerCube shadowCubeMap[MAX_SHADOW_CUBES];
 
-#define U (pc.ubo)
-#define TEX_OUR (textures2D[U.texOurTexture])
-#define TEX_NORMAL (textures2D[U.texNormalMap])
+#define FRAME (pc.frame)
+#define DRAW (pc.draw)
+#define TEX_OUR (textures2D[DRAW.texOurTexture])
+#define TEX_NORMAL (textures2D[DRAW.texNormalMap])
 #define TEX_SHADOWMAP (shadowMap2D)
-#define TEX_SKYBOX (texturesCube[U.texSkybox])
+#define TEX_SKYBOX (texturesCube[FRAME.texSkybox])
 
 // GL projection matrices give clip z in [-w, w], Vulkan clips to [0, w]
 #define TO_VK_DEPTH(pos) ((pos).z = ((pos).z + (pos).w) * 0.5)
 
 #else // OpenGL
 
-ConstantBuffer<Uniforms> ubo;
+// Two std140 blocks, bound to binding points 0 and 1
+// The backend rewrites the frame block once per pass and the draw block per draw
+ConstantBuffer<FrameUniforms> frameUbo;
+ConstantBuffer<DrawUniforms> drawUbo;
 
 // GL keeps texture unit semantics
 // The backend binds each sampler to a unit with glUniform1i
@@ -132,7 +153,8 @@ Sampler2D normalMap;
 SamplerCube shadowCubeMap[MAX_SHADOW_CUBES];
 SamplerCube skybox;
 
-#define U (ubo)
+#define FRAME (frameUbo)
+#define DRAW (drawUbo)
 #define TEX_OUR (ourTexture)
 #define TEX_NORMAL (normalMap)
 #define TEX_SHADOWMAP (shadowMap)

@@ -130,8 +130,10 @@ func offsets(members []member, structs map[string][]member) map[string]int {
 // Strips the _<n> slangc suffixes identifiers with, giving the logical name
 func logical(name string) string { return stripSuffix(name) }
 
-// Parses the generated GLSL and returns the block's offsets, size and struct table
-func loadGeneratedBlock(t *testing.T) (map[string]int, int, map[string][]member) {
+// Parses the generated GLSL and returns one block's offsets, size and struct table
+//
+// header names the block: common.slang declares two, split by update frequency.
+func loadGeneratedBlock(t *testing.T, header string) (map[string]int, int, map[string][]member) {
 	t.Helper()
 	const path = "../shaders/gl/forward.frag.glsl"
 	src, err := os.ReadFile(path)
@@ -146,9 +148,9 @@ func loadGeneratedBlock(t *testing.T) (map[string]int, int, map[string][]member)
 	}
 	structs := map[string][]member{"LightData_0": lightMembers}
 
-	blockMembers := parseBlock(text, "layout(std140) uniform block_Uniforms_0")
+	blockMembers := parseBlock(text, header)
 	if len(blockMembers) == 0 {
-		t.Fatal("could not parse the std140 uniform block from generated GLSL")
+		t.Fatalf("could not parse %s from generated GLSL", header)
 	}
 
 	byLogical := map[string]int{}
@@ -158,32 +160,16 @@ func loadGeneratedBlock(t *testing.T) (map[string]int, int, map[string][]member)
 	return byLogical, layoutOf(blockMembers, structs), structs
 }
 
-// Checks every hand-written block offset against the generated GLSL
-func TestStd140BlockOffsets(t *testing.T) {
-	got, size, _ := loadGeneratedBlock(t)
+const (
+	frameBlockHeader = "layout(std140) uniform block_FrameUniforms_0"
+	drawBlockHeader  = "layout(std140) uniform block_DrawUniforms_0"
+)
 
-	want := map[string]int{
-		"view":              offView,
-		"projection":        offProjection,
-		"model":             offModel,
-		"lightSpaceMatrix":  offLightSpaceMatrix,
-		"shadowMatrices":    offShadowMatrices,
-		"viewPos":           offViewPos,
-		"farPlane":          offFarPlane,
-		"lightPos":          offLightPos,
-		"matAmbient":        offMatAmbient,
-		"matDiffuse":        offMatDiffuse,
-		"matSpecular":       offMatSpecular,
-		"matShininess":      offMatShininess,
-		"lights":            offLights,
-		"useNormalMap":      offUseNormalMap,
-		"lightCount":        offLightCount,
-		"shadowDirIndex":    offShadowDirIndex,
-		"matMetallic":       offMatMetallic,
-		"matRoughness":      offMatRoughness,
-		"matAo":             offMatAo,
-		"pointShadowLights": offPointShadowLights,
-	}
+// Compares one block's derived offsets and size against the hand-written constants
+func checkBlock(t *testing.T, header string, want map[string]int, wantSize int) {
+	t.Helper()
+	got, size, _ := loadGeneratedBlock(t, header)
+
 	for name, expect := range want {
 		actual, ok := got[name]
 		if !ok {
@@ -194,16 +180,58 @@ func TestStd140BlockOffsets(t *testing.T) {
 			t.Errorf("%s: generated GLSL puts it at %d, uniforms.go says %d", name, actual, expect)
 		}
 	}
-
-	// Check blockSize covers the whole block, or glBufferSubData truncates it
-	if roundUp(size, 16) != blockSize {
-		t.Errorf("blockSize = %d, generated block needs %d", blockSize, roundUp(size, 16))
+	for name := range got {
+		if _, ok := want[name]; !ok {
+			t.Errorf("%s: in the generated block but uniforms.go has no offset for it", name)
+		}
 	}
+
+	// Check the block size covers the whole block, or glBufferSubData truncates it
+	if roundUp(size, 16) != wantSize {
+		t.Errorf("%s: block size constant is %d, generated block needs %d", header, wantSize, roundUp(size, 16))
+	}
+}
+
+// Checks every hand-written frame-block offset against the generated GLSL
+func TestStd140FrameBlockOffsets(t *testing.T) {
+	checkBlock(t, frameBlockHeader, map[string]int{
+		"view":              offView,
+		"projection":        offProjection,
+		"lightSpaceMatrix":  offLightSpaceMatrix,
+		"shadowMatrices":    offShadowMatrices,
+		"viewPos":           offViewPos,
+		"farPlane":          offFarPlane,
+		"lightPos":          offLightPos,
+		"lightCount":        offLightCount,
+		"lights":            offLights,
+		"texShadowMap":      offTexShadowMap,
+		"texShadowCubeMap":  offTexShadowCubeMap,
+		"texSkybox":         offTexSkybox,
+		"shadowDirIndex":    offShadowDirIndex,
+		"pointShadowLights": offPointShadowLights,
+	}, frameBlockSize)
+}
+
+// Checks every hand-written draw-block offset against the generated GLSL
+func TestStd140DrawBlockOffsets(t *testing.T) {
+	checkBlock(t, drawBlockHeader, map[string]int{
+		"model":         offModel,
+		"matAmbient":    offMatAmbient,
+		"matDiffuse":    offMatDiffuse,
+		"matSpecular":   offMatSpecular,
+		"matShininess":  offMatShininess,
+		"texOurTexture": offTexOurTexture,
+		"texNormalMap":  offTexNormalMap,
+		"useNormalMap":  offUseNormalMap,
+		"matMetallic":   offMatMetallic,
+		"matRoughness":  offMatRoughness,
+		"matAo":         offMatAo,
+	}, drawBlockSize)
 }
 
 // Checks the per-light stride and member offsets against the generated LightData struct
 func TestStd140LightStride(t *testing.T) {
-	_, _, structs := loadGeneratedBlock(t)
+	_, _, structs := loadGeneratedBlock(t, frameBlockHeader)
 	members := structs["LightData_0"]
 
 	_, size := baseTypeLayout("LightData_0", structs)
@@ -229,15 +257,20 @@ func TestStd140LightStride(t *testing.T) {
 	}
 }
 
-// Checks the marshal stays inside the buffer it is handed
+// Checks both marshals stay inside the buffers they are handed
 func TestMarshalStd140StaysInBounds(t *testing.T) {
-	dst := make([]byte, blockSize)
-	var u renderer.Uniforms
-	u.LightCount = renderer.MaxLights
-	marshalStd140(&u, dst) // panics on any out-of-range write
+	var f renderer.FrameUniforms
+	f.LightCount = renderer.MaxLights
+	marshalFrameStd140(&f, make([]byte, frameBlockSize)) // panics on any out-of-range write
+
+	var u renderer.DrawUniforms
+	marshalDrawStd140(&u, make([]byte, drawBlockSize))
 
 	last := offPointShadowLights + (renderer.MaxShadowCubes-1)*pointShadowStride + 4
-	if last > blockSize {
-		t.Fatal(fmt.Sprintf("last member ends at %d, past blockSize %d", last, blockSize))
+	if last > frameBlockSize {
+		t.Fatal(fmt.Sprintf("last frame member ends at %d, past frameBlockSize %d", last, frameBlockSize))
+	}
+	if offMatAo+4 > drawBlockSize {
+		t.Fatal(fmt.Sprintf("last draw member ends at %d, past drawBlockSize %d", offMatAo+4, drawBlockSize))
 	}
 }

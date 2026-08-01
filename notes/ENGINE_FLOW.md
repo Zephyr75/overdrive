@@ -15,10 +15,10 @@ howtovulkan.com.
 
 ## 0. The `Backend` contract by how often it is called
 
-`renderer.Backend`'s 28 methods are declared by **resource type** — textures,
+`renderer.Backend`'s 27 methods are declared by **resource type** — textures,
 buffers, meshes, shaders, targets, draws. That is the wrong axis for remembering
 *where a Vulkan call sits in a frame*. This table is the other axis: how often
-each method runs, and what it becomes on each backend. §4 walks the same 28
+each method runs, and what it becomes on each backend. §4 walks the same 27
 methods in interface order, with the reasoning; this is the index.
 
 The obscure Vulkan names get easier once they are filed by frequency —
@@ -44,8 +44,8 @@ per-pass one", `vkCmdPushConstants` is "the per-draw one".
 | `CreateBuffer` | `GenBuffers` + `BufferData` | `VmaCreateBuffer` host-visible + persistently mapped + `MemCopy` |
 | `CreateMesh` | `GenVertexArrays`, record attribute pointers, upload EBO | Pair the vertex handle with a new index buffer. No VAO — layout lives in the pipeline |
 | `CreateSkyboxMesh` | VAO owning a position-only VBO | A vertex buffer with no index buffer |
-| `CreateShadowMap2D` | FBO + `DEPTH_COMPONENT` texture, white border | Depth image (attachment + sampled) + view |
-| `CreateShadowCubemap` | FBO + cube depth texture, `FramebufferTexture` (layered) | 6-layer depth image + **two** views: 2D-array to attach, cube to sample |
+| `CreateFullscreenQuad` | VAO owning the overlay's two triangles | A vertex buffer, layout and count recorded on the mesh |
+| `CreateRenderTarget` | FBO plus a depth texture (white border) or a colour texture with a depth renderbuffer | Image usable as attachment *and* sampled, plus **two** views for cubes: 2D-array to attach, cube to sample |
 
 ### On demand, rarely — 6 methods
 
@@ -64,34 +64,37 @@ per-pass one", `vkCmdPushConstants` is "the per-draw one".
 |---|---|---|
 | `BeginFrame` | Nothing | `WaitForFences` (the CPU throttle) → `AcquireNextImageKHR` → `ResetFences` → rewind ring → `drainRetired` → `ResetCommandBuffer` + `BeginCommandBuffer` → `CmdBindDescriptorSets` → flush staged uploads |
 | `UpdateTexture2D` | `TexImage2D` immediately — legal mid-pass | Memcpy into a mapped staging buffer, **defer** the copy to the next `BeginFrame`. Costs the overlay one frame of latency |
-| `DrawFullscreenQuad` | Build the quad VAO once, bind the UI texture, `DrawArrays` | Build the quad buffer once, push the texture through the ordinary uniform block, `CmdDraw(6)` |
 | `EndFrame` | `SwapBuffers` | Barrier to `PresentSrcKHR` → `EndCommandBuffer` → `QueueSubmit2` (wait acquire sem, signal image's render sem, signal fence) → `QueuePresentKHR` → advance frame slot |
 
-### Once per pass, ×3 a frame — 4 methods
+### Once per pass, ×3 a frame — 5 methods
 
 Two shadow passes (depth-only, no colour clear) then the main backbuffer pass.
 
 | Method | OpenGL | Vulkan |
 |---|---|---|
+| `BindFrameUniforms` | Marshal 1456 B std140 → `BufferSubData` into the frame UBO, bind the shadow and skybox units | Memcpy 1184 B into the ring, cache its device address for the pass's draws |
 | `BeginPass` | `BindFramebuffer`, `Viewport`, `Clear` | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state |
 | `SetCullFace` | `gl.CullFace` | `CmdSetCullMode` — dynamic state, no extra pipeline |
 | `SetDepthFunc` | `gl.DepthFunc` | `CmdSetDepthCompareOp` — dynamic state |
 | `EndPass` | Rebind the backbuffer | `CmdEndRendering`, and for a shadow target `imageBarrier` depth-attachment → shader-read-only |
 
-### Once per draw, ~15 a frame — 2 methods
+### Once per draw, ~15 a frame — 1 method
 
 | Method | OpenGL | Vulkan |
 |---|---|---|
-| `DrawMesh` | `UseProgram` → marshal 1600 B std140 → `BufferSubData` → bind up to 9 texture units → `BindVertexArray` → `DrawElements` | `getPipeline(shader, pass, layout)` (skipped if unchanged) → memcpy 1312 B into the ring → `CmdPushConstants` (8-byte device address) → bind vertex + index → `CmdDrawIndexed` |
-| `DrawSkybox` | Same, `DrawArrays(TRIANGLES, 0, 36)` | Same, `CmdDraw(36)`, skybox layout |
+| `Draw` | `UseProgram` → marshal 144 B std140 → `BufferSubData` into the draw UBO → bind 2 texture units → `BindVertexArray` → `DrawElements` or `DrawArrays` | `getPipeline(shader, pass, mesh layout)` (skipped if unchanged) → memcpy 128 B into the ring → `CmdPushConstants` (two 8-byte device addresses) → bind vertex (+ index) → `CmdDrawIndexed` or `CmdDraw` |
+
+The mesh carries its own vertex layout, count and indexed-ness, so one entry
+point serves face groups, the skybox cube and the UI overlay alike.
 
 ### What this table makes obvious
 
 * **Vulkan front-loads.** Almost everything expensive is startup or load time.
   The per-frame and per-draw rows are short — that is the whole point of the API.
-* **The per-draw row is where cost concentrates.** Both backends re-send the full
-  uniform block ~15 times a frame, most of which is per-frame data that did not
-  change. See `ABSTRACTION_REVIEW.md` §2.2.
+* **The per-draw row is deliberately thin.** The uniform block is split by
+  update frequency, so a draw sends 128–144 bytes of transform and material
+  rather than the whole ~1.3 KB of camera and light state. That block goes out
+  once per pass instead, in `BindFrameUniforms`.
 * **`waitAllFrames` appears in five methods.** Every one is a full pipeline
   drain. They are all rare by design — if one starts running per frame,
   throughput collapses.
@@ -164,17 +167,23 @@ Backend.BeginFrame()
   BeginPass(0, w, h, &{0.1,0.1,0.1,1})               ← backbuffer, clears color
       Scene.RenderSkybox     SetDepthFunc(LEQUAL) → draw cube → back to LESS
       Scene.RenderScene      every mesh, every face group, forward shader
-      renderUI               rasterise widgets to RGBA → UpdateTexture2D → DrawFullscreenQuad
+      renderUI               rasterise widgets to RGBA → UpdateTexture2D → Draw(quad)
   EndPass()
 
 Backend.EndFrame()          present
 glfw.PollEvents()
 ```
 
-Uniforms travel as **one** `renderer.Uniforms` value (1312 bytes) that the frame
-loop fills, `Scene.FillFrameUniforms` tops up with camera/lights/shadow handles,
-and `Mesh.draw` overwrites the material fields before each draw. Each backend
-snapshots it at draw time, so the caller may keep mutating it.
+Uniforms travel as **two** values split by update frequency.
+`renderer.FrameUniforms` (1184 bytes) is filled by the frame loop and
+`Scene.FillFrameUniforms`, then published once per pass by `BindFrameUniforms`.
+`renderer.DrawUniforms` (128 bytes) carries the model matrix and the material,
+which `Mesh.draw` rewrites before each draw. Each backend snapshots both at call
+time, so the caller may keep mutating them.
+
+Note the shadow bakes overwrite the light matrices in the frame block and rebind
+it, which is why it is *pass*-scoped rather than strictly per frame; the skybox
+does the same with a stripped-translation view of its own.
 
 Shadow budget is fixed and resolved once at load: the first directional light
 gets a 2D depth map, the first point light gets a depth cube. Every other light
@@ -271,32 +280,37 @@ Everything else is dynamic: viewport, scissor, cull mode, depth compare.
 
 ### 4.5 Uniforms — the two translations
 
-Both backends receive the same `renderer.Uniforms` and must get it to the
+Both backends receive the same two uniform structs and must get them to the
 shader. Nothing about this is shared code.
 
-**OpenGL — std140 uniform block.** `marshalStd140` hand-writes the struct into
-a byte buffer at explicit offsets, `glBufferSubData`s it into the one UBO bound
-to binding point 0, then binds the referenced textures to their fixed units.
-std140 pads `vec3` to 16 bytes and rounds array strides up to 16, which is why
-the block is 1600 bytes on this side. Those offsets are the only hand-written
+**OpenGL — two std140 uniform blocks.** `marshalFrameStd140` and
+`marshalDrawStd140` hand-write each struct into a byte buffer at explicit
+offsets, `glBufferSubData` them into the UBOs bound to binding points 0 and 1,
+then bind the referenced textures to their fixed units. std140 pads `vec3` to 16
+bytes and rounds array strides up to 16, which is why the blocks are 1456 and
+144 bytes on this side. Those offsets are the only hand-written
 layout in the engine, and `opengl/uniforms_test.go` re-derives them from the
 generated GLSL and fails on drift. [LOGL: Advanced GLSL — uniform buffer objects]
 
 **Vulkan — scalar layout + buffer device address.** Go packs
 `float32`/`int32` structs with no padding, which *is* Vulkan's scalar block
-layout, so `pushUniforms` memcpys the struct straight into this frame's ring
-buffer (1 MiB, 64-byte aligned entries) and pushes the entry's **GPU address**
-as an 8-byte push constant. The shader dereferences that pointer — the uniform
-data needs no descriptor at all. 1312 bytes, no padding. [HTV: buffer device
-address]
+layout, so both blocks memcpy straight into this frame's ring buffer (1 MiB,
+64-byte aligned entries) and their **GPU addresses** go out as a 16-byte push
+constant. The shader dereferences those pointers — the uniform data needs no
+descriptor at all. 1184 and 128 bytes, no padding. [HTV: buffer device address]
+
+**Both split the same way.** `BindFrameUniforms` publishes the pass block once;
+each `Draw` sends only the transform and material. Before the split a single
+1312-byte block went out on every draw, roughly 1.2 KB of which was identical
+across the pass.
 
 | | OpenGL | Vulkan |
 |---|---|---|
-| Transport | one shared UBO, rewritten per draw | per-frame ring buffer, one 1312-byte entry per draw |
-| Layout | std140, 1600 bytes, hand-written offsets | scalar, 1312 bytes, free from Go's packing |
-| Addressing | binding point 0 | 64-bit device address in a push constant |
+| Transport | two shared UBOs: frame rewritten per pass, draw per draw | per-frame ring buffer: one frame entry per pass, one draw entry per draw |
+| Layout | std140, 1456 + 144 bytes, hand-written offsets | scalar, 1184 + 128 bytes, free from Go's packing |
+| Addressing | binding points 0 and 1 | two 64-bit device addresses in one push constant |
 | Textures | handles ignored — the shader samples named samplers on fixed units | handles rewritten into **bindless slot indices** in the copy |
-| Cost per draw | one `BufferSubData` + up to 9 texture binds | one memcpy + one 8-byte push constant |
+| Cost per draw | one 144-byte `BufferSubData` + 2 texture binds | one 128-byte memcpy + one 16-byte push constant |
 
 ### 4.6 Textures
 
@@ -352,13 +366,19 @@ explicitly, which is what `waitAllFrames` is for — note it skips the frame
 currently being recorded, whose fence was reset in `BeginFrame` and can only be
 signalled by `EndFrame`.
 
-### 4.8 Shadow render targets
+### 4.8 Offscreen render targets
+
+One `CreateRenderTarget(RenderTargetSpec)` covers both. The spec says what the
+target *is* — size, `TargetDepth` or `TargetColor`, cube or not — rather than
+what it is for, which is what lets an HDR buffer or a G-buffer be expressed
+without widening the interface.
 
 | Method | OpenGL | Vulkan |
 |---|---|---|
-| `CreateShadowMap2D` | FBO + `DEPTH_COMPONENT` texture, `NEAREST`, clamp-to-border with a **white** border so outside the light frustum reads "fully lit", `DrawBuffer(NONE)` | Depth image usable as both attachment and sampled, plus a `ClampToBorder` / `OpaqueWhite` sampler |
-| `CreateShadowCubemap` | FBO + cubemap depth texture attached with `FramebufferTexture` (**layered**), the geometry shader routing triangles to faces | 6-layer `CubeCompatible` depth image, plus **two views of it**: a 2D-array view to attach and a cube view to sample |
-| `DestroyFramebuffer` | `DeleteFramebuffers` | Drains frames, destroys the attachment view and the image |
+| `CreateRenderTarget`, depth | FBO + `DEPTH_COMPONENT` texture, `NEAREST`, clamp-to-border with a **white** border so outside the light frustum reads "fully lit", `DrawBuffer(NONE)` | Depth image usable as both attachment and sampled, plus a `ClampToBorder` / `OpaqueWhite` sampler |
+| `CreateRenderTarget`, cube | FBO + cubemap texture attached with `FramebufferTexture` (**layered**), the geometry shader routing triangles to faces | 6-layer `CubeCompatible` image, plus **two views of it**: a 2D-array view to attach and a cube view to sample |
+| `CreateRenderTarget`, colour | FBO + colour texture + a depth **renderbuffer**, which nothing samples | Colour image + view, rendered with `passOffscreenColor` (flipped viewport, CCW, no depth attachment) |
+| `DestroyFramebuffer` | `DeleteFramebuffers`, plus the depth renderbuffer if it owned one | Drains frames, destroys the attachment view and the image |
 
 **Same idea, same technique** — one layered draw for all six cube faces, driven
 by a geometry stage. [LOGL: Point Shadows]
@@ -370,13 +390,18 @@ or sample an array view), and needs the image's layout tracked across passes.
 
 | Method | OpenGL | Vulkan |
 |---|---|---|
-| `DrawMesh` | `UseProgram`, upload uniforms + bind textures, `BindVertexArray`, `DrawElements` | Resolve handles, bind the pipeline for (shader, current pass, mesh layout) if it changed, memcpy uniforms into the ring, push the address, bind vertex + index buffers, `CmdDrawIndexed` |
-| `DrawSkybox` | Same, `DrawArrays(TRIANGLES, 0, 36)` | Same, `CmdDraw(36, …)`, skybox layout |
-| `DrawFullscreenQuad` | Builds the quad VAO on first use, binds the UI texture to `ourTexture`'s unit, `TRIANGLE_STRIP` ×4 | Builds the quad buffer on first use, sends the texture through the ordinary uniform block, 6 vertices (two triangles). The fullscreen pipeline tests depth but does not write it |
+| `Draw` | `UseProgram`, upload the draw block + bind its two textures, `BindVertexArray`, then `DrawElements` or `DrawArrays` on the mesh's recorded count | Resolve handles, bind the pipeline for (shader, current pass, **mesh's** layout) if it changed, memcpy the draw block into the ring, push both addresses, bind vertex (+ index) buffers, `CmdDrawIndexed` or `CmdDraw` |
 
-**Same idea.** The interesting asymmetry is that Vulkan tracks
-`boundPipeline` to skip redundant binds, whereas GL's `UseProgram` per draw is
-cheap enough to leave alone.
+**One entry point for every drawable.** A face group, the skybox cube and the UI
+overlay differ only in what was recorded when the mesh was created — vertex
+layout, count, indexed or not — so adding a drawable kind means adding a way to
+*build* a mesh, not a way to draw one. The overlay's quad is built once by
+`CreateFullscreenQuad` and drawn like anything else; its pipeline still tests
+depth without writing it, which is keyed off the fullscreen vertex layout.
+
+The interesting asymmetry is that Vulkan tracks `boundPipeline` to skip
+redundant binds, whereas GL's `UseProgram` per draw is cheap enough to leave
+alone.
 
 ### 4.10 Capabilities
 
@@ -408,9 +433,11 @@ Vulkan sets `BorderColor = OpaqueWhiteFloat` on the 2D shadow sampler. Same
 result: outside the sun's frustum is unshadowed.
 
 **The uniform struct is the contract.** `renderer/uniforms.go` has an `init`
-that panics if `LightData` stops being 68 bytes or `Uniforms` 1312 — that is the
-guard on Vulkan's memcpy path. `opengl/uniforms_test.go` is the guard on the GL
-side, re-deriving std140 offsets from the generated GLSL. Between them, a change
+that panics if `LightData` stops being 68 bytes, `FrameUniforms` 1184 or
+`DrawUniforms` 128 — that is the guard on Vulkan's memcpy path.
+`opengl/uniforms_test.go` is the guard on the GL side, re-deriving both blocks'
+std140 offsets from the generated GLSL and also failing on any member it has no
+offset for. Between them, a change
 to `common.slang` cannot silently break one backend.
 
 ---

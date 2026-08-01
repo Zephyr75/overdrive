@@ -272,8 +272,10 @@ func (m *Mesh) updateVertices() {
 }
 
 // Draws every face group of the mesh, writing that group's material fields into u before each draw
-func (m *Mesh) draw(shader renderer.ShaderHandle, u *renderer.Uniforms) {
-	for i, face := range m.indexGroups {
+//
+// The caller owns u.Model; only the material fields belong to the face group.
+func (m *Mesh) draw(shader renderer.ShaderHandle, u *renderer.DrawUniforms) {
+	for i := range m.indexGroups {
 		mat := m.Materials[i]
 
 		u.MatAmbient = mat.Ambient
@@ -293,6 +295,6 @@ func (m *Mesh) draw(shader renderer.ShaderHandle, u *renderer.Uniforms) {
 			u.UseNormalMap = 1
 		}
 
-		m.backend.DrawMesh(shader, m.gpu[i], len(face), u)
+		m.backend.Draw(shader, m.gpu[i], u)
 	}
 }

@@ -10,14 +10,14 @@ struct VSOut {
 [shader("vertex")]
 VSOut vsMain(float3 aPos, float3 aNormal, float2 aTexCoord) {
     VSOut o;
-    float3 fragPos = mul(U.model, float4(aPos, 1.0)).xyz;
+    float3 fragPos = mul(DRAW.model, float4(aPos, 1.0)).xyz;
     o.fragPos = fragPos;
     o.texCoord = aTexCoord;
-    o.normal = mul(transpose(inverse3((float3x3)U.model)), aNormal);
+    o.normal = mul(transpose(inverse3((float3x3)DRAW.model)), aNormal);
     // The light-space position is not precomputed here any more
     // The shadow test offsets the world position along the normal first
     // So it re-projects in the fragment shader instead
-    o.position = mul(U.projection, mul(U.view, float4(fragPos, 1.0)));
+    o.position = mul(FRAME.projection, mul(FRAME.view, float4(fragPos, 1.0)));
     TO_VK_DEPTH(o.position);
     return o;
 }
@@ -54,8 +54,8 @@ float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos,
     // On Vulkan shadowCubeMap[slot] is a dynamically indexed descriptor
     // Resolving it once here is the most we do, see OPTIMISATION.md
     SamplerCube shadowCube = shadowCubeMap[slot];
-    float farPlane = U.farPlane;
-    float viewDistance = length(U.viewPos - fragPos);
+    float farPlane = FRAME.farPlane;
+    float viewDistance = length(FRAME.viewPos - fragPos);
     float diskRadius = (1.0 + (viewDistance / farPlane)) / 25.0;
 
     // Early-bail PCF, 4 spread taps first
@@ -95,7 +95,7 @@ float shadowCalculation(float3 fragPos, float3 normal, float3 lightDir) {
     float ndl = clamp(dot(normal, lightDir), 0.0, 1.0);
     float offset = NORMAL_OFFSET_2D * (1.0 - ndl);
     float4 fragPosLightSpace =
-        mul(U.lightSpaceMatrix, float4(fragPos + normal * offset, 1.0));
+        mul(FRAME.lightSpaceMatrix, float4(fragPos + normal * offset, 1.0));
     float3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
     float currentDepth = projCoords.z;
@@ -242,30 +242,30 @@ float3 perturbNormal(float3 N, float3 fragPos, float2 uv) {
 float4 fsMain(VSOut i) : SV_Target {
     float2 flippedTex = float2(i.texCoord.x, 1.0 - i.texCoord.y);
     float3 norm = normalize(i.normal);
-    if (U.useNormalMap != 0)
+    if (DRAW.useNormalMap != 0)
         norm = perturbNormal(norm, i.fragPos, flippedTex);
-    float3 viewDir = normalize(U.viewPos - i.fragPos);
+    float3 viewDir = normalize(FRAME.viewPos - i.fragPos);
 
     // Albedo is the sRGB base-colour texture, linearised, tinted by matDiffuse
     // The default white texture makes untextured materials fall back to matDiffuse
     float3 texColor = TEX_OUR.Sample(flippedTex).rgb;
-    float3 albedo = pow(texColor, float3(2.2)) * U.matDiffuse;
+    float3 albedo = pow(texColor, float3(2.2)) * DRAW.matDiffuse;
 
     // Hoist loop-invariant material reads into locals
     // Otherwise the per-light loop re-loads through U's pointer every iteration
     MatParams mat;
     mat.albedo = albedo;
-    mat.metallic = U.matMetallic;
-    mat.roughness = clamp(U.matRoughness, 0.04, 1.0);
+    mat.metallic = DRAW.matMetallic;
+    mat.roughness = clamp(DRAW.matRoughness, 0.04, 1.0);
     // Dielectrics reflect ~4%, metals tint their reflectance with the albedo
-    mat.F0 = lerp(float3(0.04), albedo, U.matMetallic);
-    float ao = U.matAo;
-    int lightCount = U.lightCount;
-    int shadowDirIndex = U.shadowDirIndex;
+    mat.F0 = lerp(float3(0.04), albedo, DRAW.matMetallic);
+    float ao = DRAW.matAo;
+    int lightCount = FRAME.lightCount;
+    int shadowDirIndex = FRAME.shadowDirIndex;
 
     float3 Lo = float3(0.0);
     for (int l = 0; l < lightCount; l++) {
-        LightData light = U.lights[l];
+        LightData light = FRAME.lights[l];
         float shadow = 0.0;
         float3 contrib;
         if (light.type == 0) {
@@ -280,7 +280,7 @@ float4 fsMain(VSOut i) : SV_Target {
             // shadowCubeMap[s] stays dynamically indexed on purpose
             // See OPTIMISATION.md for why we do not constant-fold it
             for (int s = 0; s < MAX_SHADOW_CUBES; s++)
-                if (U.pointShadowLights[s] == l)
+                if (FRAME.pointShadowLights[s] == l)
                     shadow = shadowCalculationCube(i.fragPos, norm,
                                                    light.position, s);
         }

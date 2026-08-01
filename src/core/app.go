@@ -109,6 +109,9 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 	skyboxShader, err := b.CreateShader("skybox", false)
 	utils.HandleError(err)
 
+	// The overlay's quad is built once, like any other mesh
+	uiQuad := b.CreateFullscreenQuad()
+
 	if s != nil {
 		input.SetScene(s)
 	} else {
@@ -141,19 +144,20 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 
 		b.BeginFrame()
 
-		var u renderer.Uniforms
-		u.FarPlane = farPlane
+		// One pass-scoped block, refilled and rebound as each pass begins
+		var f renderer.FrameUniforms
+		f.FarPlane = farPlane
 
 		if s != nil {
-			s.FillFrameUniforms(&u)
+			s.FillFrameUniforms(&f)
 
 			// Bake one shadow pass per casting light. Non-casters own no depth
 			// target and are lit unshadowed in the main pass, and the sun's
-			// pass leaves its light-space matrix in u for the main pass
+			// pass leaves its light-space matrix in f for the main pass
 			dirCaster, pointCaster := s.ShadowCasters()
 			for _, i := range [2]int32{dirCaster, pointCaster} {
 				if i >= 0 {
-					s.Lights[i].RenderLight(nearPlane, farPlane, depthShader, depthCubeShader, s, &u)
+					s.Lights[i].RenderLight(nearPlane, farPlane, depthShader, depthCubeShader, s, &f)
 				}
 			}
 		}
@@ -163,11 +167,15 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 			&[4]float32{0.1, 0.1, 0.1, 1.0})
 
 		if s != nil {
-			s.RenderSkybox(skyboxShader, &u)
-			s.RenderScene(forwardShader, &u)
+			s.RenderSkybox(skyboxShader, &f)
+			s.RenderScene(forwardShader, &f)
+		} else {
+			// No scene binds the block, but the overlay's draw still pushes its
+			// address, so it has to point at something valid
+			b.BindFrameUniforms(&f)
 		}
 
-		renderUI(app, widget, uiShader)
+		renderUI(app, widget, uiShader, uiQuad)
 
 		b.EndPass()
 		b.EndFrame()

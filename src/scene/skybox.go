@@ -75,15 +75,19 @@ func (s *Skybox) setup(b renderer.Backend) {
 }
 
 // Draws the skybox first in the main pass, with a depth test that lets it fill the far plane
-func (s *Scene) RenderSkybox(shader renderer.ShaderHandle, u *renderer.Uniforms) {
-	// Strip the view translation, so the skybox follows the camera
+func (s *Scene) RenderSkybox(shader renderer.ShaderHandle, f *renderer.FrameUniforms) {
+	// Bind a copy of the pass block with the view translation stripped, so the
+	// skybox follows the camera. RenderScene rebinds the real one afterwards
+	sky := *f
 	view := mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
-	u.View = view.Mat3().Mat4()
-	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
+	sky.View = view.Mat3().Mat4()
+	sky.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-	u.TexSkybox = s.Skybox.Texture
+	sky.TexSkybox = s.Skybox.Texture
+	s.backend.BindFrameUniforms(&sky)
 
+	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
 	s.backend.SetDepthFunc(true) // depth <= 1.0 passes, so the far plane is drawable
-	s.backend.DrawSkybox(shader, s.Skybox.mesh, u)
+	s.backend.Draw(shader, s.Skybox.mesh, &u)
 	s.backend.SetDepthFunc(false)
 }

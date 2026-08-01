@@ -9,7 +9,7 @@ struct VSOut {
 VSOut vsMain(float3 aPos) {
     VSOut o;
     o.texCoords = aPos;
-    float4 pos = mul(U.projection, mul(U.view, float4(aPos, 1.0)));
+    float4 pos = mul(FRAME.projection, mul(FRAME.view, float4(aPos, 1.0)));
     // z = w puts the skybox at max depth in both GL and Vulkan ranges
     // So no TO_VK_DEPTH remap is needed here
     o.position = pos.xyww;

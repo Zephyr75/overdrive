@@ -8,6 +8,8 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
+	"github.com/go-gl/mathgl/mgl32"
+
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/settings"
@@ -21,7 +23,7 @@ var (
 )
 
 // Rasterises the widget tree into an RGBA image, uploads it through the backend and draws it as a fullscreen quad, inside the main pass
-func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.ShaderHandle) {
+func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.ShaderHandle, quad renderer.MeshHandle) {
 	window := app.Window
 
 	// Allocate the canvas the widgets rasterise into
@@ -73,5 +75,9 @@ func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.Shad
 
 	uiTexture = app.Backend.UpdateTexture2D(uiTexture,
 		settings.WindowWidth, settings.WindowHeight, flippedImg.Pix)
-	app.Backend.DrawFullscreenQuad(uiShader, uiTexture)
+
+	// The overlay is an ordinary mesh with an ordinary material, so it needs no
+	// special draw path — only a texture and an identity transform
+	u := renderer.DrawUniforms{Model: mgl32.Ident4(), TexDiffuse: uiTexture}
+	app.Backend.Draw(uiShader, quad, &u)
 }

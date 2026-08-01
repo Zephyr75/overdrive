@@ -24,6 +24,32 @@ const (
 	FeatureCompute
 )
 
+// TargetFormat is what a render target stores, and therefore how it is attached
+// and later sampled.
+type TargetFormat int
+
+const (
+	// Sampled depth: shadow maps
+	TargetDepth TargetFormat = iota
+	// Sampled colour, high dynamic range: offscreen scene targets, post-processing
+	TargetColor
+)
+
+// RenderTargetSpec describes an offscreen target by what it *is*, not by what
+// it is used for.
+//
+// The two shadow maps were once dedicated interface methods, which meant the
+// engine could express a depth target and nothing else — no HDR buffer, no
+// G-buffer, no reflection probe. Adding a use now means filling in this struct
+// rather than widening the Backend interface.
+type RenderTargetSpec struct {
+	Width, Height int
+	Format        TargetFormat
+	// Cube allocates 6 layers, attached as an array (a geometry stage routes
+	// triangles to faces) and sampled as a cubemap.
+	Cube bool
+}
+
 type Backend interface {
 	// Sets the API-specific window hints (GL context version, or NoAPI for Vulkan), between glfw.Init and glfw.CreateWindow
 	ConfigureWindow()
@@ -41,6 +67,13 @@ type Backend interface {
 	BeginPass(target FramebufferHandle, w, h int, clear *[4]float32)
 	// Ends the pass, after which nothing may be drawn until the next BeginPass
 	EndPass()
+
+	// Publishes the pass-scoped uniforms, from a snapshot of *f taken at call time
+	//
+	// Must be called after BeginPass and before the pass's first draw. Every
+	// draw in the pass then reads this same block, which is what keeps the
+	// ~1.2 KB of camera and light data off the per-draw path.
+	BindFrameUniforms(f *FrameUniforms)
 
 	// Selects the culled face as immediate state, which is dynamic state on the VK backend
 	SetCullFace(front bool)
@@ -74,20 +107,21 @@ type Backend interface {
 	DestroyMesh(m MeshHandle)
 	// Creates the skybox cube: 36 non-indexed vertices, position(3) only
 	CreateSkyboxMesh(verts []float32) MeshHandle
+	// Creates the screen-covering quad the UI overlay composites through
+	CreateFullscreenQuad() MeshHandle
 
-	// Creates a 2D depth target and its sampled view, for Uniforms.TexShadowMap
-	CreateShadowMap2D(w, h int) (FramebufferHandle, TextureHandle)
-	// Creates a cube depth target and its sampled view, for Uniforms.TexShadowCubeMap
-	CreateShadowCubemap(w, h int) (FramebufferHandle, TextureHandle)
+	// Creates an offscreen target and its sampled view, returning both handles
+	CreateRenderTarget(spec RenderTargetSpec) (FramebufferHandle, TextureHandle)
 	// Destroys a render target
 	DestroyFramebuffer(f FramebufferHandle)
 
-	// Draws an indexed mesh from a snapshot of *u taken at call time, leaving u reusable
-	DrawMesh(s ShaderHandle, m MeshHandle, indexCount int, u *Uniforms)
-	// Draws the skybox cube non-indexed
-	DrawSkybox(s ShaderHandle, m MeshHandle, u *Uniforms)
-	// Draws the UI overlay quad, sampling tex
-	DrawFullscreenQuad(s ShaderHandle, tex TextureHandle)
+	// Draws a mesh from a snapshot of *u taken at call time, leaving u reusable
+	//
+	// One entry point for every drawable. Vertex layout, vertex or index count
+	// and indexed-ness are properties of the mesh, recorded when it was created,
+	// not of the call site — so a new kind of drawable needs a new way to build
+	// a mesh, not a new way to draw one.
+	Draw(s ShaderHandle, m MeshHandle, u *DrawUniforms)
 
 	// Reports whether an optional capability is available
 	Supports(f Feature) bool

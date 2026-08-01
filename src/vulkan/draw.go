@@ -10,36 +10,17 @@ import (
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// Byte size of one snapshotted uniform block. The Go struct has no compiler
-// padding, which is exactly Vulkan's scalar block layout, so it memcpys
-// straight into the ring (renderer/uniforms.go guards that).
-const uniformSize = uint64(unsafe.Sizeof(renderer.Uniforms{}))
+// Byte sizes of the two snapshotted uniform blocks. Neither Go struct has
+// compiler padding, which is exactly Vulkan's scalar block layout, so both
+// memcpy straight into the ring (renderer/uniforms.go guards that).
+const (
+	frameUniformSize = uint64(unsafe.Sizeof(renderer.FrameUniforms{}))
+	drawUniformSize  = uint64(unsafe.Sizeof(renderer.DrawUniforms{}))
+)
 
-// Binds the pipeline for the current pass, pushes the uniform address and draws one indexed face group
-func (b *VKBackend) DrawMesh(s renderer.ShaderHandle, m renderer.MeshHandle, indexCount int, u *renderer.Uniforms) {
-	sh, me, cb := b.prepareDraw(s, m)
-	if sh == nil {
-		return
-	}
-	b.bindPipeline(cb, sh, layoutMesh)
-	b.pushUniforms(cb, u)
-
-	vk.CmdBindVertexBuffer(cb, 0, b.buffers[me.vbo].buffer, 0)
-	vk.CmdBindIndexBuffer(cb, me.indexBuffer, 0, vk.IndexTypeUint32)
-	vk.CmdDrawIndexed(cb, uint32(indexCount), 1, 0, 0, 0)
-}
-
-// Draws the skybox cube through the position-only pipeline, non-indexed
-func (b *VKBackend) DrawSkybox(s renderer.ShaderHandle, m renderer.MeshHandle, u *renderer.Uniforms) {
-	sh, me, cb := b.prepareDraw(s, m)
-	if sh == nil {
-		return
-	}
-	b.bindPipeline(cb, sh, layoutSkybox)
-	b.pushUniforms(cb, u)
-
-	vk.CmdBindVertexBuffer(cb, 0, b.buffers[me.vbo].buffer, 0)
-	vk.CmdDraw(cb, 36, 1, 0, 0) // non-indexed cube
+// The push constant both shaders read: one device address per block
+type pushAddresses struct {
+	frame, draw uint64
 }
 
 // The UI overlay's screen-covering quad as two triangles, clip-space
@@ -56,29 +37,26 @@ var quadVertices = []float32{
 	1, -1, 0, 1, 0,
 }
 
-// Composites the UI overlay over the finished scene, creating the quad buffer on first use
-func (b *VKBackend) DrawFullscreenQuad(s renderer.ShaderHandle, tex renderer.TextureHandle) {
-	if !b.frameActive {
-		return
-	}
-	sh := b.shader(s)
+// Binds the pipeline for the current pass, pushes both uniform addresses and draws one mesh
+//
+// The mesh carries its own vertex layout and count, so this is the only draw
+// entry point: a face group, the skybox cube and the overlay quad differ in
+// what was recorded at creation, not in how they are issued.
+func (b *VKBackend) Draw(s renderer.ShaderHandle, m renderer.MeshHandle, u *renderer.DrawUniforms) {
+	sh, me, cb := b.prepareDraw(s, m)
 	if sh == nil {
 		return
 	}
-	if b.quadBuffer == 0 {
-		b.quadBuffer = b.createBuffer(quadVertices, vk.BufferUsageVertexBuffer)
+	b.bindPipeline(cb, sh, me.layout)
+	b.pushUniforms(cb, u)
+
+	vk.CmdBindVertexBuffer(cb, 0, b.buffers[me.vbo].buffer, 0)
+	if me.indexed {
+		vk.CmdBindIndexBuffer(cb, me.indexBuffer, 0, vk.IndexTypeUint32)
+		vk.CmdDrawIndexed(cb, me.count, 1, 0, 0, 0)
+		return
 	}
-
-	cb := b.frames[b.frameIndex].cb
-	b.bindPipeline(cb, sh, layoutFullscreen)
-
-	// Send the overlay's texture through the same uniform block as every other
-	// draw, so this pass needs no special descriptor or push-constant path
-	u := renderer.Uniforms{TexDiffuse: tex}
-	b.pushUniforms(cb, &u)
-
-	vk.CmdBindVertexBuffer(cb, 0, b.buffers[b.quadBuffer].buffer, 0)
-	vk.CmdDraw(cb, 6, 1, 0, 0)
+	vk.CmdDraw(cb, me.count, 1, 0, 0)
 }
 
 // Resolves the shader and mesh handles and returns this frame's command buffer, or nils when the draw must be skipped
@@ -103,34 +81,61 @@ func (b *VKBackend) bindPipeline(cb vk.CommandBuffer, sh *shaderEntry, layout ve
 	}
 }
 
-// Snapshots *u into this frame's ring buffer and pushes the entry's device address, which is how the shaders reach the block
+// Snapshots the pass-scoped block into the ring once, caching its address for every draw of the pass
 //
-// The push constant is a pointer, so the uniform data itself needs no
-// descriptor, and the caller may reuse u immediately afterwards.
-func (b *VKBackend) pushUniforms(cb vk.CommandBuffer, u *renderer.Uniforms) {
-	f := &b.frames[b.frameIndex]
-
+// This is the point of the frame/draw split: ~1.2 KB of camera and light data
+// is written three times a frame instead of fifteen.
+func (b *VKBackend) BindFrameUniforms(u *renderer.FrameUniforms) {
+	if !b.frameActive {
+		return
+	}
 	block := *u
-	// Translate the texture fields in this copy, the shader indexing the
-	// bindless arrays by slot rather than by engine handle. The two shadow-map
+	// Translate the skybox handle into its bindless slot. The two shadow-map
 	// fields are left alone, as those maps have dedicated bindings and the
 	// shader ignores their slot values
-	block.TexDiffuse = renderer.TextureHandle(b.slot2D(u.TexDiffuse))
-	block.TexNormalMap = renderer.TextureHandle(b.slot2D(u.TexNormalMap))
 	block.TexSkybox = renderer.TextureHandle(b.slotCube(u.TexSkybox))
 	b.bindShadowMaps(u)
 
+	b.frameUniformAddr = writeRing(b, block)
+}
+
+// Snapshots *u into the ring and pushes both block addresses, which is how the shaders reach them
+//
+// The push constant is a pair of pointers, so neither block needs a descriptor,
+// and the caller may reuse u immediately afterwards.
+func (b *VKBackend) pushUniforms(cb vk.CommandBuffer, u *renderer.DrawUniforms) {
+	block := *u
+	// Translate the texture fields in this copy, the shader indexing the
+	// bindless arrays by slot rather than by engine handle
+	block.TexDiffuse = renderer.TextureHandle(b.slot2D(u.TexDiffuse))
+	block.TexNormalMap = renderer.TextureHandle(b.slot2D(u.TexNormalMap))
+
+	addrs := pushAddresses{
+		frame: b.frameUniformAddr,
+		draw:  writeRing(b, block),
+	}
+	vk.CmdPushConstants(cb, b.pipelineLayout, pushStages, 0, 16, unsafe.Pointer(&addrs))
+}
+
+// Copies one block into this frame's ring and returns its device address
+//
+// Generic rather than a method, because a method cannot take a type parameter
+// and vk.MemCopy is itself generic over the element type.
+func writeRing[T any](b *VKBackend, block T) uint64 {
+	f := &b.frames[b.frameIndex]
+	size := uint64(unsafe.Sizeof(block))
+
 	// Align to 64 bytes, keeping each entry on a cache line as the C++ ring did
 	f.ringOffset = (f.ringOffset + 63) &^ 63
-	if f.ringOffset+uniformSize > ringSize {
+	if f.ringOffset+size > ringSize {
 		fmt.Fprintln(os.Stderr, "vulkan: uniform ring overflow, wrapping (draws this frame may be wrong)")
 		f.ringOffset = 0
 	}
-	vk.MemCopy(unsafe.Add(f.ringMapped, f.ringOffset), []renderer.Uniforms{block})
+	vk.MemCopy(unsafe.Add(f.ringMapped, f.ringOffset), []T{block})
 
 	addr := f.ringAddr + f.ringOffset
-	f.ringOffset += uniformSize
-	vk.CmdPushConstants(cb, b.pipelineLayout, pushStages, 0, 8, unsafe.Pointer(&addr))
+	f.ringOffset += size
+	return addr
 }
 
 // Mirrors the scene's current shadow maps into the dedicated bindings 2 and 3, rewriting them only when a handle changes
@@ -140,7 +145,7 @@ func (b *VKBackend) pushUniforms(cb vk.CommandBuffer, u *renderer.Uniforms) {
 // white pixel (which is what texture(0) resolves to) would rewrite binding 2
 // every frame, and the forward pass of the frame still in flight is dynamically
 // sampling it.
-func (b *VKBackend) bindShadowMaps(u *renderer.Uniforms) {
+func (b *VKBackend) bindShadowMaps(u *renderer.FrameUniforms) {
 	if u.TexShadowMap != 0 && u.TexShadowMap != b.shadow2DHandle {
 		if e := b.texture(u.TexShadowMap); e != nil && !e.cube {
 			b.shadow2DHandle = u.TexShadowMap

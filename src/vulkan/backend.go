@@ -32,9 +32,14 @@ const (
 	maxCubeTextures = 64
 
 	depthFormat = vk.FormatD32Sfloat
+	// Offscreen colour targets. This wants to be R16G16B16A16_SFLOAT — the
+	// motivating use (tone mapping, bloom) needs values above 1.0 — but the
+	// go-vulkan bindings expose no half-float format yet (archive/GO_BACKEND.md §6.2).
+	// Changing this one constant is the whole HDR change on this side.
+	offscreenColorFormat = vk.FormatR8G8B8A8Unorm
 )
 
-// The push constant (the uniform block's device address) is read by every
+// The push constant (the two uniform blocks' device addresses) is read by every
 // stage: the vertex stage for matrices, geometry for the cube shadow
 // matrices, fragment for materials and lights.
 const pushStages = vk.ShaderStageVertex | vk.ShaderStageGeometry | vk.ShaderStageFragment
@@ -48,6 +53,7 @@ const (
 	passMain passKind = iota
 	passShadow2D
 	passShadowCube
+	passOffscreenColor
 	passCount
 )
 
@@ -90,16 +96,24 @@ type bufEntry struct {
 	valid  bool
 }
 
-// One face group: a shared vertex buffer plus this group's index buffer
+// One drawable: a vertex buffer, an optional index buffer, and everything Draw
+// needs to know about it
+//
+// layout and count are recorded at creation because they are intrinsic to the
+// geometry. That is what lets one Draw serve meshes, the skybox and the overlay.
 type meshEntry struct {
 	vbo         renderer.BufferHandle
 	indexBuffer vk.Buffer
 	indexAlloc  vk.VmaAllocation
+	layout      vertexLayout
+	count       uint32 // index count when indexed, vertex count otherwise
+	indexed     bool
 	valid       bool
 }
 
-// One shadow render target, holding both views of the same depth image
-type shadowEntry struct {
+// One offscreen render target, holding both views of the same image
+type targetEntry struct {
+	format         renderer.TargetFormat
 	cube           bool
 	image          vk.Image
 	alloc          vk.VmaAllocation
@@ -109,6 +123,34 @@ type shadowEntry struct {
 	// no implicit "ready to render into" state the way a GL texture does.
 	layout vk.ImageLayout
 	valid  bool
+}
+
+// Reports the pass kind a target is rendered with, which selects the pipeline
+func (t *targetEntry) pass() passKind {
+	switch {
+	case t.format == renderer.TargetColor:
+		return passOffscreenColor
+	case t.cube:
+		return passShadowCube
+	default:
+		return passShadow2D
+	}
+}
+
+// Reports the aspect its attachment and barriers refer to
+func (t *targetEntry) aspect() vk.ImageAspectFlags {
+	if t.format == renderer.TargetColor {
+		return vk.ImageAspectColor
+	}
+	return vk.ImageAspectDepth
+}
+
+// Reports the number of array layers, 6 for a cube
+func (t *targetEntry) layers() uint32 {
+	if t.cube {
+		return 6
+	}
+	return 1
 }
 
 // A texture's GPU objects awaiting deferred destruction
@@ -177,19 +219,16 @@ type VKBackend struct {
 
 	// Resource tables, the handle being the index. Entry 0 is reserved in every
 	// table except textures, where handle 0 is the built-in white pixel.
-	textures      []texEntry
-	buffers       []bufEntry
-	meshes        []meshEntry
-	shadowTargets []shadowEntry
-	shaders       []shaderEntry
-	next2DSlot    uint32
-	nextCubeSlot  uint32
+	textures     []texEntry
+	buffers      []bufEntry
+	meshes       []meshEntry
+	targets      []targetEntry
+	shaders      []shaderEntry
+	next2DSlot   uint32
+	nextCubeSlot uint32
 
 	// Textures with staged pixels waiting to be copied at the next BeginFrame.
 	pendingUploads []renderer.TextureHandle
-
-	// The UI overlay's quad, created on first use.
-	quadBuffer renderer.BufferHandle
 
 	// Resources replaced mid-frame, waiting for the frames that reference them
 	// to finish. frameCounter is the monotonic frame number they are aged against.
@@ -201,12 +240,16 @@ type VKBackend struct {
 	shadow2DHandle   renderer.TextureHandle
 	shadowCubeHandle [renderer.MaxShadowCubes]renderer.TextureHandle
 
+	// Device address of this pass's frame block, re-pushed by every draw.
+	// BindFrameUniforms writes it; the ring entry lives until the frame ends.
+	frameUniformAddr uint64
+
 	// draw-time state
-	currentPass         passKind
-	currentShadowTarget renderer.FramebufferHandle // 0 = backbuffer pass
-	boundPipeline       vk.Pipeline
-	cullFront           bool
-	depthLequal         bool
+	currentPass   passKind
+	currentTarget renderer.FramebufferHandle // 0 = backbuffer pass
+	boundPipeline vk.Pipeline
+	cullFront     bool
+	depthLequal   bool
 }
 
 // Builds an empty Vulkan backend, before any Vulkan object exists
@@ -221,7 +264,7 @@ func New() *VKBackend {
 	// Reserve index 0 in the tables whose handle 0 means "none"
 	b.buffers = append(b.buffers, bufEntry{})
 	b.meshes = append(b.meshes, meshEntry{})
-	b.shadowTargets = append(b.shadowTargets, shadowEntry{})
+	b.targets = append(b.targets, targetEntry{})
 	return b
 }
 
@@ -497,7 +540,7 @@ func (b *VKBackend) createDescriptors() {
 func (b *VKBackend) createGlobalPipelineLayout() {
 	layout, err := vk.CreatePipelineLayout(b.device, vk.PipelineLayoutCreateInfo{
 		SetLayouts:         []vk.DescriptorSetLayout{b.setLayout},
-		PushConstantRanges: []vk.PushConstantRange{{StageFlags: pushStages, Size: 8}},
+		PushConstantRanges: []vk.PushConstantRange{{StageFlags: pushStages, Size: 16}},
 	})
 	fatal(err, "create pipeline layout")
 	b.pipelineLayout = layout
@@ -560,7 +603,7 @@ func (b *VKBackend) Shutdown() {
 			b.allocator.VmaDestroyBuffer(e.staging, e.stagingAlloc)
 		}
 	}
-	for _, e := range b.shadowTargets {
+	for _, e := range b.targets {
 		if e.valid {
 			vk.DestroyImageView(b.device, e.attachmentView)
 			b.allocator.VmaDestroyImage(e.image, e.alloc)
@@ -727,13 +770,48 @@ func (b *VKBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear
 		viewport.Height = -float32(b.swapExtent.Height)
 
 		b.currentPass = passMain
-		b.currentShadowTarget = 0
+		b.currentTarget = 0
 	} else {
-		t := &b.shadowTargets[target]
-		layers := uint32(1)
-		if t.cube {
-			layers = 6
+		t := &b.targets[target]
+		layers := t.layers()
+
+		info.RenderArea = vk.Rect2D{Extent: vk.Extent2D{Width: uint32(w), Height: uint32(h)}}
+		info.LayerCount = layers
+		b.currentPass = t.pass()
+		b.currentTarget = target
+
+		if t.format == renderer.TargetColor {
+			b.imageBarrier(cb, t.image, vk.ImageAspectColor, layers,
+				t.layout, vk.ImageLayoutColorAttachmentOptimal,
+				vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
+				vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
+			t.layout = vk.ImageLayoutColorAttachmentOptimal
+
+			colorAtt := vk.RenderingAttachmentInfo{
+				ImageView:   t.attachmentView,
+				ImageLayout: vk.ImageLayoutColorAttachmentOptimal,
+				LoadOp:      vk.AttachmentLoadOpDontCare,
+				StoreOp:     vk.AttachmentStoreOpStore,
+			}
+			if clear != nil {
+				colorAtt.LoadOp = vk.AttachmentLoadOpClear
+				colorAtt.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
+			}
+			info.ColorAttachments = []vk.RenderingAttachmentInfo{colorAtt}
+
+			// Match the backbuffer's flipped viewport, so an offscreen colour
+			// pass and the main pass agree on which way is up
+			viewport.Y = float32(h)
+			viewport.Width = float32(w)
+			viewport.Height = -float32(h)
+
+			vk.CmdBeginRendering(cb, info)
+			vk.CmdSetViewport(cb, viewport)
+			vk.CmdSetScissor(cb, info.RenderArea)
+			b.applyDynamicState(cb)
+			return
 		}
+
 		b.imageBarrier(cb, t.image, vk.ImageAspectDepth, layers,
 			t.layout, vk.ImageLayoutDepthAttachmentOptimal,
 			vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
@@ -743,20 +821,11 @@ func (b *VKBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear
 		depthAtt.ImageView = t.attachmentView
 		depthAtt.StoreOp = vk.AttachmentStoreOpStore
 
-		info.RenderArea = vk.Rect2D{Extent: vk.Extent2D{Width: uint32(w), Height: uint32(h)}}
-		info.LayerCount = layers
-
 		// Keep the viewport positive, so the shadow map's memory layout matches
 		// OpenGL's and the sampling math in the shaders is unchanged. The cost
 		// is inverted winding, which the pipeline declares as CW front faces
 		viewport.Width = float32(w)
 		viewport.Height = float32(h)
-
-		b.currentPass = passShadow2D
-		if t.cube {
-			b.currentPass = passShadowCube
-		}
-		b.currentShadowTarget = target
 	}
 	info.DepthAttachment = &depthAtt
 
@@ -774,21 +843,25 @@ func (b *VKBackend) EndPass() {
 	cb := b.frames[b.frameIndex].cb
 	vk.CmdEndRendering(cb)
 
-	// Move a shadow target to shader-read layout before the main pass samples
-	// it. The swapchain image instead keeps its attachment layout until
+	// Move an offscreen target to shader-read layout before a later pass
+	// samples it. The swapchain image instead keeps its attachment layout until
 	// EndFrame's present barrier
-	if b.currentShadowTarget != 0 {
-		t := &b.shadowTargets[b.currentShadowTarget]
-		layers := uint32(1)
-		if t.cube {
-			layers = 6
+	if b.currentTarget != 0 {
+		t := &b.targets[b.currentTarget]
+		srcStage := vk.PipelineStage2LateFragmentTests
+		srcAccess := vk.Access2DepthStencilAttachmentWrite
+		from := vk.ImageLayoutDepthAttachmentOptimal
+		if t.format == renderer.TargetColor {
+			srcStage = vk.PipelineStage2ColorAttachmentOutput
+			srcAccess = vk.Access2ColorAttachmentWrite
+			from = vk.ImageLayoutColorAttachmentOptimal
 		}
-		b.imageBarrier(cb, t.image, vk.ImageAspectDepth, layers,
-			vk.ImageLayoutDepthAttachmentOptimal, vk.ImageLayoutShaderReadOnlyOptimal,
-			vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite,
+		b.imageBarrier(cb, t.image, t.aspect(), t.layers(),
+			from, vk.ImageLayoutShaderReadOnlyOptimal,
+			srcStage, srcAccess,
 			vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
 		t.layout = vk.ImageLayoutShaderReadOnlyOptimal
-		b.currentShadowTarget = 0
+		b.currentTarget = 0
 	}
 }
 

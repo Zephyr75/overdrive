@@ -160,7 +160,7 @@ func LoadScene(path string) Scene {
 }
 
 // Writes the per-frame values into u: camera matrices, the light array, and the scene-wide texture handles
-func (s *Scene) FillFrameUniforms(u *renderer.Uniforms) {
+func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 	u.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
 	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
@@ -210,14 +210,18 @@ func (s *Scene) FillFrameUniforms(u *renderer.Uniforms) {
 const cos45 = float32(0.7071067811865476)
 
 // Draws every mesh of the scene with the forward shader, inside the main pass
-func (s *Scene) RenderScene(shader renderer.ShaderHandle, u *renderer.Uniforms) {
-	// Restore the full view matrix, the skybox pass having stripped its translation
-	u.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
-	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
+func (s *Scene) RenderScene(shader renderer.ShaderHandle, f *renderer.FrameUniforms) {
+	// Restore the full view matrix, the skybox pass having stripped its
+	// translation in its own copy of the block
+	f.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
+	f.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-	u.Model = mgl32.Scale3D(1.0, 1.0, 1.0)
+	s.backend.BindFrameUniforms(f)
 
+	// Static mesh geometry is baked into the OBJ vertices, so the model matrix
+	// is identity and only the material fields vary between draws
+	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
 	for i := range s.Meshes {
-		s.Meshes[i].draw(shader, u)
+		s.Meshes[i].draw(shader, &u)
 	}
 }

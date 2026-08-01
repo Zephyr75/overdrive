@@ -58,12 +58,20 @@ func stripSuffix(name string) string {
 
 // Wires a freshly linked program to the shared uniform buffer and pins each sampler to its fixed unit, both being link-time decisions that never repeat per draw
 func (b *GLBackend) setupProgramInterface(program uint32) {
-	// Point every uniform block at binding 0, there being exactly one (the
-	// shared Uniforms block from common.slang)
+	// Route each uniform block to its own binding point by name. common.slang
+	// declares two, and a stage that reads only one of them still has to agree
+	// with the backend about which buffer that one is
 	var numBlocks int32
 	gl.GetProgramiv(program, gl.ACTIVE_UNIFORM_BLOCKS, &numBlocks)
 	for i := int32(0); i < numBlocks; i++ {
-		gl.UniformBlockBinding(program, uint32(i), 0)
+		var length int32
+		buf := make([]byte, 128)
+		gl.GetActiveUniformBlockName(program, uint32(i), int32(len(buf)), &length, &buf[0])
+		binding := uint32(bindingFrame)
+		if strings.Contains(string(buf[:length]), "DrawUniforms") {
+			binding = bindingDraw
+		}
+		gl.UniformBlockBinding(program, uint32(i), binding)
 	}
 
 	gl.UseProgram(program)

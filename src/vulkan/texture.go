@@ -335,79 +335,83 @@ func (b *VKBackend) DestroyTexture(h renderer.TextureHandle) {
 	e.valid = false
 }
 
-// --- shadow render targets ---------------------------------------------------
+// --- offscreen render targets ------------------------------------------------
 
-// Creates a single-layer depth target for the sun's shadow map
-func (b *VKBackend) CreateShadowMap2D(w, h int) (renderer.FramebufferHandle, renderer.TextureHandle) {
-	return b.createShadowTarget(w, h, false)
-}
-
-// Creates a 6-layer depth target for a point light's shadow cube
-func (b *VKBackend) CreateShadowCubemap(w, h int) (renderer.FramebufferHandle, renderer.TextureHandle) {
-	return b.createShadowTarget(w, h, true)
-}
-
-// Builds a depth image that is both rendered into and sampled, plus the two views that need
+// Builds an image that is both rendered into and sampled, plus the two views that needs
 //
-// One view is attached — a plain 2D view, or a 6-layer 2D-array view the
-// geometry shader routes faces into — and the other is sampled, as 2D or cube.
-func (b *VKBackend) createShadowTarget(w, h int, cube bool) (renderer.FramebufferHandle, renderer.TextureHandle) {
+// One view is attached — a plain 2D view, or a 6-layer 2D-array view a geometry
+// stage routes faces into — and the other is sampled, as 2D or cube. Depth and
+// colour differ only in format, usage, aspect and which sampler they get.
+func (b *VKBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer.FramebufferHandle, renderer.TextureHandle) {
 	layers := uint32(1)
 	flags := vk.ImageCreateFlags(0)
-	if cube {
+	if spec.Cube {
 		layers = 6
 		flags = vk.ImageCreateCubeCompatible
+	}
+
+	format := depthFormat
+	usage := vk.ImageUsageDepthStencilAttachment | vk.ImageUsageSampled
+	aspect := vk.ImageAspectFlags(vk.ImageAspectDepth)
+	sampler := b.samplerShadow2D
+	if spec.Cube {
+		sampler = b.samplerShadowCube
+	}
+	if spec.Format == renderer.TargetColor {
+		format = offscreenColorFormat
+		usage = vk.ImageUsageColorAttachment | vk.ImageUsageSampled
+		aspect = vk.ImageAspectColor
+		// Colour targets are read back by post-processing, which wants filtering
+		sampler = b.samplerCubeLinear
 	}
 
 	img, alloc, err := b.allocator.VmaCreateImage(vk.ImageCreateInfo{
 		Flags:       flags,
 		ImageType:   vk.ImageType2D,
-		Format:      depthFormat,
-		Extent:      vk.Extent3D{Width: uint32(w), Height: uint32(h), Depth: 1},
+		Format:      format,
+		Extent:      vk.Extent3D{Width: uint32(spec.Width), Height: uint32(spec.Height), Depth: 1},
 		ArrayLayers: layers,
-		Usage:       vk.ImageUsageDepthStencilAttachment | vk.ImageUsageSampled,
+		Usage:       usage,
 	}, vk.VmaAllocationCreateInfo{Usage: vk.VmaMemoryUsageAuto})
-	fatal(err, "create shadow image")
+	fatal(err, "create render target image")
 
 	viewCI := vk.ImageViewCreateInfo{
-		Image: img, ViewType: vk.ImageViewType2D, Format: depthFormat,
+		Image: img, ViewType: vk.ImageViewType2D, Format: format,
 		SubresourceRange: vk.ImageSubresourceRange{
-			AspectMask: vk.ImageAspectDepth, LevelCount: 1, LayerCount: layers,
+			AspectMask: aspect, LevelCount: 1, LayerCount: layers,
 		},
 	}
-	sampler := b.samplerShadow2D
-	if cube {
+	if spec.Cube {
 		viewCI.ViewType = vk.ImageViewType2DArray
-		sampler = b.samplerShadowCube
 	}
 	attachmentView, err := vk.CreateImageView(b.device, viewCI)
-	fatal(err, "create shadow attachment view")
+	fatal(err, "create render target attachment view")
 
-	if cube {
+	if spec.Cube {
 		viewCI.ViewType = vk.ImageViewTypeCube
 	}
 	sampleView, err := vk.CreateImageView(b.device, viewCI)
-	fatal(err, "create shadow sample view")
+	fatal(err, "create render target sample view")
 
-	// Register with ownsImage=false, the shadowEntry freeing the image rather
+	// Register with ownsImage=false, the targetEntry freeing the image rather
 	// than the texture entry
-	tex := b.registerTexture(cube, img, vk.VmaAllocation{}, sampleView, sampler, false)
+	tex := b.registerTexture(spec.Cube, img, vk.VmaAllocation{}, sampleView, sampler, false)
 
-	b.shadowTargets = append(b.shadowTargets, shadowEntry{
-		cube: cube, image: img, alloc: alloc,
+	b.targets = append(b.targets, targetEntry{
+		format: spec.Format, cube: spec.Cube, image: img, alloc: alloc,
 		attachmentView: attachmentView, tex: tex,
 		layout: vk.ImageLayoutUndefined, valid: true,
 	})
-	return renderer.FramebufferHandle(len(b.shadowTargets) - 1), tex
+	return renderer.FramebufferHandle(len(b.targets) - 1), tex
 }
 
-// Destroys a shadow target's attachment view and depth image once the frames in flight have drained
+// Destroys a target's attachment view and image once the frames in flight have drained
 func (b *VKBackend) DestroyFramebuffer(f renderer.FramebufferHandle) {
-	if f == 0 || int(f) >= len(b.shadowTargets) || !b.shadowTargets[f].valid {
+	if f == 0 || int(f) >= len(b.targets) || !b.targets[f].valid {
 		return
 	}
 	b.waitAllFrames()
-	e := &b.shadowTargets[f]
+	e := &b.targets[f]
 	vk.DestroyImageView(b.device, e.attachmentView)
 	b.allocator.VmaDestroyImage(e.image, e.alloc)
 	e.valid = false

@@ -16,11 +16,17 @@ import (
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// One drawable mesh: its vertex array plus the index buffer of one face group
+// One drawable: its vertex array, an optional index buffer, and everything Draw
+// needs to know about it
+//
+// count and indexed are recorded at creation because they are intrinsic to the
+// geometry. That is what lets one Draw serve meshes, the skybox and the overlay.
 type meshEntry struct {
-	vao uint32
-	vbo uint32 // owned only by skybox meshes, regular meshes share the caller's
-	ebo uint32
+	vao     uint32
+	vbo     uint32 // owned only by meshes that build their own, others share the caller's
+	ebo     uint32
+	count   int32 // index count when indexed, vertex count otherwise
+	indexed bool
 }
 
 type GLBackend struct {
@@ -32,21 +38,26 @@ type GLBackend struct {
 
 	meshes map[renderer.MeshHandle]meshEntry
 
-	// Fullscreen-quad state for DrawFullscreenQuad (was utils.RenderQuad).
-	quadVAO uint32
-	quadVBO uint32
+	// Depth renderbuffers owned by colour render targets, keyed by their FBO.
+	// Depth targets attach a sampled texture instead and so appear here not at all.
+	targetDepthRBOs map[renderer.FramebufferHandle]uint32
 
-	// One std140 uniform buffer shared by every program, bound at binding
-	// point 0, rewritten per draw. blockScratch is the CPU staging copy.
-	ubo          uint32
-	blockScratch []byte
+	// Two std140 uniform buffers shared by every program: the frame block at
+	// binding point 0, rewritten once per pass, and the draw block at binding
+	// point 1, rewritten per draw. The scratch slices are the CPU staging copies.
+	frameUBO     uint32
+	drawUBO      uint32
+	frameScratch []byte
+	drawScratch  []byte
 }
 
 // Builds an empty OpenGL backend, before any GL context exists
 func New() *GLBackend {
 	return &GLBackend{
-		meshes:       make(map[renderer.MeshHandle]meshEntry),
-		blockScratch: make([]byte, blockSize),
+		meshes:          make(map[renderer.MeshHandle]meshEntry),
+		targetDepthRBOs: make(map[renderer.FramebufferHandle]uint32),
+		frameScratch:    make([]byte, frameBlockSize),
+		drawScratch:     make([]byte, drawBlockSize),
 	}
 }
 
@@ -93,13 +104,19 @@ func (b *GLBackend) Init(window *glfw.Window) error {
 	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
 	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 
-	// Create the shared uniform block, permanently bound to binding point 0.
-	// setupProgramInterface points every program's block at this same buffer
-	gl.GenBuffers(1, &b.ubo)
-	gl.BindBuffer(gl.UNIFORM_BUFFER, b.ubo)
-	gl.BufferData(gl.UNIFORM_BUFFER, blockSize, nil, gl.DYNAMIC_DRAW)
+	// Create the two shared uniform blocks, permanently bound to binding points
+	// 0 and 1. setupProgramInterface points every program's blocks at these
+	gl.GenBuffers(1, &b.frameUBO)
+	gl.BindBuffer(gl.UNIFORM_BUFFER, b.frameUBO)
+	gl.BufferData(gl.UNIFORM_BUFFER, frameBlockSize, nil, gl.DYNAMIC_DRAW)
+	gl.BindBufferBase(gl.UNIFORM_BUFFER, bindingFrame, b.frameUBO)
+
+	gl.GenBuffers(1, &b.drawUBO)
+	gl.BindBuffer(gl.UNIFORM_BUFFER, b.drawUBO)
+	gl.BufferData(gl.UNIFORM_BUFFER, drawBlockSize, nil, gl.DYNAMIC_DRAW)
+	gl.BindBufferBase(gl.UNIFORM_BUFFER, bindingDraw, b.drawUBO)
+
 	gl.BindBuffer(gl.UNIFORM_BUFFER, 0)
-	gl.BindBufferBase(gl.UNIFORM_BUFFER, 0, b.ubo)
 
 	return nil
 }
@@ -286,7 +303,7 @@ func (b *GLBackend) CreateMesh(vbo renderer.BufferHandle, indices []uint32) rend
 	gl.BindVertexArray(0)
 
 	h := renderer.MeshHandle(vao)
-	b.meshes[h] = meshEntry{vao: vao, ebo: ebo}
+	b.meshes[h] = meshEntry{vao: vao, ebo: ebo, count: int32(len(indices)), indexed: true}
 	return h
 }
 
@@ -319,115 +336,155 @@ func (b *GLBackend) CreateSkyboxMesh(verts []float32) renderer.MeshHandle {
 	gl.BindVertexArray(0)
 
 	h := renderer.MeshHandle(vao)
-	b.meshes[h] = meshEntry{vao: vao, vbo: vbo}
+	b.meshes[h] = meshEntry{vao: vao, vbo: vbo, count: int32(len(verts) / 3)}
+	return h
+}
+
+// Creates the UI overlay's screen-covering quad as an ordinary mesh
+//
+// Two triangles rather than a strip, so the geometry matches the Vulkan
+// backend's exactly and one Draw can issue both.
+func (b *GLBackend) CreateFullscreenQuad() renderer.MeshHandle {
+	quadVertices := []float32{
+		// clip-space position(3) | uv(2)
+		-1, 1, 0, 0, 1,
+		-1, -1, 0, 0, 0,
+		1, 1, 0, 1, 1,
+
+		1, 1, 0, 1, 1,
+		-1, -1, 0, 0, 0,
+		1, -1, 0, 1, 0,
+	}
+	var vao, vbo uint32
+	gl.GenVertexArrays(1, &vao)
+	gl.GenBuffers(1, &vbo)
+	gl.BindVertexArray(vao)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, len(quadVertices)*4, gl.Ptr(quadVertices), gl.STATIC_DRAW)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 5*4, gl.PtrOffset(0))
+	gl.EnableVertexAttribArray(1)
+	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 5*4, gl.PtrOffset(3*4))
+	gl.BindVertexArray(0)
+
+	h := renderer.MeshHandle(vao)
+	b.meshes[h] = meshEntry{vao: vao, vbo: vbo, count: 6}
 	return h
 }
 
 // --- shadow targets ----------------------------------------------------------
 
-// Creates a depth-only FBO with a 2D depth texture the main pass samples
-func (b *GLBackend) CreateShadowMap2D(w, h int) (renderer.FramebufferHandle, renderer.TextureHandle) {
+// Builds an offscreen FBO and the texture it renders into
+//
+// Depth targets are the shadow maps: a depth texture with a white border, so
+// outside the light frustum reads "fully lit". Colour targets additionally get
+// a depth renderbuffer, since anything drawing a scene offscreen still needs
+// depth testing.
+func (b *GLBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer.FramebufferHandle, renderer.TextureHandle) {
 	var fbo, tex uint32
 	gl.GenFramebuffers(1, &fbo)
 	gl.GenTextures(1, &tex)
-	gl.BindTexture(gl.TEXTURE_2D, tex)
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.DEPTH_COMPONENT, int32(w), int32(h),
-		0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_BORDER)
-	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_BORDER)
-	// Make everything outside the light frustum read as "fully lit"
-	borderColor := []float32{1.0, 1.0, 1.0, 1.0}
-	gl.TexParameterfv(gl.TEXTURE_2D, gl.TEXTURE_BORDER_COLOR, &borderColor[0])
 
-	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
-	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, tex, 0)
-	gl.DrawBuffer(gl.NONE)
-	gl.ReadBuffer(gl.NONE)
-	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-	return renderer.FramebufferHandle(fbo), renderer.TextureHandle(tex)
-}
-
-// Creates a depth-only FBO with a cubemap depth texture, attached as one layered target
-func (b *GLBackend) CreateShadowCubemap(w, h int) (renderer.FramebufferHandle, renderer.TextureHandle) {
-	var fbo, tex uint32
-	gl.GenFramebuffers(1, &fbo)
-	gl.GenTextures(1, &tex)
-	gl.BindTexture(gl.TEXTURE_CUBE_MAP, tex)
-	for i := 0; i < 6; i++ {
-		gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X+uint32(i), 0, gl.DEPTH_COMPONENT,
-			int32(w), int32(h), 0, gl.DEPTH_COMPONENT, gl.FLOAT, nil)
+	target := uint32(gl.TEXTURE_2D)
+	if spec.Cube {
+		target = gl.TEXTURE_CUBE_MAP
 	}
-	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
-	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
-	gl.TexParameteri(gl.TEXTURE_CUBE_MAP, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+	gl.BindTexture(target, tex)
+
+	format, typ := int32(gl.DEPTH_COMPONENT), uint32(gl.DEPTH_COMPONENT)
+	filter := int32(gl.NEAREST)
+	if spec.Format == renderer.TargetColor {
+		format, typ = gl.RGBA, gl.RGBA
+		filter = gl.LINEAR
+	}
+
+	if spec.Cube {
+		for i := 0; i < 6; i++ {
+			gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X+uint32(i), 0, format,
+				int32(spec.Width), int32(spec.Height), 0, typ, gl.FLOAT, nil)
+		}
+		gl.TexParameteri(target, gl.TEXTURE_WRAP_R, gl.CLAMP_TO_EDGE)
+	} else {
+		gl.TexImage2D(gl.TEXTURE_2D, 0, format, int32(spec.Width), int32(spec.Height),
+			0, typ, gl.FLOAT, nil)
+	}
+	gl.TexParameteri(target, gl.TEXTURE_MIN_FILTER, filter)
+	gl.TexParameteri(target, gl.TEXTURE_MAG_FILTER, filter)
+
+	if spec.Format == renderer.TargetDepth && !spec.Cube {
+		// Make everything outside the light frustum read as "fully lit"
+		gl.TexParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_BORDER)
+		gl.TexParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_BORDER)
+		borderColor := []float32{1.0, 1.0, 1.0, 1.0}
+		gl.TexParameterfv(target, gl.TEXTURE_BORDER_COLOR, &borderColor[0])
+	} else {
+		gl.TexParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+		gl.TexParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	}
 
 	gl.BindFramebuffer(gl.FRAMEBUFFER, fbo)
-	// Attach all six faces at once, the geometry shader routing triangles to them
-	gl.FramebufferTexture(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, tex, 0)
-	gl.DrawBuffer(gl.NONE)
-	gl.ReadBuffer(gl.NONE)
+	if spec.Format == renderer.TargetColor {
+		// Colour targets carry their own depth, which nothing samples
+		var rbo uint32
+		gl.GenRenderbuffers(1, &rbo)
+		gl.BindRenderbuffer(gl.RENDERBUFFER, rbo)
+		gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, int32(spec.Width), int32(spec.Height))
+		gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, rbo)
+		if spec.Cube {
+			gl.FramebufferTexture(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, tex, 0)
+		} else {
+			gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0)
+		}
+		b.targetDepthRBOs[renderer.FramebufferHandle(fbo)] = rbo
+	} else if spec.Cube {
+		// Attach all six faces at once, the geometry shader routing triangles to them
+		gl.FramebufferTexture(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, tex, 0)
+		gl.DrawBuffer(gl.NONE)
+		gl.ReadBuffer(gl.NONE)
+	} else {
+		gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.TEXTURE_2D, tex, 0)
+		gl.DrawBuffer(gl.NONE)
+		gl.ReadBuffer(gl.NONE)
+	}
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 	return renderer.FramebufferHandle(fbo), renderer.TextureHandle(tex)
 }
 
-// Deletes a framebuffer object, leaving its depth texture to DestroyTexture
+// Deletes a framebuffer object and any depth renderbuffer it owns, leaving its texture to DestroyTexture
 func (b *GLBackend) DestroyFramebuffer(f renderer.FramebufferHandle) {
 	fbo := uint32(f)
-	if fbo != 0 {
-		gl.DeleteFramebuffers(1, &fbo)
+	if fbo == 0 {
+		return
 	}
+	if rbo, ok := b.targetDepthRBOs[f]; ok {
+		gl.DeleteRenderbuffers(1, &rbo)
+		delete(b.targetDepthRBOs, f)
+	}
+	gl.DeleteFramebuffers(1, &fbo)
 }
 
 // ---- draws ------------------------------------------------------------------
 
-// Binds the program, uploads the uniforms and draws one indexed face group
-func (b *GLBackend) DrawMesh(s renderer.ShaderHandle, m renderer.MeshHandle, indexCount int, u *renderer.Uniforms) {
-	gl.UseProgram(uint32(s))
-	b.applyUniforms(u)
-	gl.BindVertexArray(uint32(m))
-	gl.DrawElements(gl.TRIANGLES, int32(indexCount), gl.UNSIGNED_INT, gl.PtrOffset(0))
-	gl.BindVertexArray(0)
-}
+// ---- draws ------------------------------------------------------------------
 
-// Draws the skybox cube as 36 non-indexed vertices
-func (b *GLBackend) DrawSkybox(s renderer.ShaderHandle, m renderer.MeshHandle, u *renderer.Uniforms) {
-	gl.UseProgram(uint32(s))
-	b.applyUniforms(u)
-	gl.BindVertexArray(uint32(m))
-	gl.DrawArrays(gl.TRIANGLES, 0, 36)
-	gl.BindVertexArray(0)
-}
-
-// Composites the UI overlay over the scene, building the quad on first use
-func (b *GLBackend) DrawFullscreenQuad(s renderer.ShaderHandle, tex renderer.TextureHandle) {
-	if b.quadVAO == 0 {
-		quadVertices := []float32{
-			// positions     // texCoords
-			-1.0, 1.0, 0.0, 0.0, 1.0,
-			-1.0, -1.0, 0.0, 0.0, 0.0,
-			1.0, 1.0, 0.0, 1.0, 1.0,
-			1.0, -1.0, 0.0, 1.0, 0.0,
-		}
-		gl.GenVertexArrays(1, &b.quadVAO)
-		gl.GenBuffers(1, &b.quadVBO)
-		gl.BindVertexArray(b.quadVAO)
-		gl.BindBuffer(gl.ARRAY_BUFFER, b.quadVBO)
-		gl.BufferData(gl.ARRAY_BUFFER, len(quadVertices)*4, gl.Ptr(quadVertices), gl.STATIC_DRAW)
-		gl.EnableVertexAttribArray(0)
-		gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 5*4, gl.PtrOffset(0))
-		gl.EnableVertexAttribArray(1)
-		gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 5*4, gl.PtrOffset(3*4))
-		gl.BindVertexArray(0)
+// Binds the program, uploads the draw block and issues one mesh
+//
+// The mesh carries its own count and indexed-ness, so this is the only draw
+// entry point: a face group, the skybox cube and the overlay quad differ in
+// what was recorded at creation, not in how they are issued.
+func (b *GLBackend) Draw(s renderer.ShaderHandle, m renderer.MeshHandle, u *renderer.DrawUniforms) {
+	e, ok := b.meshes[m]
+	if !ok {
+		return
 	}
 	gl.UseProgram(uint32(s))
-	// Bind through ourTexture, the unit the UI shader's sampler was pinned to at link time
-	b.bind2D(unitOurTexture, tex)
-	gl.BindVertexArray(b.quadVAO)
-	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+	b.applyDrawUniforms(u)
+	gl.BindVertexArray(e.vao)
+	if e.indexed {
+		gl.DrawElements(gl.TRIANGLES, e.count, gl.UNSIGNED_INT, gl.PtrOffset(0))
+	} else {
+		gl.DrawArrays(gl.TRIANGLES, 0, e.count)
+	}
 	gl.BindVertexArray(0)
 }
 

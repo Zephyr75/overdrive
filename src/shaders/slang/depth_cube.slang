@@ -11,7 +11,7 @@ struct VSOut {
 [shader("vertex")]
 VSOut vsMain(float3 aPos) {
     VSOut o;
-    o.worldPos = mul(U.model, float4(aPos, 1.0));
+    o.worldPos = mul(DRAW.model, float4(aPos, 1.0));
     return o;
 }
 
@@ -33,7 +33,7 @@ void gsMain(triangle VSOut input[3], inout TriangleStream<GSOut> stream) {
             GSOut o;
             o.layer = (uint)face;
             o.fragPos = input[i].worldPos;
-            o.clipPos = mul(U.shadowMatrices[face], input[i].worldPos);
+            o.clipPos = mul(FRAME.shadowMatrices[face], input[i].worldPos);
             TO_VK_DEPTH(o.clipPos);
             stream.Append(o);
         }
@@ -43,6 +43,6 @@ void gsMain(triangle VSOut input[3], inout TriangleStream<GSOut> stream) {
 
 [shader("fragment")]
 float fsMain(GSOut i) : SV_Depth {
-    float lightDistance = length(i.fragPos.xyz - U.lightPos);
-    return lightDistance / U.farPlane;
+    float lightDistance = length(i.fragPos.xyz - FRAME.lightPos);
+    return lightDistance / FRAME.farPlane;
 }

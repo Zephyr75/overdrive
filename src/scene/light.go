@@ -82,10 +82,16 @@ func (l *Light) setup(b renderer.Backend, castsShadow bool) {
 	if !castsShadow {
 		return
 	}
+	spec := renderer.RenderTargetSpec{
+		Width:  settings.ShadowWidth,
+		Height: settings.ShadowHeight,
+		Format: renderer.TargetDepth,
+		Cube:   l.Type != renderer.LightSun,
+	}
 	if l.Type == renderer.LightSun {
-		l.shadowTarget, l.depthMap = b.CreateShadowMap2D(settings.ShadowWidth, settings.ShadowHeight)
+		l.shadowTarget, l.depthMap = b.CreateRenderTarget(spec)
 	} else {
-		l.shadowTarget, l.depthCubeMap = b.CreateShadowCubemap(settings.ShadowWidth, settings.ShadowHeight)
+		l.shadowTarget, l.depthCubeMap = b.CreateRenderTarget(spec)
 	}
 }
 
@@ -94,11 +100,14 @@ func (l *Light) setup(b renderer.Backend, castsShadow bool) {
 // Returns the light-space matrix, identity for point lights, for the main pass.
 func (l *Light) RenderLight(nearPlane, farPlane float32,
 	depthShader, depthCubeShader renderer.ShaderHandle,
-	s *Scene, u *renderer.Uniforms) mgl32.Mat4 {
+	s *Scene, f *renderer.FrameUniforms) mgl32.Mat4 {
 
 	b := l.backend
 	lightSpaceMatrix := mgl32.Ident4()
-	u.Model = mgl32.Scale3D(1.0, 1.0, 1.0)
+
+	// Static mesh geometry is baked into the OBJ vertices, so the depth passes
+	// draw everything with an identity model matrix and no material at all
+	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
 
 	b.BeginPass(l.shadowTarget, settings.ShadowWidth, settings.ShadowHeight, nil)
 
@@ -106,12 +115,13 @@ func (l *Light) RenderLight(nearPlane, farPlane float32,
 		lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
 		lightView := mgl32.LookAtV(l.Pos, l.Pos.Sub(l.Dir), mgl32.Vec3{0.0, 1.0, 0.0})
 		lightSpaceMatrix = lightProjection.Mul4(lightView)
-		u.LightSpaceMatrix = lightSpaceMatrix
+		f.LightSpaceMatrix = lightSpaceMatrix
+		b.BindFrameUniforms(f)
 
 		// Cull front faces, which avoids peter-panning on the shadow's near edge
 		b.SetCullFace(true)
 		for i := range s.Meshes {
-			s.Meshes[i].draw(depthShader, u)
+			s.Meshes[i].draw(depthShader, &u)
 		}
 		b.SetCullFace(false)
 	} else {
@@ -125,12 +135,13 @@ func (l *Light) RenderLight(nearPlane, farPlane float32,
 			shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{0.0, 0.0, -1.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
 		}
 
-		u.FarPlane = farPlane
-		u.LightPos = l.Pos
-		u.ShadowMatrices = shadowTransforms
+		f.FarPlane = farPlane
+		f.LightPos = l.Pos
+		f.ShadowMatrices = shadowTransforms
+		b.BindFrameUniforms(f)
 
 		for i := range s.Meshes {
-			s.Meshes[i].draw(depthCubeShader, u)
+			s.Meshes[i].draw(depthCubeShader, &u)
 		}
 	}
 
