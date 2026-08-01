@@ -66,7 +66,7 @@ The abstraction rests on four ideas, all inherited from the C++ version:
 
 1. **One small interface, not a full RHI** (render hardware interface — the
    Unreal/wgpu-style layer with command buffers and bind groups exposed to
-   the app). The earlier RHI design in `notes/ABSTRACTION.md` was considered
+   the app). The earlier RHI design in `notes/archive/ABSTRACTION.md` was considered
    and rejected during the C++ rewrite: for one engine with one scene layer
    it adds indirection without payoff. The thin interface keeps scene code
    readable as learnopengl-style code and buries all Vulkan complexity in
@@ -155,7 +155,7 @@ Everything else — pass lifecycle, bindless textures, lazy pipelines, the
 uniform ring, the OpenGL-convention bridging, single-source Slang shaders —
 is kept exactly as the C++ backend proved it, because those decisions are
 documented, debugged, and known to produce identical images on both APIs
-(`notes/BACKEND.md`, `notes/PIPELINE.md`).
+(`notes/archive/BACKEND.md`, `notes/PIPELINE.md`).
 
 ---
 
@@ -193,7 +193,7 @@ overdrive/ (the Go module — promoted from go/)
 ```
 
 Scene-layer rules (copied from the C++ migration,
-`notes/BACKEND.md` § "Key changes"):
+`notes/archive/BACKEND.md` § "Key changes"):
 
 - `Mesh`, `Light`, `Skybox` store a `renderer.Backend` at `setup()` time and
   call through it for everything.

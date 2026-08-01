@@ -25,7 +25,7 @@ go test ./opengl/                        # after any common.slang edit
 go test ./scene/ -run TestShowcaseLoads   # single test
 ```
 
-Stale paths to ignore: `README.md`, `GO_BACKEND.md` and the two top-level scripts (`overdrive.sh`, `overdrive_build.sh`) still say `go/` or `cpp/`. The C++ tree was deleted; the Go tree moved to `src/`. Fix references as you touch them rather than following them.
+Stale paths to ignore: `GO_BACKEND.md` and the two top-level scripts (`overdrive.sh`, `overdrive_build.sh`) still say `go/` or `cpp/`. The C++ tree was deleted; the Go tree moved to `src/`. Fix references as you touch them rather than following them. (`README.md` and `notes/` were corrected on 2026-08-01.)
 
 `slangc` comes from the AUR `shader-slang-bin` package, which installs to `/opt/shader-slang-bin/bin/slangc` and **does not put it on PATH** — so `build_shaders.sh` needs `SLANGC=/opt/shader-slang-bin/bin/slangc` unless that directory has been added to PATH. (Arch's `slang` package is the unrelated S-Lang library.) `src/shaders/gl/` and `src/shaders/vk/` are git-ignored, so a fresh clone builds and tests fine but cannot run until the script has been run once.
 
@@ -58,10 +58,11 @@ Cross-backend gotchas that would silently produce a mirrored or inside-out image
 
 ## Documentation map
 
-- `ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does.
+- `ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 28 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §7 is the Vulkan object-ownership tree and the five lifetime classes.
 - `GO_BACKEND.md` — the design doc (why the abstraction is shaped this way), plus the go-vulkan bindings wishlist.
 - `GO_PARITY.md` — the live TODO: known gaps (single point-shadow cube, 1024² shadow maps, no GL mipmaps, `devices[0]` physical-device pick, no image comparison between backends).
-- `notes/VULKAN.md` — the prescribed Vulkan techniques (1.3, dynamic rendering, BDA + scalar layout, bindless descriptor indexing, synchronization2, VMA, 2 frames in flight). `notes/FEATURES.md`, `PIPELINE.md`, `OPTIMISATION.md` predate the C++ deletion but remain the reference for why the renderer is shaped as it is.
+- `ABSTRACTION_REVIEW.md` — review of the decomposition: three extensibility limits (no colour render targets, the per-draw uniform god-struct, per-object-kind draws) and the order to fix them in.
+- `notes/README.md` — index of `notes/`, marking each file current / C++-era-but-still-the-reason-why / personal reference. Superseded engine docs live in `notes/archive/`. `notes/VULKAN.md` is the prescribed Vulkan technique list (1.3, dynamic rendering, BDA + scalar layout, bindless descriptor indexing, synchronization2, VMA, 2 frames in flight).
 
 ## Conventions
 

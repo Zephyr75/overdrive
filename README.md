@@ -76,14 +76,18 @@ sudo pacman -S vulkan-validation-layers   # optional, for OVERDRIVE_VK_VALIDATIO
 ```
 
 You also need the Slang shader compiler (`slangc`) to build the shaders. It is
-taken from `$SLANGC`, then your `PATH`. Prebuilt SDKs are on the
+taken from `$SLANGC`, then your `PATH`. On Arch it is the AUR package
+`shader-slang-bin`, which installs to `/opt/shader-slang-bin/bin/slangc` and does
+**not** put it on `PATH` — so either add that directory to `PATH` or pass
+`SLANGC=` as below. Arch's `slang` package is the unrelated S-Lang library.
+Prebuilt SDKs for other systems are on the
 [Slang releases page](https://github.com/shader-slang/slang/releases).
 
 ### Quick start
 
 ```sh
-cd go                     # the Go module
-./build_shaders.sh        # Slang -> shaders/gl/*.glsl + shaders/vk/*.spv
+cd src                    # the Go module
+SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh   # or just ./build_shaders.sh if slangc is on PATH
 go build ./...
 go run .                  # OpenGL by default
 ```
@@ -120,8 +124,19 @@ apart.
 
 | Path | Contents |
 |------|----------|
-| `go/` | The engine. See [`GO_BACKEND.md`](GO_BACKEND.md). |
-| `go/renderer/` | The backend abstraction: one interface, opaque handles, one typed uniform struct. |
-| `go/opengl/`, `go/vulkan/` | The two backend implementations. Every graphics call lives in these. |
-| `go/shaders/slang/` | Shader sources, compiled to both backends by `build_shaders.sh`. |
-| `notes/` | Design notes. [`VULKAN.md`](notes/VULKAN.md), [`FEATURES.md`](notes/FEATURES.md), [`RAYTRACING_PLAN.md`](notes/RAYTRACING_PLAN.md). |
+| `src/` | The engine, and the Go module root. |
+| `src/renderer/` | The backend abstraction: one interface, opaque handles, one typed uniform struct. |
+| `src/opengl/`, `src/vulkan/` | The two backend implementations. Every graphics call lives in these. |
+| `src/shaders/slang/` | Shader sources, compiled to both backends by `build_shaders.sh`. |
+| `src/scene/`, `src/ecs/`, `src/physics/` | Scene graph, entity component system, Verlet physics. No graphics calls. |
+| `src/plugin/` | The Blender add-on that exports a scene to XML. |
+| `notes/` | Design and reference notes — see [`notes/README.md`](notes/README.md) for what is still current. |
+
+## Documentation
+
+| Document | What it covers |
+|----------|----------------|
+| [`ENGINE_FLOW.md`](ENGINE_FLOW.md) | **Start here for the renderer.** One frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 28 methods by how often they run. |
+| [`GO_BACKEND.md`](GO_BACKEND.md) | The design document: why the abstraction is shaped this way, plus the go-vulkan bindings wishlist. |
+| [`GO_PARITY.md`](GO_PARITY.md) | Known gaps and the remaining feature checklist. |
+| [`ABSTRACTION_REVIEW.md`](ABSTRACTION_REVIEW.md) | Review of the decomposition: what is good, three extensibility limits, what to change next. |

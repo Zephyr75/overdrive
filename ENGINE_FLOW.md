@@ -13,6 +13,94 @@ howtovulkan.com.
 
 ---
 
+## 0. The `Backend` contract by how often it is called
+
+`renderer.Backend`'s 28 methods are declared by **resource type** — textures,
+buffers, meshes, shaders, targets, draws. That is the wrong axis for remembering
+*where a Vulkan call sits in a frame*. This table is the other axis: how often
+each method runs, and what it becomes on each backend. §4 walks the same 28
+methods in interface order, with the reasoning; this is the index.
+
+The obscure Vulkan names get easier once they are filed by frequency —
+`vkAcquireNextImageKHR` is "the per-frame one", `vkCmdPipelineBarrier2` is "the
+per-pass one", `vkCmdPushConstants` is "the per-draw one".
+
+### Once, at startup — 3 methods
+
+| Method | OpenGL | Vulkan |
+|---|---|---|
+| `ConfigureWindow` | `WindowHint`: 4.1 core, forward-compatible, 4× samples | `WindowHint(ClientAPI, NoAPI)` |
+| `Init` | `MakeContextCurrent`, `gl.Init`, enable depth/cull/blend, white pixel + black cube, shared UBO on binding 0 | `CreateInstance` → surface → `EnumeratePhysicalDevices` → queue family → `CreateDevice` → `VmaCreateAllocator` → swapchain → `CreateCommandPool` → per-frame data → samplers → descriptors → pipeline layout → default textures |
+| `Shutdown` | Nothing — objects die with the context | `DeviceWaitIdle`, then destroy everything in reverse creation order (see §7) |
+
+### Once per resource, at load time — 9 methods
+
+| Method | OpenGL | Vulkan |
+|---|---|---|
+| `CreateShader` | `CreateShader` ×2-3, `CompileShader`, `LinkProgram`, then pin sampler units + block binding | `CreateShaderModule` ×2-3. **No pipeline yet** — built lazily per (pass, layout) |
+| `LoadTexture` | `GenTextures`, `TexImage2D` | `VmaCreateImage` + staging buffer + `immediateSubmit(CmdCopyBufferToImage)` + `CreateImageView` + bindless descriptor write |
+| `LoadCubemap` | Six `TexImage2D` onto the cube target | One 6-layer `CubeCompatible` image, six faces staged contiguously, one copy |
+| `WhiteTexture` | Returns the built-in texture name | Returns `0` — handle 0 *is* bindless slot 0 |
+| `CreateBuffer` | `GenBuffers` + `BufferData` | `VmaCreateBuffer` host-visible + persistently mapped + `MemCopy` |
+| `CreateMesh` | `GenVertexArrays`, record attribute pointers, upload EBO | Pair the vertex handle with a new index buffer. No VAO — layout lives in the pipeline |
+| `CreateSkyboxMesh` | VAO owning a position-only VBO | A vertex buffer with no index buffer |
+| `CreateShadowMap2D` | FBO + `DEPTH_COMPONENT` texture, white border | Depth image (attachment + sampled) + view |
+| `CreateShadowCubemap` | FBO + cube depth texture, `FramebufferTexture` (layered) | 6-layer depth image + **two** views: 2D-array to attach, cube to sample |
+
+### On demand, rarely — 6 methods
+
+| Method | OpenGL | Vulkan |
+|---|---|---|
+| `UpdateBuffer` | `BufferData` again; the driver ghosts old storage | `waitAllFrames()` **then** memcpy. No ghosting — this is a full GPU drain |
+| `DestroyTexture` | `DeleteTextures` | `waitAllFrames()`, destroy view + image + staging |
+| `DestroyBuffer` | `DeleteBuffers` | `waitAllFrames()`, `VmaDestroyBuffer` |
+| `DestroyMesh` | `DeleteVertexArrays` | `waitAllFrames()`, destroy the index buffer |
+| `DestroyFramebuffer` | `DeleteFramebuffers` | `waitAllFrames()`, destroy view + image |
+| `Supports` | `false` | `false` — the seam for ray tracing / compute |
+
+### Once per frame — 4 methods
+
+| Method | OpenGL | Vulkan |
+|---|---|---|
+| `BeginFrame` | Nothing | `WaitForFences` (the CPU throttle) → `AcquireNextImageKHR` → `ResetFences` → rewind ring → `drainRetired` → `ResetCommandBuffer` + `BeginCommandBuffer` → `CmdBindDescriptorSets` → flush staged uploads |
+| `UpdateTexture2D` | `TexImage2D` immediately — legal mid-pass | Memcpy into a mapped staging buffer, **defer** the copy to the next `BeginFrame`. Costs the overlay one frame of latency |
+| `DrawFullscreenQuad` | Build the quad VAO once, bind the UI texture, `DrawArrays` | Build the quad buffer once, push the texture through the ordinary uniform block, `CmdDraw(6)` |
+| `EndFrame` | `SwapBuffers` | Barrier to `PresentSrcKHR` → `EndCommandBuffer` → `QueueSubmit2` (wait acquire sem, signal image's render sem, signal fence) → `QueuePresentKHR` → advance frame slot |
+
+### Once per pass, ×3 a frame — 4 methods
+
+Two shadow passes (depth-only, no colour clear) then the main backbuffer pass.
+
+| Method | OpenGL | Vulkan |
+|---|---|---|
+| `BeginPass` | `BindFramebuffer`, `Viewport`, `Clear` | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state |
+| `SetCullFace` | `gl.CullFace` | `CmdSetCullMode` — dynamic state, no extra pipeline |
+| `SetDepthFunc` | `gl.DepthFunc` | `CmdSetDepthCompareOp` — dynamic state |
+| `EndPass` | Rebind the backbuffer | `CmdEndRendering`, and for a shadow target `imageBarrier` depth-attachment → shader-read-only |
+
+### Once per draw, ~15 a frame — 2 methods
+
+| Method | OpenGL | Vulkan |
+|---|---|---|
+| `DrawMesh` | `UseProgram` → marshal 1600 B std140 → `BufferSubData` → bind up to 9 texture units → `BindVertexArray` → `DrawElements` | `getPipeline(shader, pass, layout)` (skipped if unchanged) → memcpy 1312 B into the ring → `CmdPushConstants` (8-byte device address) → bind vertex + index → `CmdDrawIndexed` |
+| `DrawSkybox` | Same, `DrawArrays(TRIANGLES, 0, 36)` | Same, `CmdDraw(36)`, skybox layout |
+
+### What this table makes obvious
+
+* **Vulkan front-loads.** Almost everything expensive is startup or load time.
+  The per-frame and per-draw rows are short — that is the whole point of the API.
+* **The per-draw row is where cost concentrates.** Both backends re-send the full
+  uniform block ~15 times a frame, most of which is per-frame data that did not
+  change. See `ABSTRACTION_REVIEW.md` §2.2.
+* **`waitAllFrames` appears in five methods.** Every one is a full pipeline
+  drain. They are all rare by design — if one starts running per frame,
+  throughput collapses.
+* **`UpdateTexture2D` is per-frame, not per-resource.** It is the UI overlay, and
+  it is the only reason the deferred-upload machinery (`pendingUploads`,
+  `retire`, `drainRetired`) exists.
+
+---
+
 ## 1. The layers
 
 ```
@@ -341,3 +429,89 @@ to `common.slang` cannot silently break one backend.
 
 Run with `OVERDRIVE_BACKEND=gl` (default) or `=vulkan`, and set
 `OVERDRIVE_VK_VALIDATION=1` while developing the Vulkan path.
+
+---
+
+## 7. Who owns what, and what dies when (Vulkan)
+
+OpenGL needs no such section: objects belong to the context and die with it,
+which is why `GLBackend.Shutdown` is empty. Vulkan makes every object and its
+destruction order the application's problem, so this is the map.
+
+### The ownership tree
+
+Indentation is containment. The right column is what tears each level down.
+
+```
+Instance                                          DestroyInstance
+├── SurfaceKHR                                     DestroySurfaceKHR
+└── Device                                         DestroyDevice
+    ├── VmaAllocator                                VmaDestroyAllocator
+    │
+    ├── SwapchainKHR ─────────── sized to the window
+    │   ├── swapImages[]          owned by the swapchain, never destroyed
+    │   ├── swapViews[]           DestroyImageView          ┐
+    │   ├── renderSems[]          DestroySemaphore          │ destroySwapchain
+    │   └── depthImage/View       VmaDestroyImage           ┘
+    │
+    ├── CommandPool                                 DestroyCommandPool
+    │   └── frames[2].cb          freed with the pool
+    │
+    ├── frames[2]  ───────────── one set per frame in flight
+    │   ├── fence                 DestroyFence
+    │   ├── acquireSem            DestroySemaphore
+    │   └── ring (1 MiB, mapped)  VmaDestroyBuffer
+    │
+    ├── DescriptorPool                              DestroyDescriptorPool
+    │   └── descriptorSet         freed with the pool
+    ├── DescriptorSetLayout                         DestroyDescriptorSetLayout
+    ├── PipelineLayout                              DestroyPipelineLayout
+    ├── samplers ×4                                 DestroySampler
+    │
+    └── resource tables ──────── grow at load time, indexed by handle
+        ├── shaders[]   modules ×2-3 + pipelines[pass][layout]
+        ├── textures[]  image + view (+ staging, for the UI overlay)
+        ├── buffers[]   VmaCreateBuffer, host-visible, mapped
+        ├── meshes[]    index buffer (the vertex buffer is shared, not owned)
+        └── shadowTargets[]  image + attachment view
+```
+
+### Five lifetime classes
+
+| Class | Objects | Created | Destroyed |
+|---|---|---|---|
+| **Permanent** | instance, surface, device, allocator, command pool, descriptor pool/set/layout, pipeline layout, samplers | `Init`, once | `Shutdown`, reverse order |
+| **Swapchain-sized** | swapchain, image views, render semaphores, depth image + view | `createSwapchain` | `destroySwapchain` — **also on every resize** |
+| **Per frame in flight** (×2) | command buffer, fence, acquire semaphore, uniform ring | `createFrameData` | `Shutdown` |
+| **Per resource** | shader modules + pipelines, textures, buffers, meshes, shadow targets | load time, on demand | `Destroy*` (after `waitAllFrames`) or `Shutdown` |
+| **Retired** | images/views/staging replaced mid-frame | `retire`, when the UI canvas resizes | `drainRetired`, once `framesInFlight + 1` frames have passed |
+
+### The three rules that make it safe
+
+1. **Nothing is destroyed while the GPU might still read it.** `Shutdown` opens
+   with `DeviceWaitIdle`; the `Destroy*` methods call `waitAllFrames` instead,
+   which is cheaper but still a full drain. `waitAllFrames` deliberately skips
+   the frame being recorded — its fence was reset in `BeginFrame` and can only be
+   signalled by `EndFrame`, so waiting on it would deadlock.
+
+2. **Mid-frame replacement retires rather than destroys.** `UpdateTexture2D` runs
+   inside the main pass, where the command buffer already references the old
+   image, and where `waitAllFrames` would stall every frame. So the old objects
+   go on the `retired` list tagged with `frameCounter`, and `drainRetired` frees
+   them once no in-flight frame can reference them. This is the only
+   deferred-destruction path in the engine.
+
+3. **Resize is a partial teardown.** `recreateSwapchain` blocks while minimised
+   (a zero-sized surface has no valid swapchain), waits idle, then destroys and
+   rebuilds exactly the swapchain-sized class. Everything else survives. It is
+   triggered by `ErrOutOfDateKHR` from either `AcquireNextImageKHR` or
+   `QueuePresentKHR` — that error *is* how a resize reaches a Vulkan app.
+
+### Two index spaces that are easy to confuse
+
+`frameIndex` cycles `0..framesInFlight-1` and selects the command buffer, fence,
+acquire semaphore and ring. `imageIndex` comes back from `AcquireNextImageKHR`
+and selects the swapchain image, its view and its render semaphore. They are not
+interchangeable and the swapchain may hold a different number of images than
+there are frames in flight — which is exactly why `renderSems` is sized per
+image while `acquireSem` lives per frame.
