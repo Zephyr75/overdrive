@@ -2,8 +2,8 @@
 
 Status of the `cpp/` engine beyond bare-bones mesh rasterization, plus a
 prioritized plan for what comes next and how to build it. Read alongside
-`cpp/BACKEND.md` (renderer contract), `notes/VULKAN.md` (Vulkan techniques), and
-`notes/RAYTRACING_PLAN.md` (the longer-horizon ray-tracing design).
+`cpp/BACKEND.md` (renderer contract), `VULKAN.md` (Vulkan techniques), and
+`RAYTRACING_PLAN.md` (the longer-horizon ray-tracing design).
 
 ---
 
@@ -317,7 +317,7 @@ composite).
 (`VK_KHR_ray_query`)** dropped into `forward.slang`'s shadow test, replacing the
 shadow-map passes; it reuses the existing forward pass and the current light
 loop. OpenGL stays on shadow maps (GL 4.1 cannot participate). See
-`notes/RAYTRACING_PLAN.md` for acceleration-structure plumbing, the ray-query
+`RAYTRACING_PLAN.md` for acceleration-structure plumbing, the ray-query
 vs RT-pipeline trade-off, and the optional-capability stub strategy for keeping
 `GLBackend` a one-liner. Follow-ups: RT AO → reflections → one-bounce GI.
 

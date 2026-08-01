@@ -136,7 +136,7 @@ apart.
 
 | Document | What it covers |
 |----------|----------------|
-| [`ENGINE_FLOW.md`](ENGINE_FLOW.md) | **Start here for the renderer.** One frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 28 methods by how often they run. |
-| [`GO_BACKEND.md`](GO_BACKEND.md) | The design document: why the abstraction is shaped this way, plus the go-vulkan bindings wishlist. |
-| [`GO_PARITY.md`](GO_PARITY.md) | Known gaps and the remaining feature checklist. |
-| [`ABSTRACTION_REVIEW.md`](ABSTRACTION_REVIEW.md) | Review of the decomposition: what is good, three extensibility limits, what to change next. |
+| [`ENGINE_FLOW.md`](notes/ENGINE_FLOW.md) | **Start here for the renderer.** One frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 28 methods by how often they run. |
+| [`GO_BACKEND.md`](notes/GO_BACKEND.md) | The design document: why the abstraction is shaped this way, plus the go-vulkan bindings wishlist. |
+| [`GO_PARITY.md`](notes/GO_PARITY.md) | Known gaps and the remaining feature checklist. |
+| [`ABSTRACTION_REVIEW.md`](notes/ABSTRACTION_REVIEW.md) | Review of the decomposition: what is good, three extensibility limits, what to change next. |

@@ -2,8 +2,8 @@
 
 How hardware ray tracing would slot into the Overdrive C++ engine. **Design
 note only — nothing here is implemented.** Read alongside `cpp/BACKEND.md` and
-`notes/VULKAN.md`. For the ray-tracing-vs-path-tracing vocabulary, see
-`notes/RAYTRACING.md`.
+`VULKAN.md`. For the ray-tracing-vs-path-tracing vocabulary, see
+`archive/RAYTRACING.md`.
 
 ## TL;DR: Vulkan only
 
@@ -64,7 +64,7 @@ enabled) and `VK_KHR_deferred_host_operations`.
 ## Device feature/extension changes (`VKBackend::init`)
 
 Today the device enables 1.3 dynamic rendering, sync2, BDA, scalar layout,
-descriptor indexing (`notes/VULKAN.md`). Add, gated behind a runtime probe:
+descriptor indexing (`VULKAN.md`). Add, gated behind a runtime probe:
 
 ```
 Device extensions:
@@ -208,7 +208,7 @@ Minimal disruption to the pass-based lifecycle in `cpp/BACKEND.md`:
 - **Memory**: BLAS/TLAS + scratch are extra VRAM; size with
   `vkGetAccelerationStructureBuildSizesKHR`, reuse one scratch buffer.
 - **Two frames in flight**: TLAS is GPU-only, so not duplicated per frame
-  (`notes/VULKAN.md`), but a per-frame refit must not overwrite a TLAS the
+  (`VULKAN.md`), but a per-frame refit must not overwrite a TLAS the
   previous frame's GPU still reads — gate refit on the frame fence, or
   double-buffer the TLAS if refit-per-frame becomes normal.
 </content>

@@ -838,7 +838,7 @@ func compareOp(lequal bool) vk.CompareOp {
 
 // --- capabilities ------------------------------------------------------------
 
-// Reports no optional capability, ray tracing and compute not being wired up yet (GO_BACKEND.md Phase 6)
+// Reports no optional capability, ray tracing and compute not being wired up yet (notes/GO_BACKEND.md Phase 6)
 func (b *VKBackend) Supports(renderer.Feature) bool { return false }
 
 // --- helpers -----------------------------------------------------------------

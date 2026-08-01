@@ -2,7 +2,7 @@
 
 Every performance problem hit in the `cpp/` engine so far, what caused it, how it
 was fixed (or deliberately left alone), and how it was measured. Read alongside
-`notes/FEATURES.md` (feature context) and `cpp/BACKEND.md` (renderer contract).
+`FEATURES.md` (feature context) and `cpp/BACKEND.md` (renderer contract).
 
 Most of these surfaced on an **Intel UHD 620** iGPU under FIFO (vsync) present.
 That machine is a **throwaway development box** — the engine targets discrete

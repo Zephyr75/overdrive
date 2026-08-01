@@ -1,6 +1,6 @@
 // Package renderer defines the backend abstraction: one Backend interface,
 // opaque resource handles, and one typed Uniforms struct. Nothing in this
-// package (or above it) imports a graphics API. See GO_BACKEND.md
+// package (or above it) imports a graphics API. See notes/GO_BACKEND.md
 package renderer
 
 import "github.com/go-gl/glfw/v3.3/glfw"

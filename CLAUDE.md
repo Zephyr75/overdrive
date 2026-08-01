@@ -25,11 +25,11 @@ go test ./opengl/                        # after any common.slang edit
 go test ./scene/ -run TestShowcaseLoads   # single test
 ```
 
-Stale paths to ignore: `GO_BACKEND.md` and the two top-level scripts (`overdrive.sh`, `overdrive_build.sh`) still say `go/` or `cpp/`. The C++ tree was deleted; the Go tree moved to `src/`. Fix references as you touch them rather than following them. (`README.md` and `notes/` were corrected on 2026-08-01.)
+Stale paths to ignore: `notes/GO_BACKEND.md` and the two top-level scripts (`overdrive.sh`, `overdrive_build.sh`) still say `go/` or `cpp/`. The C++ tree was deleted; the Go tree moved to `src/`. Fix references as you touch them rather than following them. (`README.md` and `notes/` were corrected on 2026-08-01.)
 
 `slangc` comes from the AUR `shader-slang-bin` package, which installs to `/opt/shader-slang-bin/bin/slangc` and **does not put it on PATH** — so `build_shaders.sh` needs `SLANGC=/opt/shader-slang-bin/bin/slangc` unless that directory has been added to PATH. (Arch's `slang` package is the unrelated S-Lang library.) `src/shaders/gl/` and `src/shaders/vk/` are git-ignored, so a fresh clone builds and tests fine but cannot run until the script has been run once.
 
-The Vulkan backend links against the `vk` package in the sibling repo `../../go-vulkan` (a `replace` directive in `go.mod`, resolving to `/home/zeph/GitHub/go-vulkan`). Missing bindings are catalogued in `GO_BACKEND.md` Part 6.
+The Vulkan backend links against the `vk` package in the sibling repo `../../go-vulkan` (a `replace` directive in `go.mod`, resolving to `/home/zeph/GitHub/go-vulkan`). Missing bindings are catalogued in `notes/GO_BACKEND.md` Part 6.
 
 ## Architecture
 
@@ -54,14 +54,14 @@ Four invariants hold the two backends together. Breaking any of them is how this
 
 Frame shape (`core/App.Run`): physics + mesh re-upload → input → `BeginFrame` → ≤2 shadow passes (depth-only, no color clear) → main backbuffer pass (skybox with LEQUAL depth, scene forward, UI fullscreen quad) → `EndFrame`. Shadow budget is fixed at load: `Scene.pickShadowCasters` gives a 2D map to the first directional light and a cube map to the first point light; other lights still light the scene, they just cast nothing.
 
-Cross-backend gotchas that would silently produce a mirrored or inside-out image: Vulkan's main pass uses a **negative-height viewport** to match GL's y-up NDC, which also flips winding (so it keeps CCW front faces), while the shadow passes use a positive viewport and declare `FrontFace = Clockwise` so the shadow map's memory layout matches GL's. `ENGINE_FLOW.md` §5 is the full list, §6 is a symptom→file table.
+Cross-backend gotchas that would silently produce a mirrored or inside-out image: Vulkan's main pass uses a **negative-height viewport** to match GL's y-up NDC, which also flips winding (so it keeps CCW front faces), while the shadow passes use a positive viewport and declare `FrontFace = Clockwise` so the shadow map's memory layout matches GL's. `notes/ENGINE_FLOW.md` §5 is the full list, §6 is a symptom→file table.
 
 ## Documentation map
 
-- `ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 28 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §7 is the Vulkan object-ownership tree and the five lifetime classes.
-- `GO_BACKEND.md` — the design doc (why the abstraction is shaped this way), plus the go-vulkan bindings wishlist.
-- `GO_PARITY.md` — the live TODO: known gaps (single point-shadow cube, 1024² shadow maps, no GL mipmaps, `devices[0]` physical-device pick, no image comparison between backends).
-- `ABSTRACTION_REVIEW.md` — review of the decomposition: three extensibility limits (no colour render targets, the per-draw uniform god-struct, per-object-kind draws) and the order to fix them in.
+- `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 28 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §7 is the Vulkan object-ownership tree and the five lifetime classes.
+- `notes/GO_BACKEND.md` — the design doc (why the abstraction is shaped this way), plus the go-vulkan bindings wishlist.
+- `notes/GO_PARITY.md` — the live TODO: known gaps (single point-shadow cube, 1024² shadow maps, no GL mipmaps, `devices[0]` physical-device pick, no image comparison between backends).
+- `notes/ABSTRACTION_REVIEW.md` — review of the decomposition: three extensibility limits (no colour render targets, the per-draw uniform god-struct, per-object-kind draws) and the order to fix them in.
 - `notes/README.md` — index of `notes/`, marking each file current / C++-era-but-still-the-reason-why / personal reference. Superseded engine docs live in `notes/archive/`. `notes/VULKAN.md` is the prescribed Vulkan technique list (1.3, dynamic rendering, BDA + scalar layout, bindless descriptor indexing, synchronization2, VMA, 2 frames in flight).
 
 ## Conventions

@@ -57,7 +57,7 @@ CreateShadowCubemap(w, h int) (FramebufferHandle, TextureHandle)
 Both named for a *use*, not a *thing*. `vulkan/backend.go:731` proves it — any
 non-zero target is assumed to be `shadowTargets[target]`, depth-only.
 
-HDR / tone mapping / bloom is in the README roadmap and in `notes/FEATURES.md`,
+HDR / tone mapping / bloom is in the README roadmap and in `FEATURES.md`,
 and it needs an offscreen **colour** target. The current interface cannot express
 one. Same for a G-buffer, reflection probes, or post-processing of any kind.
 
@@ -126,6 +126,10 @@ way soonest once anything new becomes drawable.
 
 ## 4. Documentation plan
 
+**Status: done, 2026-08-01.** All four items implemented, plus a further pass
+that moved every document except `README.md` and `CLAUDE.md` into `notes/`.
+Item 3 was executed more conservatively than written — see the note under it.
+
 Where the time is actually best spent:
 
 1. **`ENGINE_FLOW.md` §0 — the frequency table from §1 above**, extended to all 28
@@ -138,6 +142,13 @@ Where the time is actually best spent:
    `ARCHITECTURE.md` describe an engine that no longer exists and three different
    abstraction plans that were not taken. They actively mislead. Keep
    `VULKAN.md`, `OPTIMISATION.md`, `PBR.md`, `ALGEBRA.md`; archive the rest.
+
+   *As executed:* "archive the rest" was written before reading the files and was
+   wrong — it would have archived `FEATURES.md` (the roadmap of record, linked
+   from the README) and `RAYTRACING_PLAN.md` (also README-linked). What was
+   archived instead: the superseded engine docs, plus the personal
+   graphics-revision notes, which are not documentation of this engine at all.
+   `README.md` in this directory is the index.
 4. **Fix `README.md`** — still says `go/`, still says the C++ tree exists.
 
 ---

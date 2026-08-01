@@ -2,13 +2,13 @@
 
 What the Go engine still owes the C++ engine it replaced. The C++ tree was
 deleted on 2026-07-22 once the showcase scene was salvaged; these items were
-catalogued against it beforehand, and `notes/FEATURES.md` remains the written
+catalogued against it beforehand, and `FEATURES.md` remains the written
 record of what it did. Its source is in git history if an exact detail is ever
 needed.
 
 Items that engine also lacked (texture-driven PBR maps, real prefiltered IBL,
 HDR/bloom, ray tracing) are **not** listed here — they are roadmap, and live in
-`notes/FEATURES.md` Part 2.
+`FEATURES.md` Part 2.
 
 Scope note: the renderer itself is at parity. Both engines run the same Slang
 shader set through the same pass structure on both backends, so everything that
@@ -67,7 +67,7 @@ the **scene layer** and in **backend polish**.
   buffer-device-address allocations when supported, so RenderDoc can capture;
   without it RenderDoc crashes on the BDA. Needs bindings.
 - [ ] **No GPU timing.** C++ has opt-in timestamp queries (`OD_GPU_TIMING`)
-  reporting bake vs main-pass milliseconds — the tool `notes/OPTIMISATION.md`
+  reporting bake vs main-pass milliseconds — the tool `OPTIMISATION.md`
   argues you need instead of FPS subtraction. Needs query-pool bindings.
 
 ## 4. Verification owed
