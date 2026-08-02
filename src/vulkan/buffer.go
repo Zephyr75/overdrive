@@ -10,7 +10,7 @@ import (
 //
 // At this engine's asset scale that is fast enough and keeps uploads to a
 // memcpy. A device-local plus staging-copy path is the upgrade when profiling
-// asks for it (notes/GO_BACKEND.md §6.2).
+// asks for it (notes/FEATURES.md, performance notes).
 func (b *VKBackend) createBuffer(data []float32, usage vk.BufferUsageFlags) renderer.BufferHandle {
 	size := uint64(len(data) * 4)
 	if size == 0 {

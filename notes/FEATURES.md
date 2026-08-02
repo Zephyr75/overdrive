@@ -1,340 +1,313 @@
-# Overdrive C++ — Feature Report & Roadmap
+# FEATURES.md — what the engine does, and what comes next
 
-Status of the `cpp/` engine beyond bare-bones mesh rasterization, plus a
-prioritized plan for what comes next and how to build it. Read alongside
-`cpp/BACKEND.md` (renderer contract), `VULKAN.md` (Vulkan techniques), and
-`RAYTRACING_PLAN.md` (the longer-horizon ray-tracing design).
+What is implemented beyond bare mesh rasterisation, why each piece is built the
+way it is, and the roadmap in value-to-effort order.
+
+Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
+`ARCHITECTURE.md` (where the code lives). Paths are relative to `src/`.
 
 ---
 
-## Part 1 — Implemented features
+## Contents
+
+- [Part 1 — implemented](#part-1--implemented)
+  - [Dual backend, one shader source](#dual-backend-one-shader-source)
+  - [Lighting](#lighting--cook-torrance-pbr-two-light-types)
+  - [Shadows](#shadows--both-kinds-with-pcf)
+  - [Multi-light support](#multi-light-support)
+  - [PBR materials](#pbr-materials--metallic-roughness-cook-torrance)
+  - [Materials and textures](#materials-and-textures)
+  - [Normal mapping](#normal-mapping)
+  - [Environment and reflection](#environment-and-reflection)
+  - [Scene and assets](#scene-and-assets)
+  - [UI overlay](#ui-overlay)
+- [Part 2 — roadmap](#part-2--roadmap)
+- [Performance notes](#performance-notes)
+
+---
+
+## Part 1 — implemented
 
 ### Dual backend, one shader source
-- Backend-agnostic renderer: scene layer (`cpp/scene/`) makes zero graphics-API
-  calls; everything goes through `renderer/Backend.hpp` + `renderer/Shader.hpp`,
-  implemented twice in `opengl/` and `vulkan/`.
-- Shaders authored once in Slang (`cpp/shaders/slang/*.slang`) and compiled per
-  backend at configure time: GLSL 4.10 for OpenGL, SPIR-V for Vulkan.
-- Vulkan path follows the modern stack: 1.3 dynamic rendering, buffer-device
-  address + scalar layout for uniforms, bindless descriptor indexing, 2 frames
-  in flight (see `cpp/BACKEND.md`).
+
+- The scene layer makes zero graphics-API calls. Everything goes through
+  `renderer.Backend` (27 methods), implemented twice in `opengl/` and `vulkan/`,
+  selected at startup by `OVERDRIVE_BACKEND`
+- Shaders are authored once in Slang (`shaders/slang/*.slang`) and compiled per
+  backend by `build_shaders.sh`: GLSL 4.10 for OpenGL, SPIR-V for Vulkan
+- The Vulkan path is the modern stack: 1.3 dynamic rendering, buffer device
+  address with scalar layout for uniforms, bindless descriptor indexing,
+  synchronization2, VMA, 2 frames in flight
 
 ### Lighting — Cook-Torrance PBR, two light types
-Defined in `scene/Light.hpp` (`LightType { Sun, Point }`) and evaluated in
-`shaders/slang/forward.slang` with a metallic-roughness microfacet BRDF (see
-**PBR materials** below for the BRDF itself):
-- **Directional ("Sun")** — `calcDirLight`, infinite light along `direction`;
-  radiance = `color · diffuse · intensity`.
-- **Point** — `calcPointLight`, inverse-square falloff
-  (`1 / (kConstant + d²)`); radiance scaled by that attenuation.
-- Each light builds an incoming-radiance term and feeds the shared
-  `cookTorrance` evaluator; per-light `intensity` / `diffuse` set its strength.
-- Up to `MAX_LIGHTS` (8) lights in any mix of directional and point — see
-  **Multi-light support** below.
+
+Declared in `scene/light.go` (`renderer.LightSun`, `renderer.LightPoint`) and
+evaluated in `shaders/slang/forward.slang` with a metallic-roughness microfacet
+BRDF:
+
+- **Directional (`sun`)** — `calcDirLight`, infinite light along `direction`,
+  radiance `color · diffuse · intensity`
+- **Point** — `calcPointLight`, inverse-square falloff, radiance scaled by that
+  attenuation. Import divides Blender's intensity by 1000 to match
+- Both feed the shared `cookTorrance` evaluator
+- Up to `MAX_LIGHTS` (8) lights in any mix
 
 ### Shadows — both kinds, with PCF
-Driven by `Light::renderLight` (`scene/Light.cpp`), rendered in dedicated depth
-passes before the main pass:
-- **Directional → 2D shadow map.** Orthographic light-space matrix; sampled in
-  `shadowCalculation` with a 3×3 PCF kernel and a **normal-offset bias** (see
-  below); clamps to lit beyond the far plane. Backed by `createShadowMap2D`.
-- **Point → omnidirectional cubemap shadow.** 6 face-view matrices rendered via
-  the `depth_cube` geometry-shader path; sampled in `shadowCalculationCube` with
-  a 20-tap disk PCF whose radius grows with view distance. Stores linear
-  distance / `farPlane`. Backed by `createShadowCubemap`.
-- GL↔VK bridging for the shadow passes (positive viewport, CW front face,
-  `TO_VK_DEPTH` clip-z remap) is handled per `cpp/BACKEND.md`.
 
-#### Shadow-sampling performance (the GL/Vulkan parity fix)
-The PCF kernels tap the shadow maps a lot per fragment (9× for the 2D map, 20×
-for the cube), which made the **Vulkan backend run ~2× slower than OpenGL** on an
-Intel UHD 620 (≈37 vs ≈62 fps, and worse once the iGPU throttled). Profiling by
-gutting the fragment shader showed the cost was entirely the shadow taps, not the
-PBR/IBL math or CPU submission. Two fixes closed most of the gap (to ≈46 vs ≈61):
+Driven by `Light.RenderLight` (`scene/light.go`), in dedicated depth passes
+before the main pass:
 
-- **Dedicated shadow descriptors instead of bindless.** The shadow maps were
-  sampled through the bindless `texturesCube[idx]` / `textures2D[idx]` arrays.
-  Intel's Vulkan driver re-fetches a *dynamically-indexed* descriptor on every
-  tap, so 20 cube taps = 20 descriptor fetches. The shadow maps now get plain
-  bound descriptors (set 0, bindings 2 = `Sampler2D`, 3 = `SamplerCube[
-  MAX_SHADOW_CUBES]`) — the same fixed-sampler model the OpenGL backend already
-  uses. `VKBackend` mirrors the directional caster's 2D map (texture unit 0) into
-  binding 2 and each point caster's cube map (units `SHADOW_CUBE_UNIT_BASE`..)
-  into the binding-3 array in `bindTexture2D` / `bindCubemap`, only rewriting a
-  slot when its caster changes (`writeDedicatedTexture`, guarded by
-  `shadow2DHandle` / `shadowCubeHandles[]`). Material textures stay bindless.
-  (≈37 → ≈43 fps.)
-- **Early-bail PCF.** Both shadow tests first take 4 spread taps; if they
-  unanimously agree (fully lit or fully shadowed — true for almost every fragment
-  outside a penumbra) they return immediately, skipping the full 9-/20-tap
-  kernel. Only soft edges pay full price. Quality is unchanged; this helps both
-  backends and disproportionately the Vulkan path that was tap-bound. (≈43 → ≈46
-  fps, and it throttles far less because the GPU does less work.)
+- **Directional → 2D shadow map.** Orthographic light-space matrix, sampled in
+  `shadowCalculation` with a 3×3 PCF kernel and a normal-offset bias; reads as
+  lit beyond the far plane
+- **Point → cubemap shadow.** Six face-view matrices rendered through the
+  `depth_cube` geometry-shader path in one layered draw, sampled in
+  `shadowCalculationCube` with a 20-tap disk PCF whose radius grows with view
+  distance. Stores linear distance / `farPlane`
+- Both targets come from one `CreateRenderTarget(RenderTargetSpec)` call, which
+  differs only in `Cube: true`
+- The GL↔VK bridging for these passes (positive viewport, clockwise front face)
+  is in `ENGINE_FLOW.md` §5
 
-The residual gap is the iGPU still being shadow-tap-bound below the 60 fps vsync
-cap (OpenGL has headroom under it). Further levers if needed: fewer base cube
-taps, a screen-space shadow cache, or the ray-traced-shadow path (roadmap §3),
-which removes the shadow-map taps entirely on Vulkan.
+#### Shadow bias — normal-offset
 
-**Multi-cube update (and a deliberate non-fix).** Extending point shadows from
-one cube to up to `MAX_SHADOW_CUBES` (4) made the cube sampler a *descriptor
-array* indexed by a runtime slot (`shadowCubeMap[slot]`). Re-profiling with real
-GPU timestamp queries (not FPS subtraction — see `OPTIMISATION.md` for why that
-matters) showed the Vulkan main pass spends ~16 ms on cube PCF alone vs OpenGL's
-~12 ms for the *entire* main pass; the shadow bake is ~equal on both backends
-(~15 ms), so it is **not** the gap. The cause is Intel's ANV driver re-fetching a
-dynamically-indexed descriptor per tap — the same class of cost the dedicated
-bindings fixed for the single cube, reintroduced by the array index. We
-**deliberately do not** constant-fold the index (e.g. `switch(slot)` or 4 single
-bindings): that cost is an Intel-iGPU artifact, near-free on the discrete GPUs
-this engine actually targets, and the iGPU here is a throwaway dev box. Keeping
-the generic array avoids contorting the shader for hardware we won't ship on. The
-full rationale, measurements, and the opt-in GPU-timing instrumentation
-(`OD_GPU_TIMING`) live in `OPTIMISATION.md`; revisit only if a target GPU profiles
-the same way.
+Shadow filtering needs a bias to escape **acne** (self-shadowing from depth-map
+quantisation). The trade-off is **peter-panning**: too much bias detaches the
+shadow from the object's base.
 
-#### Shadow bias — normal-offset (and how to change it later)
-Shadow-map filtering needs a bias to escape **shadow acne** (the receiver
-self-shadowing from depth-map quantization). The tradeoff is **peter-panning**:
-too much bias detaches the shadow from the object's base, leaving a lit *gap* at
-the contact point.
+Both tests use a **normal-offset** bias rather than a depth bias: the receiver
+sample point is pushed along its surface normal in world space
+(`NORMAL_OFFSET_2D = 0.08`, `NORMAL_OFFSET_CUBE = 0.10`), more at grazing light
+angles, *before* projecting into the shadow map. The 2D path re-projects the
+offset world position in the fragment shader; the cube path offsets the
+`fragToLight` origin. Escaping acne geometrically means the residual constant
+depth bias is tiny and contact shadows stay attached.
 
-Both shadow tests use a **normal-offset bias** rather than a depth bias: instead
-of offsetting the compared depth, the receiver sample point is pushed along its
-surface normal in world space (`NORMAL_OFFSET_2D` / `NORMAL_OFFSET_CUBE` in
-`forward.slang`), more at grazing light angles, *before* projecting into the
-shadow map. The 2D path re-projects the offset world position in the fragment
-shader (so the old precomputed `fragPosLightSpace` varying is gone); the cube
-path offsets the `fragToLight` origin. This escapes acne geometrically, so the
-residual constant depth bias is tiny (2D `0.0015`, cube `0.04`) and contact
-shadows stay attached.
+The offsets are tuned for the showcase's ~10-unit scene scale — rescale them if
+the scene scale changes. Alternatives if this needs revisiting:
 
-The offset constants are tuned for the showcase's ~10-unit scene scale; rescale
-them if the scene scale changes (too small → acne returns; too large →
-peter-panning comes back). **Alternatives if you want to revisit this:**
-- **Front-face culling in the shadow pass** (render only back faces into the
-  depth map): the cleanest fix for *closed, solid* meshes — the bias hides
-  inside the geometry — but a flat/single-sided ground plane has no back face,
-  so it can't cover the showcase ground on its own. Would need
-  `glCullFace(GL_FRONT)` (GL) / a CW-vs-CCW cull flip (VK) around the depth pass.
-- **Slope-scaled depth bias** (`glPolygonOffset`) — cheap, but on its own it was
-  what caused the original peter-panning.
-- A robust production setup usually pairs **front-face culling (solids) +
-  normal-offset (everything, incl. flat receivers)**, which is the natural next
-  step here if shadows need to be tighter.
+- **Front-face culling in the shadow pass.** The cleanest fix for *closed* meshes
+  (the bias hides inside the geometry), but a single-sided ground plane has no
+  back face, so it cannot cover the showcase ground alone. The sun's pass already
+  does this via `SetCullFace(true)`
+- **Slope-scaled depth bias** (`glPolygonOffset`) — cheap, but on its own it is
+  what caused the original peter-panning
+- A production setup usually pairs **front-face culling (solids) + normal-offset
+  (everything, including flat receivers)**, which is the natural next step
+
+#### Early-bail PCF
+
+Both shadow tests first take 4 spread taps. If they unanimously agree — fully
+lit or fully shadowed, true for almost every fragment outside a penumbra — they
+return immediately and skip the full 9- or 20-tap kernel. Only soft edges pay
+full price, quality is unchanged, and it helps whichever backend is tap-bound.
 
 ### Multi-light support
-The forward pass evaluates up to `MAX_LIGHTS` (= 8) lights per fragment, in any
-mix of directional and point lights. How it fits together:
 
-- **Uniform block.** `Uniforms` (`common.slang`) carries `LightData
-  lights[MAX_LIGHTS]` plus `lightCount` (how many entries are live), `shadowDirIndex`
-  (which light, if any, owns the 2D shadow map; -1 = none) and `pointShadowLights[
-  MAX_SHADOW_CUBES]` (the light index owning each cube-shadow slot, or -1).
-  `MAX_LIGHTS` and `MAX_SHADOW_CUBES` are duplicated as constants in the two CPU
-  mirrors (`vulkan/Uniforms.hpp`, `opengl/Shader.cpp`), `settings/Settings.hpp`,
-  and `scene/Mesh.cpp`, all of which must stay in step with the shader. The layout
-  change is guarded the usual way: the Vulkan scalar mirror by
-  `static_assert(sizeof(VKUniformBlock) == 1312)`, the GL std140 mirror by
-  `kBlockSize` (1600) and the hand-computed offset table (`lights[]` ends at byte
-  1488; the trailing ints, PBR scalars, then the std140 `pointShadowLights[4]`
-  array at 1536 follow).
+The forward pass evaluates up to `MAX_LIGHTS` (8) lights per fragment in any mix.
 
+- **Uniform block.** `renderer.FrameUniforms` carries `Lights [8]LightData` plus
+  `LightCount`, `ShadowDirIndex` (which light owns the 2D map, -1 for none) and
+  `PointShadowLights [4]int32` (which light owns each cube slot, -1 for none).
+  `MaxLights` and `MaxShadowCubes` are duplicated in `renderer/uniforms.go` and
+  `common.slang` and must stay in step
 - **Fragment loop.** `forward.slang` loops `l < lightCount`, branches on
-  `light.type`, and adds `calcDirLight` / `calcPointLight` for each. The earlier
-  hard-coded 2-iteration loop is gone.
+  `light.type`, and adds `calcDirLight` / `calcPointLight`
+- **Shadows are decoupled from light order.** The shader applies the 2D shadow
+  only to the light at `shadowDirIndex`, and for each point light scans
+  `pointShadowLights[]` for a cube slot that owns it. Everything else is lit but
+  unshadowed
+- **Who casts.** `Scene.pickShadowCasters` selects the first directional and the
+  first point light at load. Only casters allocate a target and run a depth pass
 
-- **Shadow budget, decoupled from light order.** Shadows are bounded but no
-  longer capped at one of each kind: one 2D shadow map (directional) plus up to
-  `MAX_SHADOW_CUBES` (= 4) cube shadow maps (point). Rather than assume a fixed
-  light ordering, the shader applies the 2D shadow only to the light at
-  `shadowDirIndex`, and for each point light scans `pointShadowLights[]` — if a
-  cube slot owns it, it samples that slot's `shadowCubeMap[s]`; every other light
-  is lit but unshadowed. The shadow-test helpers take the relevant light's
-  direction / position (and, for the cube path, the slot) as parameters instead
-  of indexing `lights[0]` / `lights[1]` directly.
-
-- **Who casts.** `Scene` (`scene/Scene.cpp`) picks the first directional light
-  plus the first `MAX_SHADOW_CUBES` point lights as the casters, records the
-  directional in `shadowDirIndex` and assigns each point caster a cube slot in
-  `pointShadowLights[]`, and sets `Light::castsShadow`. Only casters allocate a
-  shadow map (`Light::setup` early-returns otherwise) and run a depth pass
-  (`App` skips non-casters; each caster already owns its own FBO + cube map, so
-  the bake loop scaled to N casters for free) — so adding more lights costs only
-  the forward-pass evaluation, not unbounded shadow passes. `Mesh::draw` uploads
-  `lightCount` + the indices and binds each caster's map to its unit; light
-  ordering in the XML no longer matters.
-
-- **Vulkan per-light uniform-read optimisation.** The first multi-light cut ran
-  the showcase at ~60 fps on OpenGL but only ~30 on Vulkan (FIFO vsync, Intel
-  UHD 620). Root cause: the per-light loop in `forward.slang` read the
-  loop-invariant material fields (`U.matAmbient` / `matDiffuse` / `matSpecular` /
-  `matShininess`) *inside* `calcDirLight` / `calcPointLight`, i.e. once **per
-  light per fragment**. On Vulkan `U` is a `buffer_reference` (BDA) pointer, so
-  the compiler cannot prove those loads are loop-invariant (no aliasing
-  guarantee) and re-fetches them from memory every iteration; on OpenGL the same
-  reads hit a UBO and ride Intel's constant cache for free — hence the
-  backend-specific cliff. Going from 2 to 5 lights pushed the Vulkan frame past
-  the 16.6 ms vsync boundary, so it dropped cleanly to the next interval (30 fps).
-  Fix: hoist the material fields into a local `MatParams` struct (and the loop
-  scalars `lightCount` / `shadowDirIndex` into locals)
-  once at the top of `fsMain`, and pass `MatParams` into the light functions
-  instead of reading `U` inside them. The loop now touches registers, not the
-  BDA pointer. Measured (Intel UHD 620, 5 lights): Vulkan 39 → 53 fps, back to
-  the old 2-light baseline; OpenGL unaffected (a marginal win at most). The
-  lighting math is unchanged. Note this is structural, not light-count: the
-  saving applies for any N, and is the reason the per-light loop never reads
-  material data through `U` directly.
-
+> **Gap.** The shader is written for `MAX_SHADOW_CUBES` (4) cube slots, but
+> `Scene` tracks a single `shadowPointIndex` and fills only slot 0. Lifting that
+> means turning the two caster indices into slices — see `TODO.md`.
 
 ### PBR materials — metallic-roughness Cook-Torrance
-The forward shader uses a physically-based microfacet BRDF instead of
-Blinn-Phong. Implemented entirely in `forward.slang` with three new material
-scalars threaded through the uniform block.
 
-- **BRDF.** `cookTorrance` (in `forward.slang`) is the textbook Cook-Torrance
-  specular term — GGX/Trowbridge-Reitz normal distribution (`distributionGGX`),
-  Smith height-correlated geometry via Schlick-GGX with the direct-lighting
-  `k = (r+1)²/8` (`geometrySmith`), and Fresnel-Schlick (`fresnelSchlick`) —
-  plus a Lambertian diffuse lobe. Energy is conserved: the diffuse weight is
-  `kD = (1 - F)(1 - metallic)`, so the Fresnel reflectance and metalness steal
-  from the diffuse term, and metals have no diffuse at all.
-- **Material model.** `matDiffuse` is reused as the **base colour / albedo**
-  (sampled albedo texture × tint, linearised from sRGB with `pow(·, 2.2)`).
-  `Material` (`scene/Material.hpp`) gains `metallic`, `roughness`, `ao` scalars;
-  loaded from the `.mtl` PBR extension keys (`Pm`, `Pr`) in `scene/Mesh.cpp`,
-  defaulting to dielectric/matte (`metallic 0`, `roughness 1`) for legacy
-  materials. `F0 = lerp(0.04, albedo, metallic)`: dielectrics reflect ~4%, metals
-  tint their reflectance with the albedo.
-- **Uniform plumbing.** Three floats (`matMetallic` / `matRoughness` / `matAo`)
-  were appended to the shared `Uniforms` (`common.slang`) and both CPU mirrors.
-  Appending at the end keeps the change cheap: the GL std140 block still ends at
-  1536 bytes (`kBlockSize` unchanged), the VK scalar block grows 1288 → 1300
-  (size `static_assert` bumped). `Mesh::draw` uploads them per submesh next to
-  the existing `material.*` setters; `vkUniformFields()` / `glUniformOffsets()`
-  carry the three new offsets.
-- **Image-based ambient.** The old raw-reflection hack is replaced by a
-  Fresnel-weighted split-sum approximation: the skybox cubemap stands in for both
-  the diffuse irradiance (sampled along `N`) and the prefiltered specular
-  environment (sampled along `reflect(-V, N)`), mixed by
-  `fresnelSchlickRoughness` and scaled by `ao`. So metals mirror the sky and
-  dielectrics pick up a soft tint, with no separate reflection term. (A real
-  prefiltered-mip + BRDF-LUT IBL is still roadmap — see below.)
-- **Tonemapping.** PBR radiance is unbounded; `fsMain` applies a Reinhard
-  tonemap + gamma at the end so it stays displayable in the LDR backbuffer until
-  the dedicated HDR/bloom pass (roadmap) lands. Showcase light intensities were
-  retuned for the inverse-square falloff and this LDR path.
+- **BRDF.** `cookTorrance` in `forward.slang`: GGX/Trowbridge-Reitz normal
+  distribution (`distributionGGX`), Smith geometry via Schlick-GGX with the
+  direct-lighting `k = (r+1)²/8` (`geometrySmith`), Fresnel-Schlick
+  (`fresnelSchlick`), plus a Lambertian diffuse lobe. Energy conserving: the
+  diffuse weight is `kD = (1 - F)(1 - metallic)`, so metals have no diffuse
+- **Material model.** `MatDiffuse` doubles as base colour / albedo (sampled
+  texture × tint, linearised with `pow(·, 2.2)`). `scene.Material` carries
+  `Metallic`, `Roughness`, `Ao`, loaded from the MTL PBR extension keys `Pm` and
+  `Pr` in `scene/mesh.go`, defaulting to dielectric and matte for legacy
+  materials. `F0 = lerp(0.04, albedo, metallic)`
+- **Tonemapping.** PBR radiance is unbounded, so `fsMain` ends with a Reinhard
+  tonemap plus gamma to stay displayable in the LDR backbuffer, until a real
+  HDR pass lands (roadmap §2)
 
-### Materials & textures
-- `scene/Material.hpp`: ambient / diffuse (= albedo) / specular / shininess /
-  alpha / metallic / roughness / ao, plus a diffuse texture and a normal-map
-  slot.
-- **Bindless textures** in both backends (`sampler2D[256]` + `samplerCube[64]`);
-  texture handle 0 is a built-in white pixel. Sampler uniforms keep GL
-  texture-unit semantics and resolve to array slots at draw time.
-- Texture paths are now resolved portably: the loader (`scene/Mesh.cpp`) strips
-  any baked Blender path to its basename and loads from the project-local
-  `cpp/textures/` directory, so the project moves across machines/folders.
+The theory behind all of this is in `cheatsheets/PBR.md`.
+
+### Materials and textures
+
+- `scene.Material`: ambient, diffuse (= albedo), specular, shininess, alpha,
+  metallic, roughness, ao, plus a diffuse texture and a normal map
+- **Bindless textures on Vulkan** (`sampler2D[256]` + `samplerCube[64]`,
+  `PartiallyBound | UpdateAfterBind`); handle 0 is a built-in white pixel.
+  OpenGL instead pins each sampler to a fixed unit at link time — `shadowMap` 0,
+  `ourTexture` 1, `normalMap` 2, `shadowCubeMap[0..3]` 3-6, `skybox` 7 — and the
+  backend binds to those units per draw
+- **The shadow maps are the exception on Vulkan**: they get dedicated
+  descriptors (bindings 2 and 3) rather than bindless slots. See
+  [performance notes](#performance-notes)
+- Texture paths are portable: `texturePath` strips Blender's baked absolute path
+  to a basename and resolves against the project-local `textures/`
 
 ### Normal mapping
+
 - Tangent-space normal maps are sampled in `forward.slang` (`perturbNormal`).
-  The TBN basis is derived per-fragment from screen-space derivatives of
+  The TBN basis is derived per fragment from screen-space derivatives of
   `fragPos` and uv (Schüler's cotangent frame) — no tangents in the vertex
-  layout, so the existing pos/normal/uv VBO and both backends' `createMesh` are
-  untouched.
-- Driven by a `useNormalMap` flag in the uniform block: `scene/Mesh.cpp` binds
-  the material's normal map to texture unit 4 and sets the flag per submesh;
-  meshes without one fall back to the geometric normal. The map loads from a
-  `.mtl` `map_Bump` / `bump` entry (`Material::normalMapPath`), resolved through
-  the same portable basename → `textures/` path logic.
-- The `texNormalMap` (Vulkan bindless slot) and `useNormalMap` fields were added
-  to the shared `Uniforms` block and to both CPU mirrors (`vulkan/Uniforms.hpp`,
-  `opengl/Shader.cpp`), kept byte-compatible via the existing size asserts.
+  layout, so the 32-byte `pos|normal|uv` VBO and both backends' `CreateMesh` are
+  untouched
+- Driven by `UseNormalMap` in `DrawUniforms`, set per face group in `Mesh.draw`;
+  meshes without a map fall back to the interpolated geometric normal. The map
+  loads from an MTL `map_Bump` / `bump` entry
 
-### Environment & reflection
-- **Skybox** (`scene/Skybox.*`, `shaders/slang/skybox.slang`): cubemap rendered
-  behind the scene.
-- The skybox cubemap doubles as a crude **reflection probe** in `forward.slang`,
-  now consumed by the PBR ambient term (Fresnel/metallic-weighted env sample)
-  rather than the old `1 - matDiffuse` hack — see **PBR materials**.
+### Environment and reflection
 
-### Scene & assets
-- XML scene description (`scene/Scene.cpp`) loads camera, meshes, lights,
-  skybox. Meshes load from OBJ/MTL via tinyobjloader.
-- Per-frame `updateMeshes()` supports moving geometry (Verlet-style movement
-  hooks exist from the Go original).
+- **Skybox** (`scene/skybox.go`, `shaders/slang/skybox.slang`): a cubemap drawn
+  behind the scene with `LEQUAL` depth, from a copy of the frame block whose view
+  translation has been stripped
+- The same cubemap doubles as a crude **reflection probe** consumed by the PBR
+  ambient term: sampled along `N` for irradiance and along `reflect(-V, N)` for
+  specular, mixed by `fresnelSchlickRoughness` and scaled by `ao`. So metals
+  mirror the sky and dielectrics pick up a soft tint, with no separate reflection
+  term. Real prefiltered-mip IBL is roadmap §1
+
+### Scene and assets
+
+- XML scene description (`scene/scene.go`) loading camera, meshes, lights and
+  skybox; meshes from OBJ/MTL parsed in `scene/mesh.go`
+- Per-frame `Scene.UpdateMeshes` reuploads geometry the physics step moved
 - **Showcase scene** (`assets/showcase.xml`, the default) exercises every
-  feature: a normal-mapped paving ground, a metal Suzanne (`Pm 1`), a brick and a
-  wood primitive (dielectric, all normal-mapped), and a fully-metallic low-
-  roughness chrome sphere (`Pm 1, Pr 0.08`) that mirrors the skybox through the
-  PBR ambient term, lit by a directional sun (2D shadow) + a warm point light
-  (cube shadow). The per-mesh `.mtl` files carry the `Pm`/`Pr` PBR scalars; light
-  intensities are tuned for the inverse-square falloff. Colour/normal maps are
-  CC0 from ambientCG, in `cpp/textures/`.
-  Note: static meshes render with an identity model matrix, so geometry is baked
-  into the `Demo*.obj` vertices (in GL world space) rather than positioned by the
-  XML `<position>` tags; the demo objs were generated directly in world space.
-  (Light order in the XML is no longer significant — the shadow casters are
-  resolved by index at load time; see **Multi-light support**.)
+  feature: a normal-mapped paving ground, a metal Suzanne (`Pm 1`), brick and
+  wood primitives (dielectric, normal-mapped), and a fully metallic low-roughness
+  chrome sphere (`Pm 1, Pr 0.08`) mirroring the skybox, lit by a directional sun
+  (2D shadow) plus a warm point light (cube shadow). Colour and normal maps are
+  CC0 from ambientCG
+- Static mesh geometry is baked into the OBJ vertices in world space and rendered
+  with an identity model matrix, so `<position>` is unused for static meshes
+- `scene/showcase_test.go` loads the scene with no GPU and asserts its contents
+
+### UI overlay
+
+Widget trees from [Gutter](https://github.com/Zephyr75/gutter) are rasterised on
+the CPU into an RGBA image, uploaded with `UpdateTexture2D`, and composited as an
+ordinary fullscreen mesh built once by `CreateFullscreenQuad`. It redraws only
+when the tree or the hover state changed.
+
+On Vulkan the upload is *staged* and copied at the top of the next frame, because
+a copy cannot be recorded inside a render pass — one frame of latency, no queue
+stall. `main.go` currently passes a nil widget, so only the debug crosshair draws.
 
 ---
 
-## Part 2 — Roadmap
+## Part 2 — roadmap
 
-Ordered by value-to-effort. Each item lists the files to touch and the strategy.
+Ordered by value to effort. Each item lists what to touch.
 
-### 1. PBR materials — **done** (scalar metallic-roughness)
-The Cook-Torrance metallic-roughness BRDF shipped — see **PBR materials** in
-Part 1. What landed: per-material `metallic`/`roughness`/`ao` scalars (`.mtl`
-`Pm`/`Pr`), GGX/Smith/Fresnel BRDF in `forward.slang`, a Fresnel-weighted skybox
-ambient term, and an inline Reinhard tonemap.
+### 1. Texture-driven PBR and real IBL
 
-**Still open (PBR follow-ups):**
-- **Texture-driven PBR.** Add albedo/metallic/roughness/AO *map* slots (new
-  bindless textures + `map_Pm`/`map_Pr` loading) so values vary per-texel, not
-  just per-material. Today the maps in `cpp/textures/` are colour + normal only.
-- **Proper IBL.** Prefilter the skybox into an irradiance cubemap + a
-  roughness-mip prefiltered-specular cubemap and a BRDF LUT (one-time
-  compute/raster pass at load), replacing the current single-sample skybox
-  ambient approximation.
+**Why** today's material values are per-material scalars and the ambient term is
+a single skybox sample.
 
-### 2. HDR + tonemapping + bloom (medium)
-**Why:** unlocks intensity values >1 and physically meaningful lighting.
-**Files:** `renderer/Backend.hpp` (offscreen HDR target API), both backends, a
-new `tonemap`/`bloom` Slang pass, `core/App.cpp` (render-to-texture then
-composite).
-**Strategy:**
-- Render the main pass into an `RGBA16F` framebuffer instead of the swapchain.
-- Add a fullscreen post pass: bright-pass + separable Gaussian blur for bloom,
-  then ACES/Reinhard tonemap + gamma to the backbuffer. (A stopgap Reinhard +
-  gamma already runs inline at the end of `forward.slang` for the PBR path; move
-  it here once there is a real HDR target.)
-- This needs a real offscreen-color-target abstraction; today `beginPass(0,…)`
-  only distinguishes backbuffer vs shadow FBOs. Generalize framebuffer creation.
+- **Texture-driven PBR.** Add albedo/metallic/roughness/AO *map* slots — new
+  bindless textures plus `map_Pm` / `map_Pr` loading in `scene/mesh.go` — so
+  values vary per texel. Today `textures/` holds colour and normal maps only
+- **Proper IBL.** Prefilter the skybox into an irradiance cubemap plus a
+  roughness-mip prefiltered specular cubemap and a BRDF LUT, as a one-time pass
+  at load, replacing the current single-sample approximation.
+  `cheatsheets/PBR.md` §9 is the derivation
 
-### 3. Ray-traced shadows (high — Vulkan only)
-**Why / how:** already designed in detail. The entry point is **ray query
-(`VK_KHR_ray_query`)** dropped into `forward.slang`'s shadow test, replacing the
-shadow-map passes; it reuses the existing forward pass and the current light
-loop. OpenGL stays on shadow maps (GL 4.1 cannot participate). See
-`RAYTRACING_PLAN.md` for acceleration-structure plumbing, the ray-query
-vs RT-pipeline trade-off, and the optional-capability stub strategy for keeping
-`GLBackend` a one-liner. Follow-ups: RT AO → reflections → one-bounce GI.
+### 2. HDR, tonemapping, bloom
 
----
+**Why** unlocks intensities above 1 and physically meaningful lighting.
 
-## Quick reference — where things live
+**Files** both backends, a new `tonemap` / `bloom` Slang pass, `core/app.go`.
 
-| Concern | File(s) |
+- Render the main pass into a colour render target instead of the swapchain.
+  `CreateRenderTarget(RenderTargetSpec{Format: TargetColor})` already exists and
+  is wired through both backends — **but** the Vulkan side allocates
+  `R8G8B8A8_UNORM`, not the `R16G16B16A16_SFLOAT` HDR actually needs, because
+  the `go-vulkan` bindings expose no half-float format. That is a one-constant
+  change in `vulkan/backend.go` once the binding exists
+- Add a fullscreen post pass: bright-pass plus separable Gaussian blur for bloom,
+  then ACES/Reinhard tonemap and gamma to the backbuffer. The stopgap Reinhard at
+  the end of `forward.slang` moves here
+
+### 3. Ray-traced shadows (Vulkan only)
+
+**Why / how** the entry point is a **ray query** (`VK_KHR_ray_query`) dropped
+into `forward.slang`'s shadow test, replacing the shadow-map passes and reusing
+the existing forward pass and light loop. OpenGL 4.1 cannot participate, so the
+GL backend keeps shadow maps and `Backend.Supports(FeatureRayTracing)` is the
+seam that expresses it. `cheatsheets/RAYTRACING.md` §5 covers the ray-query vs
+RT-pipeline trade-off and the acceleration-structure plumbing. Follow-ups: RT
+ambient occlusion → reflections → one-bounce GI.
+
+### 4. Known gaps
+
+Smaller items, all of them deliberate for now:
+
+| Gap | Where |
 |---|---|
-| Backend contract | `cpp/renderer/Backend.hpp`, `cpp/renderer/Shader.hpp` |
-| GL / VK impls | `cpp/opengl/`, `cpp/vulkan/` |
-| Shaders (source of truth) | `cpp/shaders/slang/*.slang` |
-| Uniform layout (must stay in sync) | `common.slang` ↔ `vulkan/Uniforms.hpp` ↔ `opengl/Shader.cpp` |
-| Lights & shadows | `cpp/scene/Light.{hpp,cpp}` |
-| Materials & textures | `cpp/scene/Material.hpp`, `cpp/scene/Mesh.cpp` |
-| Scene / XML / skybox | `cpp/scene/Scene.cpp`, `cpp/scene/Skybox.*` |
-| Frame loop | `cpp/core/App.cpp` |
+| Only one point-shadow cube is filled, though the shader has 4 slots | `scene/scene.go` `pickShadowCasters` |
+| Shadow maps are fixed at 1024², no cascades | `settings/settings.go` |
+| No mipmaps on the GL backend | `opengl/backend.go` `LoadTexture` |
+| Physical device is `devices[0]`, not scored | `vulkan/backend.go` |
+| No image comparison between the two backends in the test suite | `opengl/uniforms_test.go` guards layout only |
+| No GPU timestamp queries, so the backends cannot be profiled against each other | needs query-pool bindings in `go-vulkan` |
 
-**Always rebuild shaders after editing `.slang`** — both backends read only the
-compiled GLSL/SPIR-V, never the Slang source.
+---
+
+## Performance notes
+
+The two backends do not perform identically, and the history of why is worth
+keeping — every fix below was found by measurement, not by reading the code.
+
+**Shadow taps dominate the fragment shader.** The PCF kernels tap a lot per
+fragment (9× for the 2D map, 20× for the cube). On an Intel UHD 620 this made
+Vulkan run roughly 2× slower than OpenGL. Two fixes closed most of the gap:
+
+- **Dedicated shadow descriptors instead of bindless.** The shadow maps used to
+  be sampled through the bindless arrays. Intel's driver re-fetches a
+  *dynamically indexed* descriptor on every tap, so 20 cube taps meant 20
+  descriptor fetches. They now get plain bound descriptors (set 0, bindings 2 and
+  3), the same fixed-sampler model OpenGL already uses; material textures stay
+  bindless
+- **Early-bail PCF**, described above
+
+**Loop-invariant reads through a BDA pointer.** An earlier multi-light cut read
+the material fields (`matAmbient`, `matDiffuse`, …) *inside* `calcDirLight` /
+`calcPointLight`, i.e. once per light per fragment. On Vulkan those live behind a
+`buffer_reference` (BDA) pointer, so the compiler cannot prove the loads are
+loop-invariant and re-fetches them every iteration; on OpenGL the same reads hit
+a UBO and ride the constant cache for free — hence a backend-specific cliff that
+dropped Vulkan a whole vsync interval. The fix was to hoist them into a local
+`MatParams` struct once at the top of `fsMain` and pass it into the light
+functions. This is structural, not light-count dependent, and it is why the
+per-light loop never reads material data through `FRAME` / `DRAW` directly.
+
+**A deliberate non-fix.** Making the cube sampler a descriptor *array*
+(`shadowCubeMap[slot]`) reintroduced the dynamic-index cost on Intel's ANV
+driver. We do **not** constant-fold the index (a `switch(slot)`, or four single
+bindings): that cost is an Intel-iGPU artifact, near-free on the discrete GPUs
+this engine targets, and the iGPU here is a throwaway dev box. Keeping the
+generic array avoids contorting the shader for hardware we will not ship on.
+Revisit only if a target GPU profiles the same way.
+
+**The uniform split** (`FrameUniforms` per pass, `DrawUniforms` per draw) cut the
+per-draw payload from 1312 to 128 bytes on Vulkan and from 1600 to 144 on GL.
+It did **not** measurably move the frame rate on this iGPU — the win is
+structural.
+
+**Measuring by FPS subtraction does not work here.** Under vsync a frame that
+crosses 16.6 ms drops cleanly to the next interval, so frame-rate deltas hide the
+real cost, and run-to-run variance on this machine is wide enough to swamp a 10%
+difference. The honest next instrument is GPU timestamp queries, which is
+blocked on query-pool bindings in `go-vulkan`.

@@ -50,7 +50,7 @@ custom add-on. The export covers meshes, camera, lights and materials.
 
 * Basic ray tracing on Vulkan. Hardware ray traced shadows then ambient
   occlusion and reflections. Vulkan only, the OpenGL backend keeps shadow maps.
-  See [`notes/RAYTRACING_PLAN.md`](notes/RAYTRACING_PLAN.md).
+  See [`notes/FEATURES.md`](notes/FEATURES.md).
 * Texture driven PBR. Metallic, roughness and AO maps so the values vary per
   texel instead of per material.
 * Real image based lighting. Prefilter the skybox into an irradiance map, a
@@ -130,13 +130,14 @@ apart.
 | `src/shaders/slang/` | Shader sources, compiled to both backends by `build_shaders.sh`. |
 | `src/scene/`, `src/ecs/`, `src/physics/` | Scene graph, entity component system, Verlet physics. No graphics calls. |
 | `src/plugin/` | The Blender add-on that exports a scene to XML. |
-| `notes/` | Design and reference notes — see [`notes/README.md`](notes/README.md) for what is still current. |
+| `notes/` | Engine documentation and graphics cheatsheets — see [`notes/README.md`](notes/README.md). |
 
 ## Documentation
 
 | Document | What it covers |
 |----------|----------------|
-| [`ENGINE_FLOW.md`](notes/ENGINE_FLOW.md) | **Start here for the renderer.** One frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 28 methods by how often they run. |
-| [`GO_BACKEND.md`](notes/GO_BACKEND.md) | The design document: why the abstraction is shaped this way, plus the go-vulkan bindings wishlist. |
-| [`GO_PARITY.md`](notes/GO_PARITY.md) | Known gaps and the remaining feature checklist. |
-| [`ABSTRACTION_REVIEW.md`](notes/ABSTRACTION_REVIEW.md) | Review of the decomposition: what is good, three extensibility limits, what to change next. |
+| [`ENGINE_FLOW.md`](notes/ENGINE_FLOW.md) | **Start here for the renderer.** One frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 27 methods by how often they run. |
+| [`ARCHITECTURE.md`](notes/ARCHITECTURE.md) | The code map: repository layout, the dependency rule, scene loading, the package-by-package symbol reference, the scene format. |
+| [`FEATURES.md`](notes/FEATURES.md) | What is implemented and why it is built that way, the roadmap, and the performance history of the two backends. |
+| [`TODO.md`](notes/TODO.md) | The working list. |
+| [`cheatsheets/`](notes/README.md) | Reference notes on PBR, ray tracing, OpenGL, Vulkan, linear algebra and real-time technique in general. |

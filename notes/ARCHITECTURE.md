@@ -1,548 +1,338 @@
-# Overdrive Engine — Architecture Documentation
+# ARCHITECTURE.md — the code map
 
-> Real-time 3D rendering engine written in Go with OpenGL 4.1, featuring shadow mapping, a Verlet physics simulation, procedural cloud raymarching, and a Blender export plugin.
+Where everything lives and what calls what, package by package. This is the
+**navigation** document: use it to find the file you need.
 
----
-
-## Table of Contents
-
-1. [Directory Structure](#directory-structure)
-2. [High-Level Architecture](#high-level-architecture)
-3. [Rendering Pipeline](#rendering-pipeline)
-4. [Physics Pipeline](#physics-pipeline)
-5. [Scene Loading Pipeline](#scene-loading-pipeline)
-6. [Module Reference](#module-reference)
-   - [main.go](#maingo)
-   - [core/](#core)
-   - [scene/](#scene)
-   - [physics/](#physics)
-   - [input/](#input)
-   - [opengl/](#opengl)
-   - [settings/ & utils/](#settings--utils)
-   - [plugin/](#plugin)
-7. [Shader Programs](#shader-programs)
-8. [Asset & Scene Format](#asset--scene-format)
+`ENGINE_FLOW.md` is the other half — it takes the same tree and follows *one
+frame* through it, then walks the `renderer.Backend` contract method by method.
+Nothing about backend internals is repeated here.
 
 ---
 
-## Directory Structure
+## Contents
+
+1. [Repository layout](#1-repository-layout)
+2. [The dependency rule](#2-the-dependency-rule)
+3. [Scene loading](#3-scene-loading)
+4. [Physics and the ECS](#4-physics-and-the-ecs)
+5. [Package reference](#5-package-reference)
+6. [Scene and asset format](#6-scene-and-asset-format)
+7. [Shaders](#7-shaders)
+8. [Dead code](#8-dead-code)
+
+---
+
+## 1. Repository layout
+
+The Go module root is **`src/`** (module `github.com/Zephyr75/overdrive`). Every
+asset, shader and texture path is relative to it, so every command runs from
+there.
 
 ```
 overdrive/
-├── main.go                  # Entry point, demo world setup
-├── go.mod / go.sum          # Go module dependencies
-│
-├── core/                    # Application lifecycle and UI
-│   ├── app.go               # Window init, main render loop
-│   └── ui.go                # Off-screen UI rendering
-│
-├── scene/                   # Scene graph and rendering
-│   ├── scene.go             # XML loading, render dispatch
-│   ├── mesh.go              # OBJ/MTL parsing, VAO/VBO/EBO
-│   ├── camera.go            # View/projection matrices
-│   ├── light.go             # Light types, shadow framebuffers
-│   ├── material.go          # Material (colors, textures)
-│   └── skybox.go            # Cubemap skybox
-│
-├── physics/                 # Verlet-based simulation
-│   ├── verlet.go            # Position integration
-│   ├── sphere.go            # Sphere collider + collision response
-│   └── plane.go             # Plane collider
-│
-├── ecs/                     # Entity Component System
-│   ├── ecs.go               # World: init, update, collision loop
-│   └── entity.go            # Entity interface
-│
-├── input/                   # GLFW input callbacks
-│   ├── input.go             # Keyboard (WASD camera)
-│   └── callback.go          # Mouse look, scroll FOV, resize
-│
-├── opengl/                  # OpenGL abstraction
-│   ├── shader.go            # Shader compilation & program linking
-│   └── texture.go           # 2D texture & cubemap loading
-│
-├── settings/
-│   └── settings.go          # Window/shadow resolution globals
-│
-├── utils/
-│   └── utils.go             # Vec3 parsing, error handling, quad VAO
-│
-├── algorithms/
-│   └── wfc.go               # Wave Function Collapse (stub)
-│
-├── shaders/                 # GLSL shader sources
-│   ├── clouds.{vert,frag}   # Procedural cloud raymarching
-│   ├── light.{vert,frag}    # Phong lighting with shadows
-│   ├── depth.{vert,frag}    # Directional shadow depth pass
-│   ├── depth_cube.{vert,geo,frag}  # Point light cubemap depth pass
-│   ├── depth_debug.{vert,frag}     # Shadow map debug view
-│   ├── skybox.{vert,frag}   # Cubemap skybox rendering
-│   ├── ui.{vert,frag}       # Full-screen UI quad
-│   └── water.{vert,frag}    # Water (unused)
-│
-├── assets/                  # Scene XML files and OBJ meshes
-│   └── meshes/              # Exported OBJ/MTL files
-│
-├── textures/                # PNG/JPEG textures and cubemaps
-│   ├── skybox/              # 6 skybox faces
-│   └── cubemap/             # 6 cubemap faces
-│
-└── plugin/
-    └── xml_export.py        # Blender 4.0+ export addon
+├── README.md              public overview, build and run
+├── CLAUDE.md              working rules for this repo
+├── notes/                 this documentation, see notes/README.md
+├── textures/              fonts and images used by the UI layer
+└── src/                   the engine, and the Go module root
+    ├── main.go            builds an App, loads a Scene, builds an ECS World
+    ├── build_shaders.sh   Slang → GLSL 4.10 + SPIR-V, must run before first build
+    │
+    ├── core/              app lifecycle and the frame loop
+    │   ├── app.go         NewApp (window + backend), App.Run (the frame loop)
+    │   └── ui.go          renderUI: rasterise widgets → texture → fullscreen quad
+    │
+    ├── renderer/          the abstraction, imports no graphics API
+    │   ├── backend.go     Backend interface, opaque handles, RenderTargetSpec
+    │   └── uniforms.go    FrameUniforms, DrawUniforms, the layout guard
+    │
+    ├── opengl/            OpenGL 4.1 backend — may import gl.*
+    │   ├── backend.go     resource tables, passes, draws
+    │   ├── shader.go      compile, link, pin sampler units and block bindings
+    │   ├── uniforms.go    the hand-written std140 offsets
+    │   └── uniforms_test.go  re-derives them from the generated GLSL
+    │
+    ├── vulkan/            Vulkan 1.3 backend — may import vk.*
+    │   ├── backend.go     device, swapchain, passes, lifetimes
+    │   ├── buffer.go      VMA allocations
+    │   ├── draw.go        the uniform ring, push constants, Draw
+    │   ├── shader.go      modules and lazy pipeline construction
+    │   ├── swapchain.go   creation and resize
+    │   └── texture.go     images, staging, bindless descriptors, render targets
+    │
+    ├── scene/             what is in the world
+    │   ├── scene.go       XML loading, shadow-caster budget, render dispatch
+    │   ├── mesh.go        OBJ/MTL parsing, vertex data, per-face-group draws
+    │   ├── material.go    material fields and texture handles
+    │   ├── light.go       light types, shadow targets, the depth passes
+    │   ├── camera.go      position, yaw/pitch, field of view
+    │   ├── skybox.go      the cube and its cubemap
+    │   └── showcase_test.go  loads assets/showcase.xml, no GPU needed
+    │
+    ├── ecs/               entity component system
+    │   └── entity.go      World and the Entity interface
+    │
+    ├── physics/           plain Go, zero graphics calls
+    │   ├── verlet.go      position integration
+    │   ├── sphere.go      sphere collider and responses
+    │   └── plane.go       plane collider
+    │
+    ├── input/             GLFW callbacks
+    │   ├── input.go       keyboard, camera movement
+    │   └── callback.go    mouse look, scroll FOV, framebuffer resize
+    │
+    ├── settings/          window and shadow resolution globals
+    ├── utils/             vector parsing, Euler conversion, error handling
+    │
+    ├── shaders/
+    │   ├── slang/         the source of truth, authored once
+    │   ├── gl/            generated GLSL 4.10 — git-ignored
+    │   └── vk/            generated SPIR-V — git-ignored
+    │
+    ├── assets/            scene XML plus meshes/ (OBJ + MTL)
+    ├── textures/          colour and normal maps, skybox and cubemap faces
+    └── plugin/
+        └── xml_export.py  Blender add-on that writes the scene XML
 ```
 
 ---
 
-## High-Level Architecture
+## 2. The dependency rule
+
+**Nothing above `renderer/` imports a graphics API.** Scene, core, ecs, input and
+physics own opaque handles (`renderer.MeshHandle`, `TextureHandle`,
+`FramebufferHandle`, `ShaderHandle`, `BufferHandle`) that each backend
+interprets in its own table.
 
 ```mermaid
 graph TD
-    A[main.go] -->|NewScene| B[scene.Scene]
-    A -->|NewApp| C[core.App]
-    A -->|AddEntities| D[ecs.World]
+    M[main.go] --> C[core]
+    C --> S[scene]
+    C --> E[ecs]
+    C --> I[input]
+    C --> R[renderer]
+    S --> R
+    E --> P[physics]
+    P --> S
+    I --> S
+    C -.->|createBackend only| GL[opengl]
+    C -.->|createBackend only| VK[vulkan]
+    GL --> R
+    VK --> R
 
-    C -->|Run loop| E{Each Frame}
-
-    E -->|Update| D
-    E -->|RenderLight| B
-    E -->|RenderSkybox| B
-    E -->|RenderScene| B
-    E -->|renderUI| F[core.ui]
-    E -->|DefaultInput| G[input]
-
-    D -->|Update entities| H[physics.Sphere]
-    D -->|Collide pairs| H
-    D -->|UpdatePosition| I[physics.Verlet]
-
-    B -->|LoadScene| J[XML Parser]
-    B -->|toMesh| K[scene.Mesh]
-    B -->|toLight| L[scene.Light]
-    B -->|toCamera| M[scene.Camera]
-
-    K -->|CreateTexture| N[opengl.texture]
-    K -->|setup VAO/VBO/EBO| O[OpenGL]
-
-    L -->|setup FBO| O
-    C -->|CreateProgram| P[opengl.shader]
+    style R fill:#553c9a,color:#e2e8f0
+    style GL fill:#276749,color:#e2e8f0
+    style VK fill:#2b6cb0,color:#e2e8f0
 ```
+
+The two dotted edges are the whole reason `createBackend` lives in `core/`: the
+backend packages import `renderer`, so `renderer` cannot import them back, and
+somebody above both has to pick one. `OVERDRIVE_BACKEND` (`gl` by default, or
+`vulkan`) is read there and nowhere else.
+
+Two further invariants, both enforced by convention rather than by the compiler:
+
+- **Clears and viewports exist only inside `Backend.BeginPass`.** No free-floating clear anywhere in scene or core code
+- **Uniforms are two typed structs split by update frequency**, mirroring `shaders/slang/common.slang` field for field. See `ENGINE_FLOW.md` §4.5
 
 ---
 
-## Rendering Pipeline
+## 3. Scene loading
 
-Every frame follows a strict multi-pass sequence:
-
-```mermaid
-flowchart LR
-    subgraph "1 · Shadow Passes"
-        A[Depth Pass\nDirectional Light\nOrtho projection\n1024²] --> B[Depth Pass\nPoint Light\nCubemap × 6 faces\n1024² each]
-    end
-
-    subgraph "2 · Main Passes"
-        C[Skybox\ndepth ≤ 1.0\ncubemap sample] --> D[Scene Meshes\nPhong + shadow\nsampling]
-        D --> E[UI Overlay\nfull-screen\ntexture quad]
-    end
-
-    B --> C
-
-    style A fill:#2d3748,color:#e2e8f0
-    style B fill:#2d3748,color:#e2e8f0
-    style C fill:#2b6cb0,color:#e2e8f0
-    style D fill:#276749,color:#e2e8f0
-    style E fill:#744210,color:#e2e8f0
-```
-
-### Texture Units per Mesh Draw Call
-
-| Unit | Content |
-|------|---------|
-| `TEXTURE0` | Directional shadow depth map (2D) |
-| `TEXTURE1` | Material diffuse texture |
-| `TEXTURE2` | Point light shadow cubemap |
-| `TEXTURE3` | Skybox cubemap (reflections) |
-
-### Shadow Map Generation
-
-```mermaid
-sequenceDiagram
-    participant App
-    participant Light
-    participant Shader
-    participant FBO
-
-    App->>Light: RenderLight(depthProgram, cubemapProgram)
-    alt Directional light
-        Light->>FBO: Bind 2D depth framebuffer
-        Light->>Shader: Set ortho lightSpaceMatrix
-        Light->>App: DrawScene (front-face culled)
-        Light-->>App: Return lightSpaceMatrix
-    else Point light
-        loop 6 cubemap faces
-            Light->>FBO: Bind face i
-            Light->>Shader: Set perspective projection × face view
-            Light->>App: DrawScene
-        end
-    end
-```
-
----
-
-## Physics Pipeline
+`scene.NewScene(path, backend)` is the only entry point. It parses, uploads and
+resolves the shadow budget, in that order.
 
 ```mermaid
 flowchart TD
-    W[World.Update dt=1/60s]
+    X["assets/*.xml"] --> P["LoadScene<br/>encoding/xml"]
 
-    W --> U[Entity.Update\nfor each entity]
-    U --> G[Apply gravity\nverlet.Accelerate\n0 -9.8 0]
+    P --> CA["CameraXml.toCamera<br/>front derived from yaw/pitch"]
+    P --> ME["MeshXml.toMesh<br/>OBJ + MTL parsing"]
+    P --> LI["LightXml.toLight<br/>coordinate conversion"]
 
-    W --> C[Collision detection\nO n² all pairs]
-    C --> SS[Sphere–Sphere\noverlap → push apart]
-    C --> SP[Sphere–Plane\ndistance test → push out]
+    ME --> FV["fillVertices<br/>flatten faces to interleaved vertices"]
+    FV --> SU["Mesh.setup<br/>CreateBuffer + one CreateMesh per face group<br/>LoadTexture per material"]
 
-    W --> V[Verlet integration\nfor each non-fixed particle]
-    V --> VI["pos += pos - prevPos\n     + accel × dt²\naccel = 0"]
-```
+    LI --> PS["Scene.pickShadowCasters<br/>first sun + first point light"]
+    PS --> LS["Light.setup<br/>CreateRenderTarget for casters only"]
 
-**Verlet integration** stores the previous position instead of velocity, giving unconditional stability at the cost of no built-in damping.
-
----
-
-## Scene Loading Pipeline
-
-```mermaid
-flowchart LR
-    X[scene.xml] --> P[encoding/xml\nparse]
-
-    P --> CA[CameraXml\n→ Camera struct\npos / front / fov]
-    P --> ME[MeshXml\n→ Mesh.toMesh\nOBJ / MTL files]
-    P --> LI[LightXml\n→ Light.toLight\ncolor / type / intensity]
-
-    ME --> OBJ[OBJ parser\nvertices normals UVs]
-    ME --> MTL[MTL parser\nKa Kd Ks Ns textures]
-    ME --> VAO[OpenGL setup\nVAO VBO EBO]
-
-    LI --> FBO[Shadow FBO\n2D depth OR cubemap]
-
-    CA --> VM[View matrix\nmgl32.LookAtV]
+    P --> SK["Skybox.setup<br/>CreateSkyboxMesh + LoadCubemap"]
 
     style X fill:#553c9a,color:#e2e8f0
-    style VAO fill:#276749,color:#e2e8f0
-    style FBO fill:#2d3748,color:#e2e8f0
+    style SU fill:#276749,color:#e2e8f0
+    style LS fill:#2d3748,color:#e2e8f0
 ```
 
-### Coordinate System Conversion
+**One vertex buffer, several meshes.** An OBJ with three materials becomes one
+`BufferHandle` plus three `MeshHandle`s, each owning only its index list. That is
+why `Mesh.gpu` is a slice.
 
-Blender uses a **Y-up** system; Overdrive uses **Z-up** with Y inverted. The conversion is applied on import:
+**The shadow budget is fixed at load.** `pickShadowCasters` gives a 2D depth map
+to the first directional light and a depth cube to the first point light; every
+other light still lights the scene, it just casts nothing. The shader is built
+for up to `MAX_SHADOW_CUBES` (4) cube slots, but `Scene` currently fills only
+slot 0 — see `TODO.md`.
 
-```
-Blender  (X,  Y,  Z)
-           ↓
-Overdrive (X, -Z,  Y)
-```
+**Texture paths are made portable.** Blender bakes the absolute path of the
+machine that exported the scene into the MTL, so `texturePath` keeps only the
+basename and resolves it against the engine's own `textures/` directory.
 
 ---
 
-## Module Reference
+## 4. Physics and the ECS
+
+Both are plain Go with no graphics calls. `World.Update(dt)` runs three phases
+in a fixed order:
+
+```mermaid
+flowchart TD
+    W["World.Update(1/60 s)"]
+    W --> U["Entity.Update for each entity<br/>e.g. Accelerate(0, -9.8, 0)"]
+    U --> C["collision detection<br/>every pair, O(n²)"]
+    C --> SS["sphere ↔ sphere<br/>overlap → push apart"]
+    C --> SP["sphere ↔ plane<br/>distance test → push out"]
+    SS --> V
+    SP --> V["Verlet integration<br/>for each non-fixed particle"]
+    V --> VI["pos += (pos - prevPos) + accel·dt²<br/>accel = 0"]
+```
+
+**Verlet stores the previous position instead of a velocity**, which makes the
+integrator unconditionally stable and constraints trivial to apply, at the cost
+of no built-in damping. See `cheatsheets/GRAPHICS.md` §3 for how it compares to
+Euler and RK4.
+
+An entity that owns both a collider and a `scene.Mesh` (the demo's `Sphere` in
+`main.go`) calls `Mesh.MoveTo` in its `Update`, which rebuilds the mesh's vertex
+data and flags it dirty. `Scene.UpdateMeshes` reuploads exactly those at the top
+of the next frame.
+
+---
+
+## 5. Package reference
+
+Only what exists. Unexported symbols are marked *(pkg)*.
 
 ### `main.go`
 
-Entry point and demo scene setup.
-
 | Symbol | Kind | Description |
-|--------|------|-------------|
-| `main()` | func | Creates `App`, loads `assets/sphere.xml`, builds ECS world, starts loop |
-| `createWorld()` | func | Instantiates ground plane + falling sphere physics entities |
-| `StaticCollider` | type | Embedded `physics.Collider` for fixed (non-simulated) objects |
-| `Sphere` | type | Physics sphere that also owns a renderable `scene.Mesh` |
-
----
+|---|---|---|
+| `main` | func | Creates the `App`, loads `assets/showcase.xml`, builds the ECS world, runs |
+| `createWorld` | func | Wires the demo's physics bodies, skipping meshes the scene lacks |
+| `StaticCollider` | type | An immovable body wrapping a `physics.Collider` |
+| `Sphere`, `Sphere2` | type | A falling and a static ball, each pairing a collider with a `scene.Mesh` |
+| `MainWindow` | func | The demo widget tree. Currently unused — `App.Run` is called with a nil widget |
 
 ### `core/`
 
-#### `app.go` — Application lifecycle
+| Symbol | Kind | Description |
+|---|---|---|
+| `App` | type | Window, backend, dimensions, debug flag, input callbacks |
+| `NewApp` | func | Creates the backend, hints and creates the window, wires input, then `Backend.Init` |
+| `App.Run` | func | Compiles the five shader sets, builds the UI quad, then loops until the window closes |
+| `App.Quit` | func | Asks the window to close |
+| `createBackend` *(pkg)* | func | Reads `OVERDRIVE_BACKEND`. The only place that names `opengl` or `vulkan` |
+| `renderUI` *(pkg)* | func | Rasterises the widget tree to RGBA, uploads it, draws the quad. Redraws only when the tree or hover state changed |
+
+### `renderer/`
 
 | Symbol | Kind | Description |
-|--------|------|-------------|
-| `App` | struct | Holds GLFW window, dimensions, debug flag |
-| `NewApp()` | func | Init GLFW, OpenGL 4.1 core, register callbacks, compile all 6 shader programs |
-| `App.Run()` | func | 60 FPS render loop: ECS update → shadow passes → skybox → scene → UI |
-
-`NewApp()` compiles these programs on startup:
-
-```
-clouds · depth · depth_cube · ui · skybox · (cubes — disabled)
-```
-
-#### `ui.go` — Off-screen UI overlay
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `renderUI()` | func | Draws widget tree to RGBA8 texture → full-screen quad via `ui` shader |
-
-Only redraws when the UI state changes. Mouse click and hover detection runs here.
-
----
+|---|---|---|
+| `Backend` | interface | 27 methods, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency |
+| `TextureHandle`, `BufferHandle`, `MeshHandle`, `FramebufferHandle`, `ShaderHandle` | type | Opaque `uint32`. Texture 0 is the white pixel, framebuffer 0 the backbuffer |
+| `RenderTargetSpec`, `TargetFormat` | type | Describes an offscreen target by what it *is* — size, depth or colour, cube or not |
+| `Feature`, `Supports` | type, method | The seam for ray tracing and compute; both backends report `false` today |
+| `FrameUniforms` | type | 1184 B: camera, lights, shadow maps. Published once per pass |
+| `DrawUniforms` | type | 128 B: model matrix and material. Sent per draw |
+| `LightData` | type | 68 B, mirrors the `Light` struct in `common.slang` |
+| `MaxLights`, `MaxShadowCubes` | const | 8 and 4, must match `common.slang` |
 
 ### `scene/`
 
-#### `scene.go` — Scene root
-
 | Symbol | Kind | Description |
-|--------|------|-------------|
-| `Scene` | struct | Meshes `[]Mesh`, Lights `[]Light`, Skybox, Camera |
-| `NewScene()` | func | Parse XML → build all sub-objects |
-| `LoadScene()` | func | `encoding/xml` deserialisation |
-| `Scene.RenderScene()` | func | Set view/proj uniforms → per-mesh draw with light+material uniforms |
-
-#### `mesh.go` — Geometry
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `Mesh` | struct | Vertices, normals, UVs, materials, VAO/VBO/EBO |
-| `toMesh()` | func | OBJ + MTL parsing → fill vertex buffer |
-| `fillVertices()` | func | Expand indexed OBJ faces to interleaved 8-float vertex layout |
-| `setup()` | func | Upload to GPU (VAO/VBO/EBO per face group) |
-| `draw()` | func | Bind shadow maps + textures → set uniforms → `glDrawElements` |
-| `MoveTo()` / `MoveBy()` | func | Update world position, set `needsUpdate` flag |
-
-**Vertex layout (32 bytes):**
-
-```
-[ X  Y  Z | NX NY NZ | U  V ]
-  12 bytes   12 bytes  8 bytes
-```
-
-#### `camera.go` — View/projection
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `Camera` | struct | Position, front, up, yaw, pitch, FOV |
-| `toCamera()` | func | XML → Camera, Euler angle reconstruction |
-| `Camera.Move()` | func | Translate camera |
-| `Camera.LookAt()` | func | Recompute front vector |
-| `NewCamera()` | func | Default at `(0, 20, 15)` looking at origin |
-
-#### `light.go` — Lighting & shadows
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `Light` | struct | Position, direction, color, intensity, type (`0`=sun / `1`=point) |
-| `toLight()` | func | XML → Light, coordinate conversion |
-| `Light.setup()` | func | Allocate shadow FBO + depth texture (2D or cubemap) |
-| `Light.RenderLight()` | func | Render depth pass from light's perspective |
-
-Shadow framebuffer types:
-
-| Light type | FBO texture | Projection |
-|-----------|-------------|------------|
-| Sun / directional | 2D depth `1024²` | Orthographic |
-| Point | Cubemap depth `1024²×6` | Perspective 90° FOV |
-
-#### `material.go`
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `Material` | struct | `Ambient`, `Diffuse`, `Specular` (Vec3), `Shininess` (f32), `TextureID`, `NormalMapID` |
-
-#### `skybox.go`
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `Skybox` | struct | VAO/VBO, cubemap texture ID |
-| `Skybox.setup()` | func | Create unit cube (36 vertices), load 6 face images |
-| `Skybox.RenderSkybox()` | func | Render with depth func `LEQUAL`, view matrix with translation stripped |
-
-Face load order: `right left top bottom front back`
-
----
-
-### `physics/`
-
-#### `verlet.go`
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `Verlet` | struct | `Pos`, `PrevPos`, `Accel`, `Fixed` bool |
-| `NewVerlet()` | func | Create particle at position |
-| `UpdatePosition()` | func | `vel = pos - prevPos; pos += vel + accel×dt²; accel = 0` |
-| `Accelerate()` | func | Accumulate acceleration (gravity, forces) |
-
-#### `sphere.go`
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `Sphere` | struct | Embeds `Verlet`, `Radius` float32 |
-| `NewSphereFromMesh()` | func | Compute bounding radius from mesh vertices |
-| `Sphere.Collide()` | func | Dispatch to sphere–sphere or sphere–plane |
-| `sphereCollide()` | func | Push overlapping spheres apart (position correction) |
-| `planeCollide()` | func | Clamp sphere above plane within plane bounds |
-
-#### `plane.go`
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `Plane` | struct | Embeds `Verlet`, normal, axes, half-sizes |
-| `NewPlaneFromMesh()` | func | Derive plane geometry from 4 corner vertices |
-
----
+|---|---|---|
+| `Scene` | type | Meshes, lights, skybox, camera, and the two shadow-caster indices |
+| `NewScene` | func | Parse then upload everything through the backend |
+| `LoadScene` | func | Pure XML deserialisation, no GPU work — what the tests use |
+| `EmptyScene` | func | Nothing in it, for running the app as a UI shell |
+| `Scene.FillFrameUniforms` | func | Camera matrices, the light array, scene-wide texture handles, shadow indices |
+| `Scene.RenderScene` | func | Rebinds the frame block, then draws every mesh with the forward shader |
+| `Scene.RenderSkybox` | func | Binds a *copy* of the frame block with the view translation stripped |
+| `Scene.UpdateMeshes` | func | Reuploads the vertex buffers physics moved this frame |
+| `Scene.ShadowCasters` | func | Returns the two caster indices, or -1 |
+| `Scene.GetMesh` / `GetLight` / `GetCamera` | func | Lookup by name |
+| `Mesh` | type | Vertices, normals, UVs, faces, materials, plus the GPU handles |
+| `Mesh.MoveTo` / `MoveBy` | func | Rebuild vertex data and flag it for reupload |
+| `Mesh.draw` *(pkg)* | func | One `Backend.Draw` per face group, rewriting the material fields of `u` |
+| `Light` | type | Position, direction, colour, intensity, type, and its shadow target |
+| `Light.RenderLight` | func | Runs this light's depth pass: ortho for the sun, six cube faces for a point |
+| `Material` | type | Ambient, diffuse (= albedo), specular, shininess, alpha, metallic, roughness, ao, plus diffuse and normal-map handles |
+| `Camera` | type | Position, front, up, yaw, pitch, FOV |
+| `Skybox` | type | The cube mesh handle and the cubemap texture |
 
 ### `ecs/`
 
 | Symbol | Kind | Description |
-|--------|------|-------------|
-| `Entity` | interface | `Init()`, `Update()`, `GetType()`, `GetCollider()` |
-| `World` | struct | Slice of `Entity` |
-| `World.Update()` | func | Entity updates → collision O(n²) → Verlet integration |
+|---|---|---|
+| `Entity` | interface | `Init`, `Update`, `GetType`, `GetCollider` |
+| `World` | type | A slice of entities |
+| `World.AddEntities` / `Init` / `Update` | func | Build and step the world |
+| `World.GetEntities` / `GetEntity` | func | Lookup by type string |
 
----
+### `physics/`
+
+| Symbol | Kind | Description |
+|---|---|---|
+| `Collider` | interface | Anything that can `Collide` and expose its `Verlet` |
+| `Verlet` | type | `Pos`, `PrevPos`, `Accel`, `Fixed` |
+| `Verlet.UpdatePosition` / `Accelerate` | func | Integrate; accumulate a force |
+| `Sphere` | type | A `Verlet` plus a radius |
+| `NewSphere` / `NewSphereFromMesh` | func | Explicit, or bounding radius derived from a mesh |
+| `Sphere.Collide` | func | Dispatches to sphere-sphere or sphere-plane |
+| `Plane` | type | A `Verlet` plus a normal, axes and half-sizes |
+| `NewPlane` / `NewPlaneFromMesh` | func | From four corners, or derived from a mesh |
 
 ### `input/`
 
-#### `input.go`
+| Symbol | Kind | Description |
+|---|---|---|
+| `DefaultInput` | func | WASD, Q/E for up and down, Shift to sprint, Tab toggles the cursor, Esc quits |
+| `DefaultMouseCallback` | func | FPS look: yaw and pitch from mouse delta, pitch clamped to ±89° |
+| `ScrollCallback` | func | Field of view, clamped |
+| `FramebufferSizeCallback` | func | Records the new size in `settings`. The viewport itself is a per-pass decision |
+| `SetScene` | func | Gives the input package the camera to drive |
+
+### `settings/` and `utils/`
 
 | Symbol | Kind | Description |
-|--------|------|-------------|
-| `DefaultInput()` | func | WASD movement, Q/E up-down, Shift sprint, Tab cursor toggle, Esc quit |
-
-Camera speed: `10 units/s × deltaTime` (40 with Shift).
-
-#### `callback.go`
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `FramebufferSizeCallback()` | func | Update viewport + `settings.WindowWidth/Height` on resize |
-| `DefaultMouseCallback()` | func | FPS look: yaw/pitch from mouse delta, clamp pitch ±89°, sensitivity 0.1 |
-| `ScrollCallback()` | func | Adjust FOV (clamped 1°–90°) |
+|---|---|---|
+| `WindowWidth` / `WindowHeight` | var | 1920×1080, updated on resize |
+| `ShadowWidth` / `ShadowHeight` | var | 1024², fixed |
+| `AspectRatio` / `ShadowAspectRatio` | func | For the camera and cube-shadow projections |
+| `ParseVec3` | func | `"x,y,z"` → `mgl32.Vec3` |
+| `EulerToDirection` | func | Pitch/yaw/roll → direction vector |
+| `HandleError` | func | Panic on a non-nil error |
 
 ---
 
-### `opengl/`
+## 6. Scene and asset format
 
-#### `shader.go`
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `CreateProgram()` | func | Load `.vert.glsl` + `.frag.glsl` (+ optional `.geo.glsl`) → compile → link |
-| `createShader()` | func | Compile single stage, print info log on error |
-
-#### `texture.go`
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `CreateTexture()` | func | Load PNG/JPEG → `GL_TEXTURE_2D`, LINEAR filter, REPEAT wrap |
-| `CreateCubemap()` | func | Load 6 images → `GL_TEXTURE_CUBE_MAP`, CLAMP_TO_EDGE wrap |
-
----
-
-### `settings/` & `utils/`
-
-#### `settings/settings.go`
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `WindowWidth` | 1920 | Updated on resize |
-| `WindowHeight` | 1080 | Updated on resize |
-| `ShadowWidth` | 1024 | Shadow map resolution |
-| `ShadowHeight` | 1024 | Shadow map resolution |
-| `AspectRatio()` | — | `Width / Height` |
-
-#### `utils/utils.go`
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `ParseVec3()` | func | `"x,y,z"` string → `mgl32.Vec3` |
-| `EulerToDirection()` | func | Pitch/yaw/roll → direction `Vec3` |
-| `HandleError()` | func | Panic with message on non-nil error |
-| `RenderQuad()` | func | Lazy-init fullscreen quad VAO, then draw (used by UI + debug) |
-
----
-
-### `plugin/`
-
-#### `xml_export.py` — Blender 4.0+ Addon
-
-Registers under **File → Export → Export Overdrive scene…**
-
-| Symbol | Kind | Description |
-|--------|------|-------------|
-| `OverdriveWriter` | class | Stateful XML builder |
-| `OverdriveWriter.write()` | method | Main export: camera → meshes (OBJ) → lights → write `.xml` |
-| `write_camera()` | method | Position, front/up vectors, yaw, pitch, FOV |
-| `write_mesh()` | method | `bpy.ops.wm.obj_export` → record position, rotation, obj/mtl filenames |
-| `write_light()` | method | Type, position, direction, color, diffuse, specular, intensity |
-| `OverdriveExporter` | class | `bpy.types.Operator` + `ExportHelper` for menu integration |
-
-**Export flow:**
-
-```mermaid
-flowchart LR
-    B[Blender Scene] --> W[OverdriveWriter.write]
-    W --> C[write_camera\nactive camera]
-    W --> M[write_mesh\nper MESH object\nOBJ export to meshes/]
-    W --> L[write_light\nper LIGHT object]
-    C & M & L --> X[scene.xml]
-```
-
----
-
-## Shader Programs
-
-| Program | Files | Active | Description |
-|---------|-------|--------|-------------|
-| `clouds` | `clouds.vert/frag` | **Yes** | Sphere SDF + Perlin FBM raymarching, 100 steps |
-| `light` | `light.vert/frag` | No | Phong lighting with PCF shadow sampling |
-| `depth` | `depth.vert/frag` | Yes | Directional light shadow depth pass |
-| `depth_cube` | `depth_cube.vert/geo/frag` | Yes | Point light cubemap depth (geometry shader fan) |
-| `depth_debug` | `depth_debug.vert/frag` | No | Visualise shadow map on screen quad |
-| `skybox` | `skybox.vert/frag` | Yes | Cubemap skybox, depth `LEQUAL` |
-| `ui` | `ui.vert/frag` | Yes | Full-screen RGBA texture quad |
-| `water` | `water.vert/frag` | No | Water surface (stub) |
-
-### Cloud Shader Detail (`clouds.frag.glsl`)
-
-```
-Ray origin  ──► March 100 steps (size 0.08)
-                    │
-                    ▼
-              Sphere SDF hit?
-                    │ yes
-                    ▼
-              Sample Perlin FBM noise
-                    │
-                    ▼
-              Per-step diffuse lighting
-                    │
-                    ▼
-              Accumulate colour + alpha
-                    │
-                    ▼
-              Early exit when alpha ≈ 1
-```
-
----
-
-## Asset & Scene Format
-
-Scene files live in `assets/` as XML:
+Scenes are XML in `src/assets/`, referencing OBJ and MTL files in
+`assets/meshes/`. The Blender add-on writes exactly this layout.
 
 ```xml
 <scene>
   <camera name="Camera">
     <type>persp</type>
-    <position>0,20,15</position>
-    <front>0,-0.57,-0.82</front>
-    <up>0,0.82,-0.57</up>
-    <yaw>-90</yaw>
-    <pitch>-35</pitch>
-    <fov>45</fov>
+    <position>0.0,-9.5,3.5</position>
+    <yaw>0.0</yaw>
+    <pitch>14.0</pitch>
+    <fov>45.0</fov>
   </camera>
 
-  <mesh name="Sphere">
-    <position>0,0,2</position>
-    <rotation>0,0,0</rotation>
-    <obj>Sphere.obj</obj>
-    <mtl>Sphere.mtl</mtl>
+  <mesh name="Ground">
+    <position>0.0,0.0,0.0</position>
+    <obj>DemoGround.obj</obj>
+    <!-- <mtl> is optional: it defaults to the .obj basename -->
   </mesh>
 
   <light name="Sun">
@@ -557,4 +347,75 @@ Scene files live in `assets/` as XML:
 </scene>
 ```
 
-Meshes reference OBJ files under `assets/meshes/`. The Blender plugin exports directly into this layout.
+**Coordinates.** Blender and OBJ disagree about which axis is up, so import
+converts:
+
+```
+Blender (x, y, z)  →  Overdrive (x, z, -y)
+```
+
+applied to mesh positions, light positions, and — with sign flips — light
+directions. The camera's `front` is *not* read from the XML: it is rebuilt from
+`yaw` and `pitch`, and `up` is forced to world up.
+
+**Static geometry is baked.** The demo OBJs are exported already in world space
+and the engine renders them with an identity model matrix, so `<position>` is
+unused for static meshes. It matters only for meshes a physics body moves.
+
+**Materials** come from the MTL, including the PBR extension keys `Pm`
+(metalness) and `Pr` (roughness), plus `map_Kd` for albedo and `map_Bump` /
+`bump` for the normal map.
+
+**Point-light intensity is divided by 1000 on import**, because Blender's watt
+units and the shader's inverse-square falloff are not on the same scale.
+
+### The Blender add-on
+
+`src/plugin/xml_export.py`, registered under **File → Export → Export Overdrive
+scene…**
+
+| Symbol | Description |
+|---|---|
+| `OverdriveWriter` | Stateful XML builder |
+| `.write` | Camera → meshes (each exported via `bpy.ops.wm.obj_export`) → lights → write the `.xml` |
+| `.write_camera` | Position, front and up vectors, yaw, pitch, FOV |
+| `.write_mesh` | Position, rotation, and the OBJ/MTL filenames |
+| `.write_light` | Type, position, direction, colour, diffuse, specular, intensity |
+| `OverdriveExporter` | The `bpy.types.Operator` + `ExportHelper` that puts it in the menu |
+
+---
+
+## 7. Shaders
+
+Authored **once** in Slang under `src/shaders/slang/`, compiled per backend by
+`build_shaders.sh` into GLSL 4.10 and SPIR-V. Neither backend reads `.slang` at
+runtime, so the script must run before the first build and after every shader
+edit.
+
+| Set | Stages | Used by |
+|---|---|---|
+| `common.slang` | — | Included by all of them: `MAX_LIGHTS`, `LightData`, `FrameUniforms`, `DrawUniforms`, and the per-backend uniform access macros `FRAME` / `DRAW` |
+| `forward` | vert, frag | The main pass. Cook-Torrance PBR, normal mapping, both shadow tests, skybox ambient, Reinhard tonemap |
+| `depth` | vert, frag | The directional light's 2D shadow pass |
+| `depth_cube` | vert, **geo**, frag | The point light's cube shadow pass, one layered draw for all six faces |
+| `skybox` | vert, frag | The cube, drawn with `LEQUAL` depth |
+| `ui` | vert, frag | The fullscreen overlay quad |
+
+The uniform macros are named `FRAME` and `DRAW` rather than anything shorter
+because `forward.slang` already uses `F`, `D` and `G` for the Fresnel,
+distribution and geometry terms of the BRDF.
+
+---
+
+## 8. Dead code
+
+These files are on disk but contain nothing the build uses. They are kept as
+placeholders for planned work; delete or implement.
+
+| File | State |
+|---|---|
+| `src/physics/box.go` | Empty, a placeholder for box colliders (`TODO.md`) |
+| `src/physics/box_old.go` | Fully commented out, the earlier box attempt |
+| `src/physics/link.go` | Fully commented out, Verlet distance constraints |
+| `src/ecs/ecs.go` | Fully commented out, an earlier set-based World. `entity.go` is the live one, and this file is the only thing `gofmt -l` reports |
+| `src/algorithms/wfc.go` | Empty, the Wave Function Collapse placeholder |

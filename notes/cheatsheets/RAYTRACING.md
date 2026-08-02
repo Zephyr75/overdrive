@@ -1,53 +1,115 @@
-Distinction qui prête souvent à confusion parce que le vocabulaire a dérivé avec le temps.
+# Ray tracing — terminology, acceleration, hardware
+
+> **Scope** what "ray tracing" actually means, how it differs from path tracing, the acceleration structures underneath, and how it is exposed on Vulkan. The vocabulary distinction in §1-§3 is the one interviewers check.
+>
+> **Not here** the BRDF being sampled and the Monte Carlo estimator → `PBR.md` §3, §10. Rasterisation-era techniques (shadow maps, AO, deferred) → `GRAPHICS.md` §1. Vulkan's object model → `VULKAN.md`.
 
 ---
 
-## Ray tracing — le terme général
+## Contents
 
-C'est l'idée de base : tu lances des rayons depuis la caméra dans la scène, tu trouves ce qu'ils touchent, tu calcules une couleur. Au sens large, "ray tracing" englobe toutes les techniques qui utilisent des rayons.
-
-Mais au sens **historique/strict**, "ray tracing" (ou *Whitted ray tracing*, 1980) désigne une méthode spécifique :
-- Tu lances un rayon, il touche une surface
-- Tu calcules l'éclairage direct (lumières visibles depuis ce point)
-- Tu lances des rayons **secondaires déterministes** : réflexion parfaite (miroir), réfraction
-- Récursion sur ces rayons
-
-Résultat : ombres nettes, miroirs et verre parfaits. Mais **pas de global illumination réaliste** — pas de surfaces rugueuses qui rebondissent la lumière diffuse, pas de soft shadows naturelles, pas de color bleeding.
+1. [Ray tracing — the general term](#1-ray-tracing--the-general-term)
+2. [Path tracing — one form of ray tracing](#2-path-tracing--one-form-of-ray-tracing)
+3. [Summary and the trap](#3-summary-and-the-trap)
+4. [Acceleration structures](#4-acceleration-structures)
+5. [Hardware ray tracing on Vulkan](#5-hardware-ray-tracing-on-vulkan)
+6. [Denoising](#6-denoising)
 
 ---
 
-## Path tracing — une forme de ray tracing
+## 1. Ray tracing — the general term
 
-C'est aussi du ray tracing, mais qui résout la **rendering equation** complète (Kajiya, 1986) par méthode Monte Carlo.
+The base idea: cast rays from the camera into the scene, find what they hit, compute a colour. Broadly, "ray tracing" covers every technique built on rays.
 
-La différence clé : à chaque rebond, au lieu de suivre une direction déterministe, tu **échantillonnes aléatoirement** une direction selon la BRDF de la surface.
+In the **historical, strict** sense, ray tracing (or *Whitted ray tracing*, 1980) means one specific method:
 
-- Une surface diffuse rebondit le rayon dans une direction random de l'hémisphère
-- Tu suis ce chemin (*path*) sur plusieurs rebonds jusqu'à une lumière
-- Tu fais ça des **centaines/milliers de fois par pixel** et tu moyennes
+- Cast a ray, it hits a surface
+- Compute direct lighting (lights visible from that point)
+- Cast **deterministic secondary rays**: perfect reflection (mirror), refraction
+- Recurse on those
 
-Résultat : global illumination complète — color bleeding, soft shadows, caustics, ambient occlusion, tout émerge naturellement. Le prix : le **bruit** (noise) qui diminue en $1/\sqrt{N}$ avec le nombre d'échantillons.
+Result: hard shadows, perfect mirrors and glass. But **no realistic global illumination** — no rough surfaces bouncing diffuse light, no natural soft shadows, no colour bleeding.
 
----
+## 2. Path tracing — one form of ray tracing
 
-## Le résumé
+Also ray tracing, but it solves the full **rendering equation** (Kajiya 1986) by Monte Carlo.
 
-| | Whitted Ray Tracing | Path Tracing |
+The key difference: at each bounce, instead of following a deterministic direction, **sample a random direction** according to the surface's BRDF.
+
+- A diffuse surface bounces the ray in a random hemisphere direction
+- Follow that *path* through several bounces until it reaches a light
+- Do this hundreds or thousands of times per pixel and average
+
+Result: full global illumination — colour bleeding, soft shadows, caustics, ambient occlusion, all emerging for free. The price is **noise**, falling as $1/\sqrt{N}$ in the sample count. Reducing it for a given $N$ is what importance sampling is for (`PBR.md` §10).
+
+```mermaid
+flowchart LR
+    C["camera ray"] --> H["hit"]
+    H -->|Whitted| R["mirror / refraction<br/>deterministic, recurse"]
+    H -->|path tracing| S["sample the BRDF<br/>random direction, recurse"]
+    S --> L["…until a light is hit"]
+```
+
+## 3. Summary and the trap
+
+| | Whitted ray tracing | Path tracing |
 |---|---|---|
-| Année | 1980 | 1986 |
-| Rebonds | déterministes (miroir/réfraction) | aléatoires (Monte Carlo) |
-| Global illumination | non | oui |
-| Surfaces diffuses | éclairage direct seulement | rebonds indirects complets |
-| Image | propre, mais incomplète | réaliste, mais bruitée |
-| Coût | faible | élevé |
+| Year | 1980 | 1986 |
+| Bounces | deterministic (mirror/refraction) | random (Monte Carlo) |
+| Global illumination | no | yes |
+| Diffuse surfaces | direct lighting only | full indirect bounces |
+| Image | clean but incomplete | realistic but noisy |
+| Cost | low | high |
+
+**The trap.** "Ray tracing" as used today (RTX, games) is marketing shorthand. Games actually do partial, heavily undersampled path tracing plus aggressive denoising. So:
+
+- **Ray tracing** = the whole family, *and* the historical Whitted method
+- **Path tracing** = the Monte Carlo technique that solves GI
+
+Path tracing **is** ray tracing; not all ray tracing is path tracing.
 
 ---
 
-## La nuance qui piège
+## 4. Acceleration structures
 
-Quand on dit "ray tracing" aujourd'hui (RTX, jeux), c'est un abus de langage marketing. Les jeux font en réalité du path tracing partiel/échantillonné avec du denoising agressif. Donc :
+Testing every ray against every triangle is $O(\text{rays} \times \text{triangles})$ and hopeless. Every ray tracer is really a spatial data structure plus a traversal loop.
 
-- **Ray tracing** = la famille entière + la méthode Whitted historique
-- **Path tracing** = la technique Monte Carlo qui résout la GI
+`BVH` bounding volume hierarchy — a tree of nested bounding boxes over *objects*. Traversal descends only into boxes the ray hits, giving roughly $O(\log n)$ per ray. The universal choice, and what the hardware implements
+`kd-tree / BSP` splits *space* rather than objects. Better for static scenes, worse to rebuild
+`Uniform grid` cheap to build, degrades badly on non-uniform scene density
 
-Path tracing **est** du ray tracing, mais tout ray tracing n'est pas du path tracing. Pour ton entretien NERD, c'est exactement le genre de distinction de vocabulaire qu'ils peuvent vérifier que tu maîtrises.
+**Build quality matters more than traversal speed.** The **SAH** (surface area heuristic) picks each split by estimating the expected traversal cost — an SAH BVH can be several times faster to trace than a median-split one of identical shape.
+
+**Two levels, and this is what the API exposes.**
+
+`BLAS` bottom-level acceleration structure: the BVH over one mesh's triangles, in object space. Built once, reused
+`TLAS` top-level: a BVH over *instances*, each holding a transform and a BLAS pointer. Rebuilt or refitted per frame as objects move
+
+That split is why moving an object costs a cheap TLAS rebuild rather than re-BVHing its geometry.
+
+## 5. Hardware ray tracing on Vulkan
+
+Two entry points, and picking between them is a design decision:
+
+| | Ray query (`VK_KHR_ray_query`) | Ray tracing pipeline (`VK_KHR_ray_tracing_pipeline`) |
+|---|---|---|
+| Where rays are cast | inside an existing fragment or compute shader | a dedicated pipeline with its own stages |
+| Shader stages | none new | raygen, miss, closest-hit, any-hit, intersection |
+| Shading of the hit | you write it inline | dispatched through the **shader binding table** |
+| Best for | replacing one effect (shadows, AO) in a raster pipeline | full path tracers, recursive rays, many material types |
+| Cost to adopt | small | a second pipeline and a whole binding table |
+
+> **The engine's plan** — Overdrive's roadmap takes the ray-query route: drop a ray query into `forward.slang`'s shadow test, replacing the shadow-map passes, reusing the existing forward pass and light loop. OpenGL 4.1 cannot participate, so the GL backend keeps shadow maps and `Backend.Supports(FeatureRayTracing)` is the seam that expresses it. See `../FEATURES.md`.
+
+The natural adoption order, cheapest and most convincing first: **shadows → ambient occlusion → reflections → one-bounce GI**. Each removes a screen-space approximation (`GRAPHICS.md` §1) and its artefacts.
+
+## 6. Denoising
+
+At 1-2 samples per pixel the raw image is unusable. The denoiser is not optional — it is part of the algorithm.
+
+`Spatial` edge-aware blur (à-trous wavelet) guided by G-buffer normals and depth so it does not blur across geometric edges
+`Temporal` reproject the previous frame with motion vectors and accumulate — effectively raising the sample count over time. Ghosting on disocclusion is the failure mode
+`SVGF` spatiotemporal variance-guided filtering: the standard combination, using the estimated variance to decide how hard to blur
+`ML denoisers` OptiX, OIDN, and the DLSS ray reconstruction family
+
+The lever that matters upstream: better importance sampling means less variance reaching the denoiser, which is what actually keeps the image sharp.

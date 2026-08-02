@@ -1,160 +1,164 @@
-# PBR — Les bases essentielles
+# PBR — physically based rendering, the essentials
 
-> Cheat-sheet de révision pour l'entretien R&D rendu temps réel.
-> Source principale : **Physically Based Rendering, 4ᵉ éd.** (Pharr, Jakob, Humphreys) — [pbr-book.org/4ed](https://www.pbr-book.org/4ed/). Les figures sont tirées du livre (chapitre 9, *Reflection Models*).
+> **Scope** radiometry, the BRDF, Cook-Torrance and the metallic-roughness workflow, IBL, importance sampling. The theory behind `src/shaders/slang/forward.slang`.
 >
-> **Convention de lecture** : PBRT est un moteur *offline* rigoureux. Là où le temps réel (UE4, Frostbite, LearnOpenGL) prend des raccourcis, c'est signalé par le tag **⚡ temps réel**. Maîtriser les deux = exactement ce qui montre que tu comprends *pourquoi* les approximations existent.
+> **Not here** the OpenGL and Vulkan APIs → `OPENGL.md`, `VULKAN.md`. Ray vs path tracing → `RAYTRACING.md`. Shadow mapping, AO, deferred and the rest of the real-time toolbox → `GRAPHICS.md`.
+>
+> **Source** *Physically Based Rendering, 4th ed.* (Pharr, Jakob, Humphreys) — [pbr-book.org/4ed](https://www.pbr-book.org/4ed/). Figures are from chapter 9, *Reflection Models*.
+>
+> **Reading convention** PBRT is a rigorous *offline* renderer. Wherever real time (UE4, Frostbite, LearnOpenGL) takes a shortcut, it is tagged **⚡ real time**. Knowing both is exactly what shows you understand *why* the approximations exist.
 
 ---
 
-## Table des matières
+## Contents
 
-1. [Fondations radiométriques](#1-fondations-radiométriques)
-2. [La BRDF](#2-la-brdf)
-3. [L'équation de réflexion](#3-léquation-de-réflexion)
-4. [Réflexion diffuse (Lambert)](#4-réflexion-diffuse-lambert)
+1. [Radiometric foundations](#1-radiometric-foundations)
+2. [The BRDF](#2-the-brdf)
+3. [The reflection equation](#3-the-reflection-equation)
+4. [Diffuse reflection (Lambert)](#4-diffuse-reflection-lambert)
 5. [Fresnel](#5-fresnel)
-6. [Théorie microfacette](#6-théorie-microfacette)
-7. [La BRDF spéculaire complète (Cook-Torrance)](#7-la-brdf-spéculaire-complète-cook-torrance)
-8. [Le workflow metallic-roughness](#8-le-workflow-metallic-roughness)
-9. [Image-Based Lighting & split-sum](#9-image-based-lighting--split-sum)
+6. [Microfacet theory](#6-microfacet-theory)
+7. [The full specular BRDF (Cook-Torrance)](#7-the-full-specular-brdf-cook-torrance)
+8. [The metallic-roughness workflow](#8-the-metallic-roughness-workflow)
+9. [Image-based lighting and split-sum](#9-image-based-lighting-and-split-sum)
 10. [Importance sampling](#10-importance-sampling)
-11. [Récap formules](#11-récap-formules)
-12. [Pour l'entretien](#12-pour-lentretien)
+11. [Formula recap](#11-formula-recap)
+12. [Interview checklist](#12-interview-checklist)
 
 ---
 
-## 1. Fondations radiométriques
+## 1. Radiometric foundations
 
-Avant les BRDF, il faut les grandeurs physiques. Tout le PBR repose sur la **radiance**.
+Before BRDFs come the physical quantities. All of PBR rests on **radiance**.
 
-### Angle solide
+### Solid angle
 
-L'analogue 2D de l'angle, mesuré en stéradians (sr). Un hémisphère couvre $2\pi$ sr, une sphère $4\pi$ sr. En coordonnées sphériques :
+The 2D analogue of an angle, measured in steradians (sr). A hemisphere covers $2\pi$ sr, a sphere $4\pi$ sr. In spherical coordinates:
 
 $$d\omega = \sin\theta \, d\theta \, d\phi$$
 
-### Les quatre grandeurs
+### The four quantities
 
-| Grandeur | Symbole | Unité | Définition |
+| Quantity | Symbol | Unit | Definition |
 |---|---|---|---|
-| Flux (puissance) | $\Phi$ | W | Énergie par unité de temps |
-| Irradiance | $E$ | W/m² | Flux reçu par unité de surface |
-| Intensité | $I$ | W/sr | Flux par unité d'angle solide |
-| **Radiance** | $L$ | W/(m²·sr) | Flux par unité de surface projetée **et** d'angle solide |
+| Flux (power) | $\Phi$ | W | Energy per unit time |
+| Irradiance | $E$ | W/m² | Flux received per unit area |
+| Intensity | $I$ | W/sr | Flux per unit solid angle |
+| **Radiance** | $L$ | W/(m²·sr) | Flux per unit *projected* area **and** solid angle |
 
-### Radiance — la grandeur reine
+### Radiance — the central quantity
 
 $$L = \frac{d^2\Phi}{dA \, \cos\theta \, d\omega}$$
 
-Pourquoi c'est la grandeur centrale :
-- **Elle est constante le long d'un rayon dans le vide.** C'est ce qui rend le ray tracing possible : `L` à la caméra = `L` au point touché.
-- C'est ce que mesure un capteur (œil, photosite).
-- Le $\cos\theta$ au dénominateur tient compte de la **surface projetée** (foreshortening).
+Why everything is expressed in it:
 
-### Irradiance et loi du cosinus de Lambert
+- **It is constant along a ray in vacuum.** That is what makes ray tracing possible: `L` at the camera = `L` at the hit point
+- It is what a sensor (eye, photosite) actually measures
+- The $\cos\theta$ in the denominator accounts for the **projected** area (foreshortening)
 
-L'irradiance reçue en un point, c'est l'intégrale de la radiance incidente sur l'hémisphère, pondérée par le cosinus :
+### Irradiance and Lambert's cosine law
+
+Irradiance at a point is the incident radiance integrated over the hemisphere, cosine-weighted:
 
 $$E = \int_{\mathcal{H}^2} L_i(\omega) \, \cos\theta \, d\omega$$
 
-Le facteur $\cos\theta$ (loi de Lambert) vient du fait qu'un faisceau qui arrive en biais étale son énergie sur une plus grande surface. **Ce cosinus revient partout** — retiens-le, c'est l'origine du `NdotL`.
+The $\cos\theta$ (Lambert's law) is there because a beam arriving at an angle spreads its energy over a larger area. **This cosine reappears everywhere** — it is the origin of the `NdotL` in every shader.
 
 ---
 
-## 2. La BRDF
+## 2. The BRDF
 
-La **Bidirectional Reflectance Distribution Function** décrit comment la lumière est réfléchie en un point, pour un couple (direction entrante, direction sortante).
+The **bidirectional reflectance distribution function** describes how light is reflected at a point, for a pair (incoming direction, outgoing direction).
 
-### Le repère de shading
+### The shading frame
 
-Tous les calculs se font dans un repère local où la normale $\mathbf{n}$ est l'axe $z$, et les tangentes $\mathbf{s}, \mathbf{t}$ sont $x, y$.
+Everything is computed in a local frame where the normal $\mathbf{n}$ is the $z$ axis and the tangents $\mathbf{s}, \mathbf{t}$ are $x, y$.
 
-![Repère BSDF](https://www.pbr-book.org/4ed/Reflection_Models/pha09f02.svg)
+![BSDF frame](https://www.pbr-book.org/4ed/Reflection_Models/pha09f02.svg)
 
-*Figure 9.2 (PBRT) — Le repère de shading $(\mathbf{s}, \mathbf{t}, \mathbf{n})$ aligné sur $(x, y, z)$. Toutes les directions $\omega$ sont transformées dans ce repère avant l'appel des BxDF.*
+*Figure 9.2 (PBRT) — the shading frame $(\mathbf{s}, \mathbf{t}, \mathbf{n})$ aligned with $(x, y, z)$. Every direction $\omega$ is transformed into this frame before any BxDF call.*
 
-Conséquence pratique : $\cos\theta = \mathbf{n} \cdot \omega = \omega_z$. C'est juste la composante $z$ du vecteur. D'où l'optimisation classique en shader : pas besoin de produit scalaire, on lit `.z`.
+Practical consequence: $\cos\theta = \mathbf{n} \cdot \omega = \omega_z$. It is just the vector's $z$ component — hence the classic shader optimisation of reading `.z` instead of taking a dot product.
 
-**⚠️ Convention PBRT** : $\omega_o$ et $\omega_i$ pointent **tous les deux vers l'extérieur** de la surface (ils ne suivent pas la propagation physique de la lumière). Utile pour les algos bidirectionnels.
+> **⚠️ PBRT convention** — $\omega_o$ and $\omega_i$ both point **away** from the surface (they do not follow physical light propagation). Convenient for bidirectional algorithms.
 
-### Définition formelle
+### Formal definition
 
 $$f(\omega_o, \omega_i) = \frac{dL_o(\omega_o)}{dE(\omega_i)} = \frac{dL_o(\omega_o)}{L_i(\omega_i) \, \cos\theta_i \, d\omega_i}$$
 
-En clair : « combien de radiance sort dans $\omega_o$ par unité d'irradiance arrivant de $\omega_i$ ». Unité : sr⁻¹.
+In plain terms: "how much radiance leaves along $\omega_o$ per unit irradiance arriving from $\omega_i$". Unit: sr⁻¹.
 
-### Les trois propriétés d'une BRDF physiquement plausible
+### The three properties of a physically plausible BRDF
 
-1. **Positivité** : $f(\omega_o, \omega_i) \geq 0$.
+1. **Positivity** $f(\omega_o, \omega_i) \geq 0$
 
-2. **Réciprocité de Helmholtz** : $f(\omega_o, \omega_i) = f(\omega_i, \omega_o)$. On peut échanger source et caméra. *(Indispensable pour les algos bidirectionnels — une BRDF non réciproque casse le path tracing inversé.)*
+2. **Helmholtz reciprocity** $f(\omega_o, \omega_i) = f(\omega_i, \omega_o)$ — source and camera can be swapped. *Essential for bidirectional algorithms: a non-reciprocal BRDF breaks reverse path tracing*
 
-3. **Conservation de l'énergie** : une surface ne réfléchit jamais plus d'énergie qu'elle n'en reçoit.
+3. **Energy conservation** a surface never reflects more energy than it receives
 
 $$\int_{\mathcal{H}^2} f(\omega_o, \omega_i) \, \cos\theta_i \, d\omega_i \leq 1 \quad \forall \, \omega_o$$
 
-> **Question piège classique** : « pourquoi une BRDF diffuse vaut $\rho/\pi$ et pas $\rho$ ? » → c'est précisément cette contrainte de conservation. Voir §4.
+> **Classic trap question** — "why is a diffuse BRDF $\rho/\pi$ and not $\rho$?" → precisely this conservation constraint. See §4.
 
 ---
 
-## 3. L'équation de réflexion
+## 3. The reflection equation
 
-Le cœur de tout. La radiance sortante dans une direction = intégrale de toute la lumière incidente, filtrée par la BRDF et pondérée par le cosinus :
+The core of everything. Outgoing radiance in one direction = the integral of all incident light, filtered by the BRDF and cosine-weighted:
 
 $$L_o(\omega_o) = \int_{\mathcal{H}^2} f(\omega_o, \omega_i) \, L_i(\omega_i) \, |\cos\theta_i| \, d\omega_i$$
 
-C'est la brique de **l'équation du rendu** (Kajiya 1986). L'équation du rendu complète ajoute juste un terme d'émission $L_e$ et rend $L_i$ récursif (la lumière incidente vient elle-même d'autres surfaces) :
+This is the building block of the **rendering equation** (Kajiya 1986), which only adds an emission term $L_e$ and makes $L_i$ recursive (incident light itself comes from other surfaces):
 
 $$L_o(\omega_o) = L_e(\omega_o) + \int_{\mathcal{H}^2} f(\omega_o, \omega_i) \, L_i(\omega_i) \, |\cos\theta_i| \, d\omega_i$$
 
-Tout le rendu — raster, ray tracing, path tracing — n'est qu'une façon différente d'**approximer cette intégrale**.
+All rendering — raster, ray tracing, path tracing — is a different way of **approximating that integral**.
 
 ---
 
-## 4. Réflexion diffuse (Lambert)
+## 4. Diffuse reflection (Lambert)
 
-Le modèle le plus simple : la lumière est réfléchie **uniformément** dans toutes les directions de l'hémisphère. La BRDF est donc une constante.
+The simplest model: light is reflected **uniformly** in every hemisphere direction, so the BRDF is a constant.
 
 $$f_\text{diff} = \frac{\rho}{\pi}$$
 
-où $\rho$ (albédo) ∈ [0, 1] est la fraction de lumière réfléchie.
+where $\rho$ (albedo) ∈ [0, 1] is the fraction of light reflected.
 
-### D'où vient le $\pi$ ?
+### Where the $\pi$ comes from
 
-On impose la conservation d'énergie. Si $f = k$ (constante), alors :
+Impose energy conservation. If $f = k$ (constant), then:
 
 $$\int_{\mathcal{H}^2} k \, \cos\theta_i \, d\omega_i = k \int_0^{2\pi}\!\!\int_0^{\pi/2} \cos\theta \sin\theta \, d\theta \, d\phi = k \cdot \pi$$
 
-Pour que la surface réfléchisse exactement la fraction $\rho$ de l'énergie, il faut $k\pi = \rho$, donc $k = \rho/\pi$. **Le $\pi$ vient de l'intégrale du cosinus sur l'hémisphère.**
+For the surface to reflect exactly the fraction $\rho$, we need $k\pi = \rho$, so $k = \rho/\pi$. **The $\pi$ is the integral of the cosine over the hemisphere.**
 
-> ⚡ **temps réel** : c'est pour ça qu'en shading direct on écrit souvent `diffuse = albedo * NdotL` sans le $\pi$ — il est absorbé dans l'intensité de la lumière par convention. À connaître pour ne pas se faire avoir sur un facteur $\pi$.
+> ⚡ **real time** — this is why direct shading is often written `diffuse = albedo * NdotL` with no $\pi$: by convention it has been absorbed into the light intensity. Worth knowing so a stray factor of $\pi$ does not catch you out.
 
 ---
 
 ## 5. Fresnel
 
-Les équations de **Fresnel** donnent la fraction de lumière réfléchie (vs réfractée/absorbée) à une interface, en fonction de l'angle d'incidence. **Toute surface devient un miroir parfait à incidence rasante** — c'est l'effet Fresnel, visible sur l'eau d'un lac vue de loin.
+The **Fresnel** equations give the fraction of light reflected (vs refracted/absorbed) at an interface, as a function of incidence angle. **Every surface becomes a perfect mirror at grazing incidence** — the Fresnel effect, visible on a lake seen from far away.
 
-### Les équations exactes (diélectriques)
+### The exact equations (dielectrics)
 
-Pour une interface entre indices $\eta_i$ et $\eta_t$, la réflectance dépend de la polarisation (parallèle $r_\parallel$ et perpendiculaire $r_\perp$) :
+For an interface between indices $\eta_i$ and $\eta_t$, reflectance depends on polarisation (parallel $r_\parallel$, perpendicular $r_\perp$):
 
 $$r_\parallel = \frac{\eta_t \cos\theta_i - \eta_i \cos\theta_t}{\eta_t \cos\theta_i + \eta_i \cos\theta_t}, \qquad r_\perp = \frac{\eta_i \cos\theta_i - \eta_t \cos\theta_t}{\eta_i \cos\theta_i + \eta_t \cos\theta_t}$$
 
-Pour de la lumière non polarisée (cas usuel en graphics) :
+For unpolarised light (the usual case in graphics):
 
 $$F_r = \frac{1}{2}\left(r_\parallel^2 + r_\perp^2\right)$$
 
-Les angles sont liés par la **loi de Snell** : $\eta_i \sin\theta_i = \eta_t \sin\theta_t$.
+The angles are linked by **Snell's law**: $\eta_i \sin\theta_i = \eta_t \sin\theta_t$.
 
-### ⚡ L'approximation de Schlick (1993) — celle que tu utiliseras
+### ⚡ Schlick's approximation (1993) — the one you will use
 
-Évaluer Fresnel exactement à chaque pixel est cher. Schlick approxime ça avec une simple puissance 5 :
+Evaluating Fresnel exactly per pixel is expensive. Schlick approximates it with a single fifth power:
 
 $$F(\theta) = F_0 + (1 - F_0)(1 - \cos\theta)^5$$
 
-où $F_0$ est la réflectance à incidence normale ($\theta = 0$). C'est **la** formule à connaître par cœur. Implémentation PBRT (chapitre 9) :
+where $F_0$ is the reflectance at normal incidence ($\theta = 0$). This is **the** formula to know by heart. PBRT implementation (chapter 9):
 
 ```cpp
 SampledSpectrum SchlickFresnel(Float cosTheta) {
@@ -163,234 +167,236 @@ SampledSpectrum SchlickFresnel(Float cosTheta) {
 }
 ```
 
-> **Détail qui compte** : dans un modèle microfacette, l'angle de Fresnel est celui entre $\omega_o$ et la **micronormale** $\omega_m$ (le half-vector), **pas** la macronormale $\mathbf{n}$. Erreur fréquente.
+> **The detail that matters** — in a microfacet model the Fresnel angle is between $\omega_o$ and the **micronormal** $\omega_m$ (the half-vector), **not** the macronormal $\mathbf{n}$. Common mistake.
 
-### $F_0$ et l'insight métallique
+### $F_0$ and the metal insight
 
-$F_0$ encode la nature du matériau. C'est ici que se joue la distinction **conducteur (métal) vs diélectrique (non-métal)** :
+$F_0$ encodes what the material is. This is where **conductor (metal) vs dielectric (non-metal)** is decided:
 
-| Matériau | $F_0$ | Diffus ? |
+| Material | $F_0$ | Diffuse? |
 |---|---|---|
-| Eau | 0.02 | oui |
-| Plastique / verre | **0.04** (défaut diélectrique) | oui |
-| Diamant | 0.17 | oui |
-| Fer | (0.56, 0.57, 0.58) | **non** |
-| Or | (1.00, 0.71, 0.29) | **non** |
-| Cuivre | (0.95, 0.64, 0.54) | **non** |
-| Aluminium | (0.91, 0.92, 0.92) | **non** |
+| Water | 0.02 | yes |
+| Plastic / glass | **0.04** (dielectric default) | yes |
+| Diamond | 0.17 | yes |
+| Iron | (0.56, 0.57, 0.58) | **no** |
+| Gold | (1.00, 0.71, 0.29) | **no** |
+| Copper | (0.95, 0.64, 0.54) | **no** |
+| Aluminium | (0.91, 0.92, 0.92) | **no** |
 
-Les deux faits fondamentaux du PBR moderne :
+The two foundational facts of modern PBR:
 
-- **Diélectriques** : $F_0 ≈ 0.04$ achromatique (gris), **+ une composante diffuse** colorée. La lumière non réfléchie pénètre, rebondit, et ressort diffuse.
-- **Métaux** : $F_0$ **coloré** (c'est leur couleur de réflexion), et **aucun diffus** — toute la lumière réfractée est immédiatement absorbée par le nuage d'électrons libres.
+- **Dielectrics** — $F_0 ≈ 0.04$, achromatic (grey), **plus** a coloured diffuse component. Light that is not reflected penetrates, scatters and comes back out diffusely
+- **Metals** — $F_0$ is **coloured** (it *is* their reflection colour) and there is **no diffuse at all**: refracted light is immediately absorbed by the free-electron cloud
 
-C'est exactement ce que le workflow metallic-roughness exploite (§8).
+That is exactly what the metallic-roughness workflow exploits (§8).
 
 ---
 
-## 6. Théorie microfacette
+## 6. Microfacet theory
 
-Les surfaces réelles sont rugueuses à l'échelle microscopique. Plutôt que de modéliser géométriquement chaque aspérité (impossible à stocker/ray-tracer), on les traite **statistiquement** : la surface est un nuage de micro-miroirs (microfacettes), et seule leur distribution agrégée compte.
+Real surfaces are rough at microscopic scale. Rather than model every bump geometrically (impossible to store or trace), treat them **statistically**: the surface is a cloud of micro-mirrors (microfacets), and only their aggregate distribution matters.
 
-![Surface microfacette](https://www.pbr-book.org/4ed/Reflection_Models/pha09f20.svg)
+![Microfacet surface](https://www.pbr-book.org/4ed/Reflection_Models/pha09f20.svg)
 
-*Figure 9.20 (PBRT) — (a) Plus la variation des micronormales $\omega_m$ est grande, plus la surface est rugueuse. (b) Une surface lisse a peu de variation.*
+*Figure 9.20 (PBRT) — (a) the more the micronormals $\omega_m$ vary, the rougher the surface. (b) a smooth surface varies little.*
 
-Trois effets géométriques entrent en jeu :
+Three geometric effects come into play:
 
 ![Masking, shadowing, interreflection](https://www.pbr-book.org/4ed/Reflection_Models/pha09f21.svg)
 
-*Figure 9.21 (PBRT) — (a) **Masking** : la microfacette est cachée du viewer. (b) **Shadowing** : la lumière n'atteint pas la microfacette. (c) **Interreflection** : la lumière rebondit entre microfacettes. Les BSDF usuels modélisent masking + shadowing et **ignorent** l'interréflexion (d'où une perte d'énergie aux fortes rugosités).*
+*Figure 9.21 (PBRT) — (a) **masking**: the microfacet is hidden from the viewer. (b) **shadowing**: light does not reach the microfacet. (c) **interreflection**: light bounces between microfacets. Standard BSDFs model masking + shadowing and **ignore** interreflection, which is why energy is lost at high roughness.*
 
-Une BRDF microfacette se construit avec **trois termes** : la distribution $D$, le masking-shadowing $G$, et le Fresnel $F$.
+A microfacet BRDF is built from **three terms**: the distribution $D$, masking-shadowing $G$, and Fresnel $F$.
 
-### L'intuition d'ensemble (à avoir en tête *avant* les formules)
+### The whole intuition, before any formula
 
-Imagine la surface comme une **foule de micro-miroirs** orientés aléatoirement. Tu envoies un pinceau de lumière depuis $\omega_i$ et tu regardes depuis $\omega_o$. Trois questions, et trois seulement, décident combien d'énergie te revient :
+Picture the surface as a **crowd of micro-mirrors** at random orientations. You send a pencil of light from $\omega_i$ and look from $\omega_o$. Three questions, and only three, decide how much energy comes back:
 
-| Terme | Question | Ce qu'il contrôle |
+| Term | Question | What it controls |
 |---|---|---|
-| **$D$** | Combien de micro-miroirs sont inclinés **pile poil** pour renvoyer $\omega_i$ vers $\omega_o$ ? | la **forme et la taille** du highlight |
-| **$F$** | Ces miroirs-là, quelle **fraction** de la lumière réfléchissent-ils vraiment (le reste pénètre) ? | l'**intensité** et la **teinte**, le bord brillant |
-| **$G$** | Parmi ces miroirs bien orientés, combien sont réellement **dégagés** (ni cachés du viewer, ni à l'ombre) ? | l'**énergie** aux angles rasants |
+| **$D$** | How many micro-mirrors are tilted *exactly* right to send $\omega_i$ towards $\omega_o$? | the highlight's **shape and size** |
+| **$F$** | Of those mirrors, what **fraction** of the light do they actually reflect (the rest penetrates)? | its **strength** and **tint**, the bright rim |
+| **$G$** | Of the well-oriented mirrors, how many are actually **clear** (neither hidden from the viewer nor in shadow)? | the **energy** lost at grazing angles |
 
-Pour qu'un photon contribue, il faut les **trois à la fois** : être réfléchi par un miroir *bien orienté* **ET** que ce miroir *réfléchisse* **ET** qu'il soit *dégagé*. D'où une **multiplication** des trois (§7). Garde cette histoire — chaque sous-section ci-dessous ne fait que la rendre quantitative.
+A photon contributes only if **all three** hold: it hits a *well-oriented* mirror **and** that mirror *reflects* **and** it is *unobstructed*. Hence the three terms **multiply** (§7). Keep this story — every subsection below only makes it quantitative.
 
-### 6.1 — La distribution des normales : $D$ (GGX / Trowbridge-Reitz)
+### 6.1 — Normal distribution: $D$ (GGX / Trowbridge-Reitz)
 
-$D(\omega_m)$ donne la densité de microfacettes orientées selon $\omega_m$. C'est ce qui contrôle la **forme du highlight spéculaire**. Le modèle dominant est **GGX** (= Trowbridge-Reitz 1975, rebaptisé par Walter et al. 2007).
+$D(\omega_m)$ gives the density of microfacets oriented along $\omega_m$. It controls the **shape of the specular highlight**. The dominant model is **GGX** (= Trowbridge-Reitz 1975, renamed by Walter et al. 2007).
 
-> **Intuition** : seuls les micro-miroirs dont la normale vaut *exactement* la micronormale $\omega_m$ (le half-vector entre $\omega_i$ et $\omega_o$) peuvent renvoyer la lumière vers l'œil. $D$ compte leur densité. Surface **lisse** → presque toutes les normales sont serrées autour de $\mathbf{n}$ → highlight petit et **intense** (le pic de $D$ est haut et étroit). Surface **rugueuse** → les normales sont éparpillées → la même énergie est **étalée** sur un grand halo terne (pic bas et large). C'est une **densité de probabilité** (sr⁻¹), pas une fraction : sa valeur peut largement dépasser 1, seule son intégrale (pondérée par $\cos$) vaut 1.
+> **Intuition** — only micro-mirrors whose normal is *exactly* the micronormal $\omega_m$ (the half-vector between $\omega_i$ and $\omega_o$) can send light to the eye. $D$ counts their density. A **smooth** surface has almost every normal clustered around $\mathbf{n}$ → a small, **intense** highlight (the peak of $D$ is tall and narrow). A **rough** surface has scattered normals → the same energy **spread** over a large dull halo (low, wide peak). It is a **probability density** (sr⁻¹), not a fraction: its value can far exceed 1, only its cosine-weighted integral is 1.
 
-**⚡ Forme isotrope (celle que tu implémenteras en temps réel)** :
+**⚡ Isotropic form (the one you will implement):**
 
 $$D(\omega_m) = \frac{\alpha^2}{\pi \left( (\mathbf{n} \cdot \omega_m)^2 (\alpha^2 - 1) + 1 \right)^2}$$
 
-**Forme anisotrope générale (PBRT éq. 9.16)**, avec $\alpha_x \neq \alpha_y$ pour du métal brossé :
+**General anisotropic form (PBRT eq. 9.16)**, with $\alpha_x \neq \alpha_y$ for brushed metal:
 
 $$D(\omega_m) = \frac{1}{\pi \, \alpha_x \alpha_y \cos^4\theta_m \left( 1 + \tan^2\theta_m \left( \frac{\cos^2\phi_m}{\alpha_x^2} + \frac{\sin^2\phi_m}{\alpha_y^2} \right) \right)^2}$$
 
-La signature de GGX : ses **longues queues** (long tails). La densité décroît lentement vers les angles rasants → highlights avec un cœur brillant et un halo doux étendu, ce qui colle au réel. Comparaison avec Beckmann :
+GGX's signature is its **long tails**: density falls off slowly towards grazing angles → highlights with a bright core and a wide soft halo, which matches reality. Compared against Beckmann:
 
 ![Beckmann vs Trowbridge-Reitz](https://www.pbr-book.org/4ed/Reflection_Models/pha09f23.png)
 
-*Figure 9.23 (PBRT) — Beckmann-Spizzichino vs Trowbridge-Reitz pour $\alpha = 0.5$. GGX (Trowbridge-Reitz) a des queues bien plus hautes aux grands $\theta$.*
+*Figure 9.23 (PBRT) — Beckmann-Spizzichino vs Trowbridge-Reitz at $\alpha = 0.5$. GGX (Trowbridge-Reitz) has far taller tails at large $\theta$.*
 
-**Condition de normalisation** (ce qui rend $D$ physiquement valide — la projection des microfacettes doit couvrir exactement la macrosurface) :
+**Normalisation condition** — what makes $D$ physically valid: the projected area of the microfacets must cover exactly the macrosurface
 
 $$\int_{\mathcal{H}^2} D(\omega_m) \cos\theta_m \, d\omega_m = 1$$
 
 ![Normalisation](https://www.pbr-book.org/4ed/Reflection_Models/pha09f22.svg)
 
-*Figure 9.22 (PBRT) — La surface projetée des microfacettes au-dessus de $dA$ doit égaler $dA$.*
+*Figure 9.22 (PBRT) — the projected area of the microfacets above $dA$ must equal $dA$.*
 
-**⚠️ Rugosité → $\alpha$ : attention aux conventions.**
-- **⚡ Disney / UE4 (standard temps réel)** : $\alpha = \text{roughness}^2$ (roughness perceptuel au carré — donne une variation plus linéaire à l'œil).
-- **PBRT-v4** : `RoughnessToAlpha` renvoie $\alpha = \sqrt{\text{roughness}}$.
+**⚠️ Roughness → $\alpha$: mind the convention.**
+- **⚡ Disney / UE4 (the real-time standard)** $\alpha = \text{roughness}^2$ — perceptual roughness squared, which varies more linearly to the eye
+- **PBRT-v4** `RoughnessToAlpha` returns $\alpha = \sqrt{\text{roughness}}$
 
-Ce ne sont **pas** les mêmes. Sache laquelle ton moteur utilise.
+These are **not** the same. Know which one your engine uses.
 
-### 6.2 — Le masking-shadowing : $G$ (Smith)
+### 6.2 — Masking-shadowing: $G$ (Smith)
 
-$G$ corrige l'énergie : depuis une direction donnée, seules certaines microfacettes sont visibles (les autres sont masquées). Sans $G$, on aurait des gains d'énergie non physiques aux angles rasants.
+$G$ corrects the energy: from a given direction only some microfacets are visible, the rest are masked. Without $G$ you get non-physical energy gain at grazing angles.
 
-> **Intuition** : les micro-miroirs vivent dans des creux. Un miroir bien orienté ne sert à rien s'il est **caché du viewer** (masking, côté $\omega_o$) ou **dans l'ombre d'une bosse voisine** (shadowing, côté $\omega_i$). $G \in [0,1]$ est la fraction qui survit aux deux. L'effet est négligeable de face ($G \approx 1$) et mord aux **angles rasants**, là où les creux se cachent mutuellement. C'est précisément là que $D$ seul exploserait (le $\frac{1}{4(\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)}$ de Cook-Torrance tend vers l'infini quand un cosinus → 0) : $G$ ramène ça à zéro et **empêche le highlight de déborder l'énergie reçue**. Le raffinement *height-correlated* (Heitz 2014) reconnaît qu'un miroir caché du viewer est souvent *aussi* celui qui est à l'ombre (les deux événements sont corrélés) ; le produit naïf $G_1(\omega_o)\,G_1(\omega_i)$ les traite comme indépendants et **assombrit deux fois trop**.
+> **Intuition** — micro-mirrors sit in valleys. A well-oriented mirror is useless if it is **hidden from the viewer** (masking, the $\omega_o$ side) or **in the shadow of a neighbouring bump** (shadowing, the $\omega_i$ side). $G \in [0,1]$ is the fraction surviving both. The effect is negligible head-on ($G \approx 1$) and bites at **grazing angles**, where valleys occlude each other. That is exactly where $D$ alone would blow up — Cook-Torrance's $\frac{1}{4(\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)}$ tends to infinity as either cosine → 0 — and $G$ pulls it back to zero, **stopping the highlight from exceeding the energy received**. The *height-correlated* refinement (Heitz 2014) recognises that a mirror hidden from the viewer is often *also* the one in shadow (the two events are correlated); the naive product $G_1(\omega_o)\,G_1(\omega_i)$ treats them as independent and **darkens roughly twice too much**.
 
-![Masking et projection](https://www.pbr-book.org/4ed/Reflection_Models/pha09f24.svg)
+![Masking and projection](https://www.pbr-book.org/4ed/Reflection_Models/pha09f24.svg)
 
-*Figure 9.24 (PBRT) — La surface projetée des microfacettes visibles doit égaler $dA \cos\theta$. La fonction de masking $G_1$ donne la fraction visible.*
+*Figure 9.24 (PBRT) — the projected area of the visible microfacets must equal $dA \cos\theta$. The masking function $G_1$ gives the visible fraction.*
 
-**L'approximation de Smith** suppose que hauteur et normale des points sont statistiquement indépendantes. On exprime $G_1$ via une fonction auxiliaire $\Lambda$ :
+**Smith's approximation** assumes a point's height and normal are statistically independent. $G_1$ is expressed through an auxiliary function $\Lambda$:
 
 $$G_1(\omega) = \frac{1}{1 + \Lambda(\omega)}$$
 
-Pour GGX, $\Lambda$ a une solution analytique (PBRT éq. 9.20) :
+For GGX, $\Lambda$ has a closed form (PBRT eq. 9.20):
 
 $$\Lambda(\omega) = \frac{\sqrt{1 + \alpha^2 \tan^2\theta} \; - \; 1}{2}$$
 
-Il y a ensuite **deux façons** de combiner masking ($\omega_o$) et shadowing ($\omega_i$) :
+There are then **two ways** to combine masking ($\omega_o$) with shadowing ($\omega_i$):
 
-**Smith séparable** (le plus simple, $G = G_1(\omega_o) \, G_1(\omega_i)$) :
+**Separable Smith** (simplest, $G = G_1(\omega_o) \, G_1(\omega_i)$):
 
 $$G(\omega_o, \omega_i) = \frac{1}{1 + \Lambda(\omega_o)} \cdot \frac{1}{1 + \Lambda(\omega_i)}$$
 
-**Smith height-correlated** (plus correct — tient compte de la corrélation des hauteurs ; c'est ce qu'utilisent PBRT-v4 et les moteurs modernes type Frostbite) :
+**Height-correlated Smith** (more correct — accounts for height correlation; what PBRT-v4 and modern engines like Frostbite use):
 
 $$G(\omega_o, \omega_i) = \frac{1}{1 + \Lambda(\omega_o) + \Lambda(\omega_i)}$$
 
-> **Bon point d'entretien** : savoir que le height-correlated Smith (Heitz 2014) a remplacé le séparable dans les moteurs AAA, et pouvoir expliquer *pourquoi* (corrélation entre qui masque et qui ombre) montre que tu suis l'état de l'art, pas juste le tuto LearnOpenGL.
+> **Good interview point** — knowing that height-correlated Smith (Heitz 2014) replaced the separable form in AAA engines, *and* being able to explain why (correlation between who masks and who shadows), shows you follow the state of the art rather than the LearnOpenGL tutorial.
 
-> ⚡ **Variante temps réel** : UE4 utilise souvent l'approximation **Schlick-GGX** avec un remapping $k$ de $\alpha$ : $G_1(\omega) = \frac{\mathbf{n}\cdot\omega}{(\mathbf{n}\cdot\omega)(1-k)+k}$, avec $k = \alpha/2$ (IBL) ou $k = (\text{roughness}+1)^2/8$ (lumière directe). C'est une approx de la formule de Smith ci-dessus.
+> ⚡ **Real-time variant** — UE4 often uses the **Schlick-GGX** approximation with a $k$ remapping of $\alpha$: $G_1(\omega) = \frac{\mathbf{n}\cdot\omega}{(\mathbf{n}\cdot\omega)(1-k)+k}$, with $k = \alpha/2$ (IBL) or $k = (\text{roughness}+1)^2/8$ (direct light). It approximates the Smith formula above, and it is what `forward.slang` implements.
 
 ---
 
-## 7. La BRDF spéculaire complète (Cook-Torrance)
+## 7. The full specular BRDF (Cook-Torrance)
 
-On assemble les trois termes. C'est la **BRDF de Torrance-Sparrow / Cook-Torrance** (PBRT éq. 9.33) :
+Assemble the three terms. This is the **Torrance-Sparrow / Cook-Torrance** BRDF (PBRT eq. 9.33):
 
 $$f_\text{spec}(\omega_o, \omega_i) = \frac{D(\omega_m) \, F(\omega_o, \omega_m) \, G(\omega_o, \omega_i)}{4 \, |\mathbf{n} \cdot \omega_o| \, |\mathbf{n} \cdot \omega_i|}$$
 
-où la **micronormale** (half-vector) est :
+where the **micronormal** (half-vector) is:
 
 $$\omega_m = \frac{\omega_o + \omega_i}{\lVert \omega_o + \omega_i \rVert}$$
 
-### Décomposition intuitive
+### Intuitive decomposition
 
-Reprends l'histoire de la foule de micro-miroirs (§6). Le numérateur $D \cdot F \cdot G$ est une **chaîne de filtres** appliquée à l'énergie incidente : chaque terme retire ce qui ne contribue pas.
+Back to the crowd of micro-mirrors (§6). The numerator $D \cdot F \cdot G$ is a **chain of filters** on the incoming energy: each term removes what does not contribute.
 
 ```mermaid
 flowchart LR
-    L["Énergie de ωi"] -->|"× D : garder les miroirs<br/>orientés vers ωm"| D["… bien orientés"]
-    D -->|"× F : garder ce qui se<br/>réfléchit (le reste pénètre)"| F["… et réfléchissants"]
-    F -->|"× G : retirer les cachés<br/>et les ombrés"| G["… et dégagés"]
-    G -->|"÷ 4 (n·ωo)(n·ωi)<br/>micro → macro"| Out["Highlight visible"]
+    L["energy from ωi"] -->|"× D: keep the mirrors<br/>oriented towards ωm"| D["… well oriented"]
+    D -->|"× F: keep what actually<br/>reflects (the rest penetrates)"| F["… and reflective"]
+    F -->|"× G: drop the masked<br/>and the shadowed"| G["… and unobstructed"]
+    G -->|"÷ 4 (n·ωo)(n·ωi)<br/>micro → macro"| Out["visible highlight"]
 ```
 
-- **$D$ — la forme.** Combien de microfacettes sont orientées pile pour réfléchir $\omega_i$ vers $\omega_o$. Fixe la **taille** du spot : petit et vif si lisse, large et terne si rugueux.
-- **$F$ — l'intensité et la teinte.** Quelle fraction ces facettes réfléchissent vraiment (Fresnel sur la micronormale $\omega_m$). Donne la **couleur** du reflet (neutre pour un diélectrique, colorée pour un métal) et le **bord qui s'illumine** à incidence rasante.
-- **$G$ — l'énergie.** Quelle fraction n'est ni masquée ni ombrée. **Assombrit les angles rasants** et empêche le gain d'énergie non physique.
-- **$4 (\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)$ — le dénominateur.** Pas un effet physique : le **jacobien** du changement de variable micronormale → direction sortante, plus les deux cosinus de foreshortening. Il traduit « densité dans le monde des micro-miroirs » en « radiance dans le monde macroscopique ».
+- **$D$ — the shape.** How many microfacets are oriented exactly to reflect $\omega_i$ into $\omega_o$. Sets the highlight's **size**: small and sharp when smooth, wide and dull when rough
+- **$F$ — the strength and tint.** What fraction those facets actually reflect (Fresnel on the micronormal $\omega_m$). Gives the reflection its **colour** — neutral for a dielectric, coloured for a metal — and the **rim that lights up** at grazing incidence
+- **$G$ — the energy.** What fraction is neither masked nor shadowed. **Darkens grazing angles** and prevents non-physical energy gain
+- **$4 (\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)$ — the denominator.** Not a physical effect: the **Jacobian** of the change of variables from micronormal to outgoing direction, plus the two foreshortening cosines. It converts "density in micro-mirror space" into "radiance in macroscopic space"
 
-### Ce que les trois disent *ensemble*
+### What the three say *together*
 
-Pourquoi une **multiplication** et pas une somme ? Parce que les trois conditions sont **indépendantes et toutes nécessaires** : un photon ne te revient que s'il frappe un miroir *bien orienté* ($D$) **et** que ce miroir le *réfléchit* au lieu de le transmettre ($F$) **et** que rien ne *bloque* le trajet aller-retour ($G$). C'est une chaîne de probabilités/fractions : on les enchaîne, donc on les multiplie.
+Why a **product** and not a sum? Because the three conditions are **independent and all necessary**: a photon comes back only if it hits a *well-oriented* mirror ($D$) **and** that mirror *reflects* rather than transmits ($F$) **and** nothing *blocks* the round trip ($G$). It is a chain of fractions, so they compose by multiplication.
 
-L'élégance, c'est que les trois se **partagent les rôles sans se recouvrir** :
+The elegance is that the three **divide the roles without overlapping**:
 
-- $D$ ne dépend que de la **rugosité** et de la **géométrie** ($\omega_m$ vs $\mathbf{n}$) → *où* et *quelle taille*.
-- $F$ ne dépend que du **matériau** ($F_0$) et de l'**angle** → *quelle couleur* et *quelle force*.
-- $G$ ne dépend que de la **rugosité** et des **angles rasants** → *combien on en perd*.
+- $D$ depends only on **roughness** and **geometry** ($\omega_m$ vs $\mathbf{n}$) → *where* and *how big*
+- $F$ depends only on the **material** ($F_0$) and the **angle** → *what colour* and *how strong*
+- $G$ depends only on **roughness** and **grazing angles** → *how much is lost*
 
-Concrètement, tu peux **prédire** un rendu sans calculer : un highlight *petit, vif, blanc, qui grandit et blanchit le bord quand la surface devient rasante* = roughness faible ($D$ étroit), diélectrique ($F_0$ neutre, montée de Fresnel au bord), $G \approx 1$ sauf au bord. Un highlight *large, diffus, doré* = roughness fort ($D$ étalé) + métal ($F_0$ coloré). **Chaque paramètre artiste tire exactement un des trois leviers** — c'est tout l'intérêt du modèle.
+Concretely you can **predict** a render without computing it: a highlight that is *small, sharp, white, and grows and whitens at the rim as the surface turns away* = low roughness (narrow $D$), dielectric (neutral $F_0$, Fresnel rise at the rim), $G \approx 1$ except at the rim. A *wide, diffuse, golden* highlight = high roughness (spread $D$) + metal (coloured $F_0$). **Each artist parameter pulls exactly one of the three levers** — that is the whole point of the model.
 
-### Et avec le diffus : $F$ est le pont
+### And with diffuse: $F$ is the bridge
 
-À l'échelle de la BRDF **complète** (§8), c'est $F$ qui relie les deux moitiés. Toute l'énergie est un budget : ce que le Fresnel **réfléchit** en spéculaire n'est plus disponible pour pénétrer et ressortir en **diffus**. D'où le $(1 - F)$ devant le terme diffus (§8). Donc :
+At the scale of the **complete** BRDF (§8), $F$ is what links the two halves. Energy is a budget: what Fresnel **reflects** specularly is no longer available to penetrate and re-emerge as **diffuse**. Hence the $(1 - F)$ in front of the diffuse term (§8). So:
 
-- $D$ et $G$ vivent **uniquement** dans le spéculaire (ce sont des propriétés de surface microscopique).
-- $F$ est le **répartiteur** spéculaire ↔ diffus, l'unique terme partagé.
+- $D$ and $G$ live **only** in the specular lobe — they are microscopic surface properties
+- $F$ is the **splitter** between specular and diffuse, the only shared term
 
-C'est la vision unifiée : **$D$ et $G$ sculptent le reflet, $F$ décide combien d'énergie va au reflet plutôt qu'à la couleur de fond.**
+The unified view: **$D$ and $G$ sculpt the reflection, $F$ decides how much energy goes to the reflection rather than to the body colour.**
 
-### Le code PBRT (forme exacte, à reconnaître)
+### The PBRT code (exact form, worth recognising)
 
 ```cpp
 Float cosTheta_o = AbsCosTheta(wo), cosTheta_i = AbsCosTheta(wi);
-if (cosTheta_i == 0 || cosTheta_o == 0) return {};   // angles rasants → NaN guard
+if (cosTheta_i == 0 || cosTheta_o == 0) return {};   // grazing angles -> NaN guard
 Vector3f wm = wi + wo;
 if (LengthSquared(wm) == 0) return {};
 wm = Normalize(wm);
-SampledSpectrum F = FrComplex(AbsDot(wo, wm), eta, k);   // Fresnel sur la micronormale
+SampledSpectrum F = FrComplex(AbsDot(wo, wm), eta, k);   // Fresnel on the micronormal
 return mfDistrib.D(wm) * F * mfDistrib.G(wo, wi) / (4 * cosTheta_i * cosTheta_o);
 ```
 
-> **Élégance du modèle** (et bon à dire en entretien) : la dérivation de Torrance-Sparrow **ne dépend ni de la distribution $D$ choisie, ni de la fonction de Fresnel**. On peut brancher GGX ou Beckmann, conducteur ou diélectrique — la structure reste la même.
+> **The model's elegance** (worth saying out loud in an interview) — the Torrance-Sparrow derivation depends on **neither the choice of $D$ nor the Fresnel function**. Plug in GGX or Beckmann, conductor or dielectric: the structure is unchanged.
 
 ---
 
-## 8. Le workflow metallic-roughness
+## 8. The metallic-roughness workflow
 
-⚡ **C'est la convention temps réel standard** (glTF, UE4, Unity). Au lieu d'exposer $F_0$ et l'albédo séparément, on donne à l'artiste deux paramètres intuitifs : **base color**, **metallic** ($m$ ∈ [0,1]), **roughness**.
+⚡ **The standard real-time convention** (glTF, UE4, Unity). Instead of exposing $F_0$ and albedo separately, the artist gets three intuitive parameters: **base color**, **metallic** ($m$ ∈ [0,1]), **roughness**.
 
-On reconstruit les paramètres physiques ainsi :
+The physical parameters are reconstructed as:
 
 ```
 F0      = lerp(vec3(0.04), baseColor, metallic)
-albedo  = baseColor * (1.0 - metallic)   // les métaux n'ont pas de diffus
+albedo  = baseColor * (1.0 - metallic)   // metals have no diffuse
 ```
 
-- Si **metallic = 0** (diélectrique) : $F_0 = 0.04$ gris, albédo = base color → diffus coloré + spéculaire neutre.
-- Si **metallic = 1** (métal) : $F_0$ = base color (spéculaire coloré), albédo = 0 → pas de diffus.
+- **metallic = 0** (dielectric) — $F_0 = 0.04$ grey, albedo = base color → coloured diffuse plus neutral specular
+- **metallic = 1** (metal) — $F_0$ = base color (coloured specular), albedo = 0 → no diffuse
 
-### La BRDF complète assemblée
+### The complete BRDF, assembled
 
-$$f(\omega_o, \omega_i) = \underbrace{(1 - F) \, (1 - m) \, \frac{\rho}{\pi}}_{\text{diffus}} \; + \; \underbrace{\frac{D \, F \, G}{4 (\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)}}_{\text{spéculaire}}$$
+$$f(\omega_o, \omega_i) = \underbrace{(1 - F) \, (1 - m) \, \frac{\rho}{\pi}}_{\text{diffuse}} \; + \; \underbrace{\frac{D \, F \, G}{4 (\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)}}_{\text{specular}}$$
 
-Le $(1 - F)$ sur le terme diffus assure la conservation d'énergie : ce qui est réfléchi en spéculaire (Fresnel) n'est pas disponible pour le diffus. Le $(1 - m)$ coupe le diffus pour les métaux.
+The $(1 - F)$ on the diffuse term is energy conservation: what Fresnel reflects specularly is not available to the diffuse lobe. The $(1 - m)$ removes diffuse for metals.
 
-Et le shading direct pour une lumière ponctuelle devient :
+Direct shading for a punctual light then becomes:
 
 $$L_o = f(\omega_o, \omega_i) \cdot L_i \cdot (\mathbf{n} \cdot \omega_i)$$
 
-Le fameux `NdotL` final, c'est le $\cos\theta_i$ de la loi de Lambert (§1).
+That trailing `NdotL` is the $\cos\theta_i$ of Lambert's law (§1).
+
+> This is what `src/shaders/slang/forward.slang` evaluates per light, with `metallic` and `roughness` loaded from the `.mtl` PBR extension keys `Pm` and `Pr`.
 
 ---
 
-## 9. Image-Based Lighting & split-sum
+## 9. Image-based lighting and split-sum
 
-⚡ **La partie temps réel critique** : comment gérer l'éclairage par un environnement (une HDRI complète) sans intégrer des milliers d'échantillons par pixel à chaque frame. La réponse est l'**approximation split-sum** de Karis (Epic, UE4, 2013).
+⚡ **The critical real-time part**: how to light from a full environment (an HDRI) without integrating thousands of samples per pixel per frame. The answer is Karis's **split-sum approximation** (Epic, UE4, 2013).
 
-On veut évaluer l'intégrale de réflexion avec $L_i$ venant d'une env-map. Karis la **scinde en deux intégrales précalculées** :
+We want the reflection integral with $L_i$ coming from an env-map. Karis **splits it into two precomputed integrals**:
 
-$$\int_{\mathcal{H}^2} L_i(\omega_i) \, f(\omega_o, \omega_i) \cos\theta_i \, d\omega_i \;\approx\; \underbrace{\left( \frac{1}{N} \sum_{k=1}^{N} L_i(\omega_k) \right)}_{\text{(1) env-map préfiltrée}} \cdot \underbrace{\int_{\mathcal{H}^2} f(\omega_o, \omega_i) \cos\theta_i \, d\omega_i}_{\text{(2) BRDF integration map}}$$
+$$\int_{\mathcal{H}^2} L_i(\omega_i) \, f(\omega_o, \omega_i) \cos\theta_i \, d\omega_i \;\approx\; \underbrace{\left( \frac{1}{N} \sum_{k=1}^{N} L_i(\omega_k) \right)}_{\text{(1) prefiltered env-map}} \cdot \underbrace{\int_{\mathcal{H}^2} f(\omega_o, \omega_i) \cos\theta_i \, d\omega_i}_{\text{(2) BRDF integration map}}$$
 
-**(1) Pre-filtered environment map** : on préfiltre la HDRI en convoluant avec GGX pour plusieurs rugosités, stockées dans les **mips** d'une cubemap. Rugosité faible → mip net (réflexion miroir). Rugosité forte → mip flou.
+**(1) Prefiltered environment map** — convolve the HDRI with GGX at several roughness values, stored in the **mips** of a cubemap. Low roughness → sharp mip (mirror reflection). High roughness → blurry mip.
 
-**(2) BRDF LUT** : le second facteur ne dépend que de $(\cos\theta_o, \text{roughness})$ et se précalcule dans une **texture 2D**. En y insérant Schlick, il se ramène à un *scale* et un *bias* sur $F_0$ :
+**(2) BRDF LUT** — the second factor depends only on $(\cos\theta_o, \text{roughness})$ and precomputes into a **2D texture**. Substituting Schlick, it collapses to a *scale* and a *bias* on $F_0$:
 
 $$\int_{\mathcal{H}^2} f \cos\theta_i \, d\omega_i = F_0 \cdot A + B$$
 
-où $(A, B)$ sont les deux canaux lus dans la LUT. Résultat final IBL spéculaire :
+where $(A, B)$ are the two channels read from the LUT. The final specular IBL:
 
 ```
 prefiltered = textureLod(envMap, R, roughness * MAX_MIP).rgb
@@ -398,47 +404,49 @@ envBRDF     = texture(brdfLUT, vec2(NdotV, roughness)).rg
 specular    = prefiltered * (F0 * envBRDF.x + envBRDF.y)
 ```
 
-> **Limite connue** (et bon à mentionner) : le split-sum suppose que $\omega_o = \omega_i = \mathbf{n}$ pour le préfiltrage, ce qui introduit des erreurs aux angles rasants. Les solutions modernes (multi-scattering compensation de Fdez-Agüera 2019) corrigent la perte d'énergie aux fortes rugosités due à l'interréflexion ignorée par Smith (cf. Fig. 9.21c).
+> **Known limitation** (worth mentioning) — split-sum assumes $\omega_o = \omega_i = \mathbf{n}$ for the prefiltering step, which introduces error at grazing angles. Modern fixes (multi-scattering compensation, Fdez-Agüera 2019) recover the energy lost at high roughness to the interreflection Smith ignores (cf. Fig. 9.21c).
+
+> **Where the engine stands** — Overdrive does *not* do this yet. It samples the raw skybox cubemap twice (along $\mathbf{n}$ for irradiance, along `reflect(-V, N)` for specular) and weights the mix with `fresnelSchlickRoughness`. Real prefiltering plus a BRDF LUT is on the roadmap in `../FEATURES.md`.
 
 ---
 
 ## 10. Importance sampling
 
-Pour le path tracing (et le préfiltrage IBL), on ne peut pas échantillonner l'hémisphère uniformément — trop bruité. On échantillonne selon une distribution qui **suit la forme de la BRDF**.
+For path tracing (and for IBL prefiltering) the hemisphere cannot be sampled uniformly — far too noisy. Sample from a distribution that **follows the shape of the BRDF**.
 
-L'estimateur Monte Carlo de l'intégrale de réflexion :
+The Monte Carlo estimator of the reflection integral:
 
 $$L_o(\omega_o) \approx \frac{1}{N} \sum_{k=1}^{N} \frac{f(\omega_o, \omega_k) \, L_i(\omega_k) \, |\cos\theta_k|}{p(\omega_k)}$$
 
-L'astuce : choisir $p(\omega_k)$ proche de $f \cdot \cos\theta$ pour minimiser la variance. Pour GGX, on échantillonne la distribution des micronormales — et l'état de l'art est le **VNDF sampling** (Visible Normal Distribution Function, Heitz 2018), qui échantillonne uniquement les microfacettes *visibles*, bien moins bruité que l'échantillonnage naïf de $D$. PBRT-v4 l'implémente dans `Sample_wm`.
+The trick is choosing $p(\omega_k)$ close to $f \cdot \cos\theta$ to minimise variance. For GGX you sample the micronormal distribution, and the state of the art is **VNDF sampling** (visible normal distribution function, Heitz 2018), which samples only the *visible* microfacets and is far less noisy than sampling $D$ naively. PBRT-v4 implements it in `Sample_wm`.
 
-Le bruit décroît en $O(1/\sqrt{N})$ — d'où l'importance du **denoising** sur hardware contraint (peu de samples par pixel).
+Noise falls as $O(1/\sqrt{N})$ — hence the importance of **denoising** on constrained hardware (few samples per pixel).
 
-> **Lien avec ton contexte** : c'est exactement le compromis sur plateforme mobile — peu de samples + denoiser agressif (souvent piloté par les Tensor cores). Le bon importance sampling réduit le bruit *avant* le denoiser.
+> **Practical link** — this is exactly the mobile/console trade-off: few samples plus an aggressive denoiser, often driven by tensor cores. Good importance sampling reduces the noise *before* the denoiser sees it.
 
 ---
 
-## 11. Récap formules
+## 11. Formula recap
 
-**Radiométrie**
+**Radiometry**
 $$d\omega = \sin\theta \, d\theta \, d\phi \qquad E = \int_{\mathcal{H}^2} L_i \cos\theta \, d\omega$$
 
-**Équation de réflexion**
+**Reflection equation**
 $$L_o(\omega_o) = \int_{\mathcal{H}^2} f(\omega_o, \omega_i) \, L_i(\omega_i) \, |\cos\theta_i| \, d\omega_i$$
 
-**Diffus (Lambert)**
+**Diffuse (Lambert)**
 $$f_\text{diff} = \frac{\rho}{\pi}$$
 
 **Fresnel-Schlick**
 $$F(\theta) = F_0 + (1 - F_0)(1 - \cos\theta)^5$$
 
-**GGX / Trowbridge-Reitz (isotrope)**
+**GGX / Trowbridge-Reitz (isotropic)**
 $$D(\omega_m) = \frac{\alpha^2}{\pi \left( (\mathbf{n}\cdot\omega_m)^2(\alpha^2-1)+1 \right)^2}$$
 
 **Smith masking (GGX)**
 $$\Lambda(\omega) = \frac{\sqrt{1+\alpha^2\tan^2\theta}-1}{2} \qquad G = \frac{1}{1+\Lambda(\omega_o)+\Lambda(\omega_i)}$$
 
-**Cook-Torrance spéculaire**
+**Cook-Torrance specular**
 $$f_\text{spec} = \frac{D \, F \, G}{4(\mathbf{n}\cdot\omega_o)(\mathbf{n}\cdot\omega_i)} \qquad \omega_m = \frac{\omega_o+\omega_i}{\lVert\omega_o+\omega_i\rVert}$$
 
 **Metallic-roughness**
@@ -449,24 +457,24 @@ $$\int L_i f \cos\theta_i \, d\omega_i \approx \left(\tfrac{1}{N}\textstyle\sum 
 
 ---
 
-## 12. Pour l'entretien
+## 12. Interview checklist
 
-**Ce qu'il faut savoir dériver / expliquer au tableau :**
-- Pourquoi le diffus vaut $\rho/\pi$ (intégrale du cosinus).
-- Les 3 propriétés d'une BRDF plausible (positivité, réciprocité, conservation).
-- Décomposer Cook-Torrance terme par terme (D = forme, F = intensité/teinte, G = énergie).
-- Écrire Fresnel-Schlick de mémoire.
-- L'insight métal vs diélectrique ($F_0$ coloré + pas de diffus / $F_0 \approx 0.04$ + diffus).
+**Be able to derive or explain at the whiteboard**
+- Why diffuse is $\rho/\pi$ (the cosine integral)
+- The 3 properties of a plausible BRDF (positivity, reciprocity, conservation)
+- Cook-Torrance term by term (D = shape, F = strength/tint, G = energy)
+- Fresnel-Schlick from memory
+- The metal vs dielectric insight (coloured $F_0$ and no diffuse / $F_0 \approx 0.04$ and diffuse)
 
-**Ce qui montre que tu suis l'état de l'art (au-delà du tuto) :**
-- Height-correlated Smith vs séparable (Heitz 2014).
-- VNDF sampling (Heitz 2018).
-- Multi-scattering / énergie perdue par l'interréflexion ignorée.
-- Les deux conventions roughness→$\alpha$ ($r^2$ vs $\sqrt{r}$).
+**What shows you follow the state of the art**
+- Height-correlated vs separable Smith (Heitz 2014)
+- VNDF sampling (Heitz 2018)
+- Multi-scattering and the energy lost to ignored interreflection
+- The two roughness→$\alpha$ conventions ($r^2$ vs $\sqrt{r}$)
 
-**Pièges à éviter :**
-- Fresnel sur la **micronormale** $\omega_m$, pas la macronormale $\mathbf{n}$.
-- Le facteur $\pi$ qui apparaît/disparaît selon les conventions de lumière.
-- Confondre roughness perceptuel et $\alpha$.
+**Traps**
+- Fresnel on the **micronormal** $\omega_m$, not the macronormal $\mathbf{n}$
+- The factor $\pi$ that appears and disappears with light conventions
+- Confusing perceptual roughness with $\alpha$
 
-**Pour approfondir** : PBRT 4ed chapitre 9 (*Reflection Models*) en entier, + les course notes SIGGRAPH « Physically Based Shading » (Karis 2013 pour UE4, Lagarde/de Rousiers 2014 pour Frostbite) — c'est de là que vient tout le vocabulaire temps réel.
+**To go deeper** — PBRT 4ed chapter 9 (*Reflection Models*) in full, plus the SIGGRAPH "Physically Based Shading" course notes (Karis 2013 for UE4, Lagarde/de Rousiers 2014 for Frostbite). That is where the whole real-time vocabulary comes from.

@@ -34,7 +34,7 @@ const (
 	depthFormat = vk.FormatD32Sfloat
 	// Offscreen colour targets. This wants to be R16G16B16A16_SFLOAT — the
 	// motivating use (tone mapping, bloom) needs values above 1.0 — but the
-	// go-vulkan bindings expose no half-float format yet (archive/GO_BACKEND.md §6.2).
+	// go-vulkan bindings expose no half-float format yet (notes/FEATURES.md §2).
 	// Changing this one constant is the whole HDR change on this side.
 	offscreenColorFormat = vk.FormatR8G8B8A8Unorm
 )
@@ -911,7 +911,7 @@ func compareOp(lequal bool) vk.CompareOp {
 
 // --- capabilities ------------------------------------------------------------
 
-// Reports no optional capability, ray tracing and compute not being wired up yet (notes/GO_BACKEND.md Phase 6)
+// Reports no optional capability, ray tracing and compute not being wired up yet (notes/FEATURES.md §3)
 func (b *VKBackend) Supports(renderer.Feature) bool { return false }
 
 // --- helpers -----------------------------------------------------------------

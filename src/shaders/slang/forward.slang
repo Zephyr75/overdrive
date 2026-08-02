@@ -52,7 +52,7 @@ float shadowCalculationCube(float3 fragPos, float3 normal, float3 lightPos,
     // Hoist the cubemap and the loop-invariant uniforms into locals
     // The 20-tap loop then touches registers, not memory
     // On Vulkan shadowCubeMap[slot] is a dynamically indexed descriptor
-    // Resolving it once here is the most we do, see OPTIMISATION.md
+    // Resolving it once here is the most we do, see notes/FEATURES.md
     SamplerCube shadowCube = shadowCubeMap[slot];
     float farPlane = FRAME.farPlane;
     float viewDistance = length(FRAME.viewPos - fragPos);
@@ -278,7 +278,7 @@ float4 fsMain(VSOut i) : SV_Target {
             // Does this point light own a cube shadow slot
             // Up to MAX_SHADOW_CUBES casters, the rest light unshadowed
             // shadowCubeMap[s] stays dynamically indexed on purpose
-            // See OPTIMISATION.md for why we do not constant-fold it
+            // See notes/FEATURES.md for why we do not constant-fold it
             for (int s = 0; s < MAX_SHADOW_CUBES; s++)
                 if (FRAME.pointShadowLights[s] == l)
                     shadow = shadowCalculationCube(i.fragPos, norm,

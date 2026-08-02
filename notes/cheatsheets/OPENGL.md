@@ -1,6 +1,27 @@
-# Libraries
+# OpenGL — the API, call by call
 
-## GLFW : window manager and input handler
+> **Scope** GLFW/GLAD/GLM setup, buffer objects, the coordinate pipeline, textures, per-fragment tests, framebuffers, GLSL. Go call signatures throughout, matching `src/opengl/`.
+>
+> **Not here** the Vulkan equivalent of each concept → `VULKAN.md`. The physics behind the lighting formulas → `PBR.md`. Techniques built on top of the API (shadow maps, deferred, AO, TAA) → `GRAPHICS.md` §1.
+>
+> **Source** [learnopengl.com](https://learnopengl.com).
+
+---
+
+## Contents
+
+1. [Libraries](#libraries) — GLFW, GLAD, GLM
+2. [OpenGL](#opengl) — VBO/EBO/VAO, shaders, drawing, transformations, coordinate systems, camera, textures, depth, stencil, blending, culling, framebuffers, cubemaps, instancing, MSAA
+3. [Lighting](#lighting) — Phong, materials, light casters
+4. [Model loading](#model-loading)
+5. [GLSL](#glsl) — vertex, fragment, advanced, geometry
+6. [Rendering pipeline summary](#rendering-pipeline-summary)
+
+---
+
+## Libraries
+
+### GLFW : window manager and input handler
 
 `glfw.Init()` initialize GLFW  
 
@@ -16,7 +37,7 @@ glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 ```
 
-### Window
+#### Window
 
 `glfw.CreateWindow(800, 600, "LearnOpenGL", nil [monitor], nil [window])` create window
 
@@ -39,7 +60,7 @@ window.MakeContextCurrent()
 
 `window.SetShouldClose(true)` send close request
 
-### Inputs
+#### Inputs
 
 **Callbacks**
 
@@ -69,7 +90,7 @@ for !window.ShouldClose() {
 }
 ```
 
-## GLAD
+### GLAD
 
 OpenGL only defines a specification, the implementation is different for each driver. GLAD makes the driver functions accessible to our code.
 
@@ -83,13 +104,13 @@ if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
 }    
 ```
 
-## GLM
+### GLM
 
 OpenGL Mathematics library. Go equivalent: `mgl32` (github.com/go-gl/mathgl/mgl32).
 
-# OpenGL
+## OpenGL
 
-## Generic
+### Generic
 
 `gl.Init()` start OpenGL
 
@@ -108,7 +129,7 @@ OpenGL Mathematics library. Go equivalent: `mgl32` (github.com/go-gl/mathgl/mgl3
 if (GLAD_GL_ARB_extension_name) { /* modern path */ } else { /* fallback */ }
 ```
 
-## Storing vertices : VBO
+### Storing vertices : VBO
 
 **Vertex Buffer Object** stores vertices
 
@@ -122,7 +143,7 @@ if (GLAD_GL_ARB_extension_name) { /* modern path */ } else { /* fallback */ }
 
 > Use gl.DYNAMIC_DRAW for vertex data that changes frequently, gl.STREAM_DRAW for data set once and used a few times
 
-## Storing triangles : EBO
+### Storing triangles : EBO
 
 **Element Buffer Object** stores indices
 
@@ -134,7 +155,7 @@ if (GLAD_GL_ARB_extension_name) { /* modern path */ } else { /* fallback */ }
 
 `gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)` set buffer structure and data
 
-## Interpret buffer data
+### Interpret buffer data
 
 `gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))` specify how to interpret the data
 
@@ -148,7 +169,7 @@ Parameters :
 
 `gl.EnableVertexAttribArray(0)` enable the vertex attribute with given location
 
-## Store buffer config : VAO
+### Store buffer config : VAO
 
 Vertex Array Object stores calls to:
 - `glEnableVertexAttribArray`
@@ -165,7 +186,7 @@ Vertex Array Object stores bindings to:
 
 `gl.BindVertexArray(VAO)` bind buffer to OpenGL buffer
 
-## Shader
+### Shader
 
 `var shader uint32` declare ID
 
@@ -179,7 +200,7 @@ Vertex Array Object stores bindings to:
 
 `gl.GetShaderInfoLog(shader, logLength, nil, gl.Str(log))` get compilation error log
 
-### Uniforms
+#### Uniforms
 
 Global variables set from the program, constant for a whole draw call
 
@@ -198,7 +219,7 @@ glUseProgram(shaderProgram);
 glUniform4f(vertexColorLocation, 0.0f, greenValue, 0.0f, 1.0f);
 ```
 
-## Program
+### Program
 
 `var program uint32` declare ID
 
@@ -214,7 +235,7 @@ glUniform4f(vertexColorLocation, 0.0f, greenValue, 0.0f, 1.0f);
 
 `gl.GetProgramiv(program, gl.LINK_STATUS, &status)` get program information and errors
 
-## Drawing
+### Drawing
 
 `glDrawArrays(GL_TRIANGLES, 0, 3)` draw triangles
 
@@ -243,7 +264,7 @@ glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0)
 glBindVertexArray(0)
 ```
 
-## Transformations
+### Transformations
 
 Combine scale, rotate, translate into one `model` matrix. **Read right to left**: the matrix written last is applied first.
 
@@ -262,7 +283,7 @@ gl.UniformMatrix4fv(transformLoc, 1, false, &trans[0])
 
 > Recommended order: scale first, then rotate, then translate ($M = T \cdot R \cdot S$), otherwise translation gets scaled/rotated too
 
-## Coordinate systems
+### Coordinate systems
 
 Vertex journey: **local space** → (model matrix) → **world space** → (view matrix) → **view space** → (projection matrix) → **clip space** → (perspective divide + viewport) → **screen space**
 
@@ -282,7 +303,7 @@ projection := mgl32.Perspective(mgl32.DegToRad(45), 800.0/600.0, 0.1, 100.0)
 // in vertex shader: gl_Position = projection * view * model * vec4(aPos, 1.0)
 ```
 
-## Camera
+### Camera
 
 OpenGL has no camera: moving the camera = moving the whole world the opposite way (the view matrix)
 
@@ -310,7 +331,7 @@ front := mgl32.Vec3{
 
 > Scroll wheel typically drives the fov passed to `Perspective` (zoom)
 
-## Load texture
+### Load texture
 
 `var texture uint32` declare ID
 
@@ -377,7 +398,7 @@ void main()
 }
 ```
 
-## Depth testing
+### Depth testing
 
 Depth buffer stores per-pixel depth; fragments behind already-drawn fragments are discarded
 
@@ -391,7 +412,7 @@ Depth buffer stores per-pixel depth; fragments behind already-drawn fragments ar
 
 > Depth precision is non-linear: very high near the near plane, low far away. `Z-fighting` = two surfaces too close for depth precision to order them; fix by offsetting surfaces or tightening near/far planes
 
-## Stencil testing
+### Stencil testing
 
 Stencil buffer = 8-bit per-pixel mask defining which pixels to render; runs before depth test. Classic use: object outlines, mirrors, portals
 
@@ -416,7 +437,7 @@ gl.Disable(gl.DEPTH_TEST)
 drawScaledObject()
 ```
 
-## Blending
+### Blending
 
 Renders transparency by combining the fragment color with the color already in the buffer
 
@@ -431,7 +452,7 @@ if (texture(tex, TexCoords).a < 0.1) discard;
 
 > Blending order matters: draw opaque objects first, then transparent objects **sorted far to near** (depth buffer doesn't know about transparency)
 
-## Face culling
+### Face culling
 
 Skip rendering triangles facing away from the camera (back of closed objects), ~50% fewer fragment shader runs
 
@@ -443,7 +464,7 @@ Skip rendering triangles facing away from the camera (back of closed objects), ~
 
 > Requires consistent winding order in vertex data. Only works for closed shapes (culling a grass quad's back makes it invisible from behind)
 
-## Framebuffer
+### Framebuffer
 
 Framebuffer Object = render target holding color + depth + stencil attachments. Render to texture → post-processing, mirrors, shadow maps
 
@@ -474,7 +495,7 @@ gl.BindTexture(gl.TEXTURE_2D, texColorBuffer)
 drawFullscreenQuad() // kernel effects: blur, sharpen, edge detection, grayscale...
 ```
 
-## Cubemaps
+### Cubemaps
 
 Texture made of 6 faces, sampled with a 3D direction vector. Main uses: skybox, environment reflection/refraction
 
@@ -502,7 +523,7 @@ vec3 R = reflect(I, normalize(Normal));   // or refract(I, N, 1.0/1.52) for glas
 FragColor = texture(skybox, R);
 ```
 
-## Instancing
+### Instancing
 
 Draw the same mesh many times in one call: removes per-draw CPU→GPU overhead (the actual bottleneck with thousands of objects)
 
@@ -516,7 +537,7 @@ Draw the same mesh many times in one call: removes per-draw CPU→GPU overhead (
 
 > A mat4 attribute occupies 4 consecutive attribute locations: set pointer + divisor on each
 
-## Anti-aliasing (MSAA)
+### Anti-aliasing (MSAA)
 
 Multisampling: depth/stencil tested at N sample points per pixel, fragment shader runs once, color contribution = fraction of covered samples → smooth edges
 
@@ -526,9 +547,9 @@ Multisampling: depth/stencil tested at N sample points per pixel, fragment shade
 
 > Offscreen MSAA: create textures with `gl.TexImage2DMultisample`, then `gl.BlitFramebuffer` to resolve into a normal framebuffer before sampling
 
-# Lighting
+## Lighting
 
-## Phong model
+### Phong model
 
 `ambient` constant base light (fake global illumination)
 `diffuse` proportional to angle between normal and light direction
@@ -536,7 +557,7 @@ Multisampling: depth/stencil tested at N sample points per pixel, fragment shade
 
 > `Normal matrix` = `mat3(transpose(inverse(model)))`: transforms normals correctly under non-uniform scaling (plain model matrix would skew them)
 
-## Materials
+### Materials
 
 ```glsl
 struct Material {
@@ -547,7 +568,7 @@ struct Material {
 uniform Material material;
 ```
 
-## Light casters
+### Light casters
 
 ```glsl
 // DIRECTIONAL (sun): no position, only direction; no attenuation
@@ -577,7 +598,7 @@ for (int i = 0; i < NR_POINT_LIGHTS; i++)
 result += CalcSpotLight(spotLight, norm, FragPos, viewDir);
 ```
 
-# Model loading
+## Model loading
 
 `Assimp` library loading 40+ model formats into a uniform scene graph; learnopengl wraps it in Mesh/Model classes
 
@@ -587,11 +608,11 @@ result += CalcSpotLight(spotLight, norm, FragPos, viewDir);
 
 > Cache loaded textures by path: models reuse the same texture across meshes
 
-# GLSL
+## GLSL
 
 Vertex shader takes inputs from program and feeds outputs to fragment shader
 
-## Vertex shader
+### Vertex shader
 
 ```glsl
 #version 330 core
@@ -617,7 +638,7 @@ void main()
 }
 ```
 
-## Fragment shader
+### Fragment shader
 
 ```glsl
 #version 330 core
@@ -658,7 +679,7 @@ void main()
 } 
 ```
 
-## Advanced GLSL
+### Advanced GLSL
 
 `gl_FragCoord` fragment's window-space position (x, y, depth in z)
 
@@ -681,7 +702,7 @@ layout (std140) uniform Matrices {  // std140 = fixed, predictable memory layout
 
 > std140 layout rules: scalars align to 4 bytes, vec3 and vec4 both align to 16, mat4 = 4 × vec4. Pad CPU-side structs accordingly
 
-## Geometry shader
+### Geometry shader
 
 Optional stage between vertex and fragment: takes one primitive, emits zero or more primitives
 
@@ -693,7 +714,7 @@ layout (triangle_strip, max_vertices = 3) out;
 
 Uses: visualize normals as lines, explode meshes, render to cubemap faces in one pass
 
-# Rendering pipeline summary
+## Rendering pipeline summary
 
 ```
 Vertex data → Vertex shader (per vertex: position transform)

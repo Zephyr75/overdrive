@@ -25,11 +25,11 @@ go test ./opengl/                        # after any common.slang edit
 go test ./scene/ -run TestShowcaseLoads   # single test
 ```
 
-Stale paths to ignore: `notes/GO_BACKEND.md` and the two top-level scripts (`overdrive.sh`, `overdrive_build.sh`) still say `go/` or `cpp/`. The C++ tree was deleted; the Go tree moved to `src/`. Fix references as you touch them rather than following them. (`README.md` and `notes/` were corrected on 2026-08-01.)
+Stale paths to ignore: the two top-level scripts (`overdrive.sh`, `overdrive_build.sh`) are still cmake wrappers naming `go/` or `cpp/`. The C++ tree was deleted; the Go tree moved to `src/`. Fix references as you touch them rather than following them. (`README.md` and `notes/` were rewritten against the current code on 2026-08-02.)
 
 `slangc` comes from the AUR `shader-slang-bin` package, which installs to `/opt/shader-slang-bin/bin/slangc` and **does not put it on PATH** — so `build_shaders.sh` needs `SLANGC=/opt/shader-slang-bin/bin/slangc` unless that directory has been added to PATH. (Arch's `slang` package is the unrelated S-Lang library.) `src/shaders/gl/` and `src/shaders/vk/` are git-ignored, so a fresh clone builds and tests fine but cannot run until the script has been run once.
 
-The Vulkan backend links against the `vk` package in the sibling repo `../../go-vulkan` (a `replace` directive in `go.mod`, resolving to `/home/zeph/GitHub/go-vulkan`). Missing bindings are catalogued in `notes/GO_BACKEND.md` Part 6.
+The Vulkan backend links against the `vk` package in the sibling repo `../../go-vulkan` (a `replace` directive in `go.mod`, resolving to `/home/zeph/GitHub/go-vulkan`). Missing bindings that currently constrain the engine (notably no half-float image format, which is what blocks HDR) are noted in `notes/FEATURES.md` Part 2.
 
 ## Architecture
 
@@ -38,7 +38,7 @@ main.go            builds an App, loads a Scene, builds an ECS World
 core/              NewApp (window + backend), App.Run (the frame loop), renderUI
 scene/ ecs/        meshes, lights, camera, skybox, materials, physics entities
 input/ physics/    — plain Go, zero graphics calls
-renderer/          the abstraction: Backend interface, opaque handles, Uniforms struct
+renderer/          the abstraction: Backend interface, opaque handles, the two uniform structs
 opengl/ vulkan/    the only packages that may import gl.* / vk.*
 ```
 
@@ -58,11 +58,12 @@ Cross-backend gotchas that would silently produce a mirrored or inside-out image
 
 ## Documentation map
 
-- `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 28 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §7 is the Vulkan object-ownership tree and the five lifetime classes.
-- `notes/GO_BACKEND.md` — the design doc (why the abstraction is shaped this way), plus the go-vulkan bindings wishlist.
-- `notes/GO_PARITY.md` — the live TODO: known gaps (single point-shadow cube, 1024² shadow maps, no GL mipmaps, `devices[0]` physical-device pick, no image comparison between backends).
-- `notes/ABSTRACTION_REVIEW.md` — review of the decomposition: three extensibility limits (no colour render targets, the per-draw uniform god-struct, per-object-kind draws) and the order to fix them in.
-- `notes/README.md` — index of `notes/`, marking each file current / C++-era-but-still-the-reason-why / personal reference. Superseded engine docs live in `notes/archive/`. `notes/VULKAN.md` is the prescribed Vulkan technique list (1.3, dynamic rendering, BDA + scalar layout, bindless descriptor indexing, synchronization2, VMA, 2 frames in flight).
+- `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 27 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §5 is the cross-backend conventions, §6 a symptom→file table, §7 the Vulkan object-ownership tree and the five lifetime classes.
+- `notes/ARCHITECTURE.md` — the code map: repository layout, the dependency rule (with the diagram), scene loading, physics/ECS, a package-by-package symbol reference, the XML/OBJ scene format and the Blender add-on, and §8 the list of dead files.
+- `notes/FEATURES.md` — what is implemented and *why it is built that way* (shadow bias, early-bail PCF, bindless vs dedicated descriptors), Part 2 the roadmap and known gaps, plus the performance history of the two backends and why FPS subtraction is not a valid measurement here.
+- `notes/TODO.md` — the working list.
+- `notes/README.md` — index of `notes/`, and the shared conventions the cheatsheets follow.
+- `notes/cheatsheets/` — engine-independent reference: `GRAPHICS.md` (real-time techniques, procedural generation, physics simulation, AI, compression, optimisation, GPGPU, emulation), `PBR.md`, `RAYTRACING.md`, `OPENGL.md`, `VULKAN.md`, `ALGEBRA.md`. All English, all opening with a Scope / Not here / Source block.
 
 ## Conventions
 

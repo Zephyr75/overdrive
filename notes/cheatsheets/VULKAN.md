@@ -1,6 +1,38 @@
-# Vulkan (for OpenGL devs)
+# Vulkan — the object model, for OpenGL developers
 
-Based on [How to Vulkan in 2026](https://howtovulkan.com) (Sascha Willems). Assumes OpenGL knowledge: only what is different is covered.
+> **Scope** the Vulkan 1.3 API: object hierarchy, memory, swapchain, image layouts, synchronisation, buffers and BDA, descriptors, pipelines, command buffers, the render loop. Assumes OpenGL knowledge — only what differs is covered.
+>
+> **Not here** the OpenGL side of each concept → `OPENGL.md`. What Overdrive's own Vulkan backend does with all of this, method by method → `../ENGINE_FLOW.md`. Hardware ray tracing extensions → `RAYTRACING.md` §5.
+>
+> **Source** [How to Vulkan in 2026](https://howtovulkan.com) (Sascha Willems).
+
+---
+
+## Contents
+
+1. [Baseline: Vulkan 1.3](#baseline-vulkan-13)
+2. [Libraries](#libraries)
+3. [Object hierarchy](#object-hierarchy)
+4. [Instance and device](#instance-and-device)
+5. [Memory: VMA](#memory--vma)
+6. [Surface and swapchain](#surface-and-swapchain)
+7. [Images and layouts](#images-and-layouts)
+8. [Synchronization](#synchronization)
+9. [Buffers](#buffers)
+10. [Descriptors](#descriptors)
+11. [Shaders: SPIR-V and Slang](#shaders--spir-v-and-slang)
+12. [Pipelines](#pipelines)
+13. [Command buffers](#command-buffers)
+14. [Textures: KTX](#textures--ktx)
+15. [Frames in flight](#frames-in-flight)
+16. [Render loop](#render-loop)
+17. [Cleanup](#cleanup)
+18. [Validation layers](#validation-layers)
+19. [Beginner mistakes](#beginner-mistakes)
+20. [Learning order](#learning-order)
+21. [Resources](#resources)
+
+---
 
 OpenGL = giant state machine + smart driver doing memory/sync/state management behind your back. Vulkan exposes all of it as explicit objects: predictable performance, multithreadable command generation, ~1000 lines for a triangle.
 
@@ -17,7 +49,7 @@ Target **Vulkan 1.3**, enable these core features on the device (each kills a ca
 
 > "Core" still means opt-in: enable via `VkPhysicalDeviceVulkan1{2,3}Features` chained into device creation. Forgetting them causes confusing "extension not enabled" validation errors
 
-# Libraries
+## Libraries
 
 - **Volk** loads Vulkan function pointers (the GLAD equivalent)
 - **VMA** (Vulkan Memory Allocator) memory management, basically mandatory
@@ -27,7 +59,7 @@ Target **Vulkan 1.3**, enable these core features on the device (each kills a ca
 - **KTX-Software** GPU texture format loading
 - **tinyobjloader** mesh loading
 
-# Object hierarchy
+## Object hierarchy
 
 ```
 Instance  ← process-wide connection to the Vulkan loader
@@ -48,15 +80,15 @@ Instance  ← process-wide connection to the Vulkan loader
       Images, Buffers, ImageViews, Samplers
 ```
 
-# Instance and device
+## Instance and device
 
-## Instance
+### Instance
 
 `vkCreateInstance(&createInfo, nil, &instance)` create instance: app info + instance extensions + layers
 
 > **Instance** knows about *Vulkan* (loader, surface extensions, debug utils). **Device** knows about *your GPU* (features, queues). Instance extensions are global; device extensions live on a GPU
 
-## Physical device selection
+### Physical device selection
 
 `vkEnumeratePhysicalDevices(instance, &count, devices)` list GPUs
 
@@ -66,7 +98,7 @@ Instance  ← process-wide connection to the Vulkan loader
 
 > PhysicalDevice = read-only capability handle. Device (logical) = created with the features + queues you want. Check `vulkan.gpuinfo.org` for real-world feature support
 
-## Queues
+### Queues
 
 GPU exposes queues grouped into **families**; each family advertises support: graphics, compute, transfer, present
 
@@ -76,7 +108,7 @@ GPU exposes queues grouped into **families**; each family advertises support: gr
 
 > On most desktop GPUs family 0 supports everything: use it. Queues in the same family are equivalent. Command pools are tied to one family
 
-## Logical device
+### Logical device
 
 `vkCreateDevice(physicalDevice, &createInfo, nil, &device)` create with queue create infos + device extensions (`VK_KHR_swapchain`) + enabled features
 
@@ -88,7 +120,7 @@ VkPhysicalDeviceVulkan12Features f12 { .sType = ..., .pNext = &f13,
 VkDeviceCreateInfo ci { .sType = ..., .pNext = &f12, ... };
 ```
 
-# Memory : VMA
+## Memory : VMA
 
 GPU exposes **memory heaps** (physical pools: VRAM, system RAM) containing **memory types** (logical properties):
 
@@ -114,7 +146,7 @@ VmaAllocationCreateInfo ci {
 vmaCreateBuffer(allocator, &bufferCI, &ci, &buffer, &allocation, &allocInfo);
 ```
 
-# Surface and swapchain
+## Surface and swapchain
 
 `SDL_Vulkan_CreateSurface(window, instance, &surface)` platform-specific window connection (SDL handles per-OS differences)
 
@@ -133,7 +165,7 @@ vmaCreateBuffer(allocator, &bufferCI, &ci, &buffer, &allocation, &allocInfo);
 
 > **imageIndex ≠ frameIndex.** Swapchain image count (2-4, driver's choice) and frames in flight (your choice, usually 2) are different numbers. The compositor returns image indices in any order (0, 2, 1, 0...). Index per-image resources by `imageIndex`, per-frame resources by `frameIndex`
 
-# Images and layouts
+## Images and layouts
 
 Every `VkImage` has a **layout**: abstract state describing how the image is arranged in memory and what operations are legal. GPUs physically reorder texels (tiling, compression) per use case; layout transitions tell the driver to reshuffle
 
@@ -160,11 +192,11 @@ Acquire → UNDEFINED (discard old contents)
 
 `vkCreateImageView(device, &createInfo, nil, &view)` images are never used raw: views select format, mip range, layers
 
-# Synchronization
+## Synchronization
 
 Three primitives, three different jobs:
 
-## Fences : GPU signals CPU
+### Fences : GPU signals CPU
 
 `vkQueueSubmit(queue, 1, &submit, fence)` GPU signals fence when this submission completes
 
@@ -174,7 +206,7 @@ Three primitives, three different jobs:
 
 > Use: "is the GPU done with frame N-2's resources so I can reuse them?" Create with `SIGNALED_BIT` so frame 0 doesn't deadlock
 
-## Semaphores : GPU signals GPU
+### Semaphores : GPU signals GPU
 
 Binary semaphores order GPU work against GPU work; CPU cannot wait on them
 
@@ -184,7 +216,7 @@ Use: gate presentation. Submit waits on `presentSem` (image acquired) and signal
 
 > Timeline semaphores replace fences + binary semaphores with one counter object: cleaner, less universal
 
-## Pipeline barriers : ordering within command buffers
+### Pipeline barriers : ordering within command buffers
 
 `vkCmdPipelineBarrier2(cb, &dependencyInfo)` recorded command, not an object. Also performs image layout transitions
 
@@ -198,7 +230,7 @@ Four critical fields per barrier:
 
 > Run with **synchronization validation** (vkconfig preset) at least once per feature: catches bugs that happen to work on your GPU
 
-# Buffers
+## Buffers
 
 `vmaCreateBuffer(...)` create buffer + allocation in one call (see VMA pattern above)
 
@@ -213,7 +245,7 @@ one-time command buffer: vkCmdCopyBuffer(cb, staging, dst, 1, &region)
 submit + wait fence, destroy staging
 ```
 
-## Buffer device address (BDA)
+### Buffer device address (BDA)
 
 `vkGetBufferDeviceAddress(device, &info)` get buffer's 64-bit GPU address
 
@@ -229,7 +261,7 @@ VSOutput main(VSInput input, uniform ShaderData *shaderData) {
 
 > Gotcha: CPU and GPU struct layouts must match. Enable `scalarBlockLayout` (1.2 core) and write identical structs on both sides; otherwise std140-ish padding rules bite (especially vec3 and arrays)
 
-# Descriptors
+## Descriptors
 
 Handles describing shader resources to a pipeline. Vanilla Vulkan trio:
 - **DescriptorSetLayout** the interface ("slot 0 = uniform buffer, slot 1 = sampled image")
@@ -238,7 +270,7 @@ Handles describing shader resources to a pipeline. Vanilla Vulkan trio:
 
 > With BDA handling buffers, descriptors only remain necessary for **textures** (no "image device address" yet)
 
-## Descriptor indexing (bindless)
+### Descriptor indexing (bindless)
 
 One big descriptor set with N texture slots, filled once, bound once per frame; per-draw you pass an index (push constant, instance attribute...)
 
@@ -249,7 +281,7 @@ float3 color = textures[NonUniformResourceIndex(materialIndex)].Sample(uv).rgb;
 
 `NonUniformResourceIndex` required when threads in a warp may use different indices (e.g. index from per-fragment data)
 
-# Shaders : SPIR-V and Slang
+## Shaders : SPIR-V and Slang
 
 Vulkan consumes **SPIR-V** (binary IR), generated from GLSL (`glslc`), HLSL (DXC), or **Slang**
 
@@ -290,7 +322,7 @@ float4 fsmain(VSOutput in, uint iid : SV_VulkanInstanceID) {
 
 `vkCreateShaderModule(device, &createInfo, nil, &module)` wrap SPIR-V blob for pipeline creation
 
-# Pipelines
+## Pipelines
 
 `vkCreateGraphicsPipelines(device, cache, 1, &createInfo, nil, &pipeline)` bake everything into one immutable object:
 
@@ -308,7 +340,7 @@ float4 fsmain(VSOutput in, uint iid : SV_VulkanInstanceID) {
 
 `vkCmdPushConstants(cb, layout, stages, offset, size, data)` inline ≥128 bytes of per-draw data into the command buffer: cheapest parameter path, perfect for BDA pointers / instance indices / material IDs
 
-# Command buffers
+## Command buffers
 
 > **CPU timeline vs GPU timeline:** every `vkCmd*` call *records* work, it doesn't execute it. Execution happens after submit, when the GPU gets to it
 
@@ -331,7 +363,7 @@ Initial → (begin) → Recording → (end) → Executable → (submit) → Pend
 
 > Never re-record a Pending command buffer (GPU still reading it): that's what the per-frame fence wait guarantees
 
-# Textures : KTX
+## Textures : KTX
 
 PNG decode + blit-generated mipmaps works but is slow and wastes VRAM. **KTX2 + Basis Universal**:
 
@@ -347,7 +379,7 @@ Upload = staging buffer + `vkCmdCopyBufferToImage` (one region per mip) + the tw
 
 > 3-channel (RGB) formats often unsupported: use RGBA. OpenGL silently padded; Vulkan just fails
 
-# Frames in flight
+## Frames in flight
 
 While GPU renders frame N, CPU records frame N+1, monitor shows frame N-1. `maxFramesInFlight = 2` is the sweet spot (3 smooths spikes, more = input latency)
 
@@ -359,7 +391,7 @@ While GPU renders frame N, CPU records frame N+1, monitor shows frame N-1. `maxF
 
 > The frame-start fence wait is the natural CPU throttle: zero wait if GPU keeps up, blocks if it doesn't
 
-# Render loop
+## Render loop
 
 ```c
 while (!quit) {
@@ -416,13 +448,13 @@ Worth staring at:
 - (4a) transitions *from* `UNDEFINED` because the old swapchain contents are about to be overwritten anyway
 - (5) one GPU completion event observed twice: fence (CPU throttle) + renderSem (presentation gate)
 
-# Cleanup
+## Cleanup
 
 `vkDeviceWaitIdle(device)` wait for all GPU work before destroying anything
 
 Destroy in reverse creation order; every `vkCreate*`/`vmaCreate*` has a matching destroy. Swapchain-dependent resources (views, depth image) also die on every recreate
 
-# Validation layers
+## Validation layers
 
 Enable via `vkconfig` (SDK GUI) or env var; check spec violations, wrong layouts, sync hazards, shader OOB access
 
@@ -430,7 +462,7 @@ Enable via `vkconfig` (SDK GUI) or env var; check spec violations, wrong layouts
 
 > Validation clean but render wrong = logic bug (bad matrix, wrong attribute offset): reach for **RenderDoc** (per-draw GPU state inspection)
 
-# Beginner mistakes
+## Beginner mistakes
 
 - Forgetting an image layout transition (validation screams)
 - `vkCmd*` outside begin/end: segfault, no validation help
@@ -442,7 +474,7 @@ Enable via `vkconfig` (SDK GUI) or env var; check spec violations, wrong layouts
 - Not enabling the 1.3 feature structs at device creation
 - Treating `imageIndex` and `frameIndex` as the same thing
 
-# Learning order
+## Learning order
 
 1. Instance + device + queue: print the GPU name, verify 1.3
 2. Swapchain + clear color (no shaders): ~500 lines, teaches 60% of Vulkan
@@ -458,7 +490,7 @@ Enable via `vkconfig` (SDK GUI) or env var; check spec violations, wrong layouts
 
 Past that: pipeline caching, render graphs, GPU-driven rendering, mesh shaders, raytracing
 
-# Resources
+## Resources
 
 - **Vulkan Docs Site** combined spec + Khronos tutorial + samples index
 - **Sascha Willems' samples repo** canonical reference implementations

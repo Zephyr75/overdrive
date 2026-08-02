@@ -5,11 +5,25 @@ This document is the reading guide to `src/`. It follows one frame from
 method, showing what the OpenGL backend and the Vulkan backend each do with it —
 where they are the same idea in different words, and where they genuinely differ.
 
-`GO_BACKEND.md` is the design document (why the abstraction looks like this).
-This one is the operational one (what actually happens, in order).
+`ARCHITECTURE.md` is the map (where every package and symbol lives) and
+`FEATURES.md` is the feature list with the reasoning behind each one. This is the
+operational document: what actually happens, in order.
 
 Learning links: **[LOGL]** points at learnopengl.com, **[HTV]** at
 howtovulkan.com.
+
+---
+
+## Contents
+
+0. [The `Backend` contract by how often it is called](#0-the-backend-contract-by-how-often-it-is-called)
+1. [The layers](#1-the-layers)
+2. [Startup, in order](#2-startup-in-order)
+3. [The frame loop](#3-the-frame-loop-coreapprun)
+4. [The `renderer.Backend` contract, backend by backend](#4-the-rendererbackend-contract-backend-by-backend)
+5. [Conventions that make the two outputs match](#5-conventions-that-make-the-two-outputs-match)
+6. [Where to look when something is wrong](#6-where-to-look-when-something-is-wrong)
+7. [Who owns what, and what dies when (Vulkan)](#7-who-owns-what-and-what-dies-when-vulkan)
 
 ---
 
@@ -114,7 +128,7 @@ core/              App.NewApp (window + backend), App.Run (the frame loop), rend
 scene/  ecs/       meshes, lights, camera, skybox, materials, physics entities
 input/  physics/   — plain Go, zero graphics calls
   │
-renderer/          the abstraction: Backend interface, opaque handles, Uniforms struct
+renderer/          the abstraction: Backend interface, opaque handles, the two uniform structs
   │
 opengl/  vulkan/   the only packages that may import gl.* / vk.*
 ```
@@ -500,7 +514,7 @@ Instance                                          DestroyInstance
         ├── textures[]  image + view (+ staging, for the UI overlay)
         ├── buffers[]   VmaCreateBuffer, host-visible, mapped
         ├── meshes[]    index buffer (the vertex buffer is shared, not owned)
-        └── shadowTargets[]  image + attachment view
+        └── targets[]   image + attachment view (+ a cube view to sample)
 ```
 
 ### Five lifetime classes
