@@ -10,6 +10,8 @@ notes/
 ├── ARCHITECTURE.md     the code map: layout, packages, symbols, scene format
 ├── FEATURES.md         what is implemented and why, roadmap, performance history
 ├── TODO.md             the working list
+├── LIGHTING_PLAN.md    proposal, not yet built: clustered forward + shadow atlas
+├── LIGHTING_IMPL.md    the build order for it, Parts A-H, one at a time
 └── cheatsheets/        reference notes, engine-independent
     ├── GRAPHICS.md     real-time techniques, procedural, physics, AI, GPGPU, optimisation
     ├── PBR.md          radiometry, BRDF, Cook-Torrance, metallic-roughness, IBL
@@ -27,6 +29,8 @@ notes/
 | find where something lives in `src/` | `ARCHITECTURE.md` §5 |
 | know whether a feature exists, or why it was built that way | `FEATURES.md` Part 1 |
 | pick up the next piece of work | `TODO.md`, then `FEATURES.md` Part 2 |
+| know where the lighting and shadow work is heading | `LIGHTING_PLAN.md` |
+| pick up the next part of that work | `LIGHTING_IMPL.md` |
 | debug a wrong image on one backend only | `ENGINE_FLOW.md` §5 and §6 |
 | understand a Vulkan object's lifetime | `ENGINE_FLOW.md` §7 |
 | revise the theory behind the shaders | `cheatsheets/PBR.md` |

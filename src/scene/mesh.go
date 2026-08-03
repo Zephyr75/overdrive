@@ -108,6 +108,12 @@ func (mXml MeshXml) toMesh() Mesh {
 			}
 		}
 	}
+	// A read error or an over-long line ends the loop like a clean EOF, which
+	// would otherwise load a silently truncated mesh
+	if err := objScanner.Err(); err != nil {
+		fmt.Println("Error reading OBJ:", err)
+		return Mesh{}
+	}
 	faces = append(faces, face)
 
 	pos := utils.ParseVec3(mXml.Position)
@@ -181,6 +187,10 @@ func (mXml MeshXml) toMesh() Mesh {
 		case "map_Bump", "bump":
 			material.NormalMapPath = texturePath(split_line[1])
 		}
+	}
+	if err := mtlScanner.Err(); err != nil {
+		fmt.Println("Error reading MTL:", err)
+		return Mesh{}
 	}
 	materials = append(materials, material)
 	materials = materials[1:]
