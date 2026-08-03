@@ -6,8 +6,9 @@
 //
 // The block is split by update frequency: FrameUniforms once per pass,
 // DrawUniforms once per draw. Both backends see the same two structs
-// Vulkan memcpys them into a ring and pushes two device addresses, Go packing is scalar layout
-// OpenGL marshals each into its own std140 UBO by hand in opengl/uniforms.go
+// Vulkan memcpys them into a ring and pushes two device addresses, OpenGL
+// memcpys them into two std140 UBOs. Both are memcpys because of the LAYOUT
+// RULE below, which is what makes std140 and scalar layout byte-identical
 
 // Slang has no matrix inverse intrinsic, so here is the adjugate/det one
 // Used to build the normal matrix transpose(inverse(mat3(model)))
@@ -31,18 +32,19 @@ float3x3 inverse3(float3x3 m) {
     return r;
 }
 
+// Declared in 16-byte cells, see the layout note above FrameUniforms
 struct LightData {
+    float3 color;     float intensity;
+    float3 position;  float diffuse;
+    float3 direction; float specular;
+    float kConstant;  float kLinear;
+    float kQuadratic; float cutoff;
     int type; // 0 = directional, 1 = point
-    float kConstant;
-    float kLinear;
-    float kQuadratic;
-    float cutoff;
-    float3 color;
-    float intensity;
-    float diffuse;
-    float specular;
-    float3 position;
-    float3 direction;
+    // 17 fields is not a multiple of 4, and std140 rounds a struct's array
+    // stride up to 16 regardless. Declaring the remainder keeps Go's mirror the
+    // same size instead of leaving an invisible hole. Spend it on spot lights
+    // (outer cutoff), point-light radius, or whatever comes next
+    float reserved0, reserved1, reserved2;
 };
 
 // Keep in sync with MaxLights in renderer/uniforms.go
@@ -61,6 +63,16 @@ struct LightData {
 // split every draw re-sent all of it, ~1200 bytes of which never varied between
 // draws. Keep each struct's field order identical to renderer/uniforms.go — that
 // order *is* the Vulkan scalar layout.
+//
+// LAYOUT RULE, and the reason the field order below looks arbitrary: every
+// declaration group must fill a whole 16-byte cell. std140 (what an OpenGL 4.1
+// uniform block must use) aligns a float3 to 16 while it occupies only 12, and
+// gives a scalar array a 16-byte element stride. Both would insert padding that
+// Go's packed struct does not have, forcing the GL backend to marshal field by
+// field. So: every float3 is immediately followed by one scalar, loose scalars
+// come in fours, and a scalar array is declared as a vector (int4, not int[4]).
+// Then std140 and scalar layout are byte-identical and both backends just
+// memcpy. Break the rule and opengl/uniforms_test.go fails.
 
 // Camera, lights and shadow maps: constant across every draw of a pass
 struct FrameUniforms {
@@ -85,25 +97,26 @@ struct FrameUniforms {
     // Light index owning each cube slot, -1 when the slot is unused
     // Point light l casts a cube shadow when some slot s holds l
     // It then samples shadowCubeMap[s]
-    int pointShadowLights[MAX_SHADOW_CUBES];
+    //
+    // A vector, not int[MAX_SHADOW_CUBES]: std140 would give a scalar array a
+    // 16-byte element stride, 64 bytes to carry 16 bytes of indices
+    int4 pointShadowLights;
 };
 
 // Transform and material of one face group: the only things a draw changes
 struct DrawUniforms {
     float4x4 model;
-    float3 matAmbient;
-    float3 matDiffuse;
-    float3 matSpecular;
-    float matShininess;
+    // Each float3 carries a scalar in its 16-byte cell, see the layout rule
+    // above. Metallic-roughness PBR scalars, matDiffuse is the base-colour tint
+    float3 matAmbient;  float matShininess;
+    float3 matDiffuse;  float matMetallic;
+    float3 matSpecular; float matRoughness;
+    float matAo;
     // Bindless texture-array slots, Vulkan only
     int texOurTexture;
     int texNormalMap;
     // 1 when the bound material has a normal map, 0 uses the geometric normal
     int useNormalMap;
-    // Metallic-roughness PBR scalars, matDiffuse is the base-colour tint
-    float matMetallic;
-    float matRoughness;
-    float matAo;
 };
 
 #ifdef TARGET_VK

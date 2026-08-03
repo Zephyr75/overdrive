@@ -44,11 +44,10 @@ type GLBackend struct {
 
 	// Two std140 uniform buffers shared by every program: the frame block at
 	// binding point 0, rewritten once per pass, and the draw block at binding
-	// point 1, rewritten per draw. The scratch slices are the CPU staging copies.
-	frameUBO     uint32
-	drawUBO      uint32
-	frameScratch []byte
-	drawScratch  []byte
+	// point 1, rewritten per draw. Both take the Go struct verbatim — see
+	// uniforms.go for why no staging copy is needed.
+	frameUBO uint32
+	drawUBO  uint32
 }
 
 // Builds an empty OpenGL backend, before any GL context exists
@@ -56,8 +55,6 @@ func New() *GLBackend {
 	return &GLBackend{
 		meshes:          make(map[renderer.MeshHandle]meshEntry),
 		targetDepthRBOs: make(map[renderer.FramebufferHandle]uint32),
-		frameScratch:    make([]byte, frameBlockSize),
-		drawScratch:     make([]byte, drawBlockSize),
 	}
 }
 

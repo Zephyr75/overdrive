@@ -116,9 +116,9 @@ your first build and after every shader edit — neither backend reads the
 go test ./...
 ```
 
-No GPU needed. The tests check the hand-written std140 uniform layout against
-the generated GLSL, which is the one place the two backends could silently drift
-apart.
+No GPU needed. The tests check the std140 uniform layout derived from the
+generated GLSL against the Go structs the backends upload, which is the one
+place the two backends could silently drift apart.
 
 ## Repository layout
 

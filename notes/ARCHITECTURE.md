@@ -49,8 +49,9 @@ overdrive/
     ├── opengl/            OpenGL 4.1 backend — may import gl.*
     │   ├── backend.go     resource tables, passes, draws
     │   ├── shader.go      compile, link, pin sampler units and block bindings
-    │   ├── uniforms.go    the hand-written std140 offsets
-    │   └── uniforms_test.go  re-derives them from the generated GLSL
+    │   ├── uniforms.go    UBO upload (a memcpy) and the sampler unit map
+    │   └── uniforms_test.go  derives std140 from the generated GLSL, diffs it
+    │                         against the Go structs
     │
     ├── vulkan/            Vulkan 1.3 backend — may import vk.*
     │   ├── backend.go     device, swapchain, passes, lifetimes
@@ -241,7 +242,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `TextureHandle`, `BufferHandle`, `MeshHandle`, `FramebufferHandle`, `ShaderHandle` | type | Opaque `uint32`. Texture 0 is the white pixel, framebuffer 0 the backbuffer |
 | `RenderTargetSpec`, `TargetFormat` | type | Describes an offscreen target by what it *is* — size, depth or colour, cube or not |
 | `Feature`, `Supports` | type, method | The seam for ray tracing and compute; both backends report `false` today |
-| `FrameUniforms` | type | 1184 B: camera, lights, shadow maps. Published once per pass |
+| `FrameUniforms` | type | 1280 B: camera, lights, shadow maps. Published once per pass |
 | `DrawUniforms` | type | 128 B: model matrix and material. Sent per draw |
 | `LightData` | type | 68 B, mirrors the `Light` struct in `common.slang` |
 | `MaxLights`, `MaxShadowCubes` | const | 8 and 4, must match `common.slang` |

@@ -86,7 +86,7 @@ Two shadow passes (depth-only, no colour clear) then the main backbuffer pass.
 
 | Method | OpenGL | Vulkan |
 |---|---|---|
-| `BindFrameUniforms` | Marshal 1456 B std140 → `BufferSubData` into the frame UBO, bind the shadow and skybox units | Memcpy 1184 B into the ring, cache its device address for the pass's draws |
+| `BindFrameUniforms` | `BufferSubData` 1280 B into the frame UBO, bind the shadow and skybox units | Memcpy the same 1280 B into the ring, cache its device address for the pass's draws |
 | `BeginPass` | `BindFramebuffer`, `Viewport`, `Clear` | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state |
 | `SetCullFace` | `gl.CullFace` | `CmdSetCullMode` — dynamic state, no extra pipeline |
 | `SetDepthFunc` | `gl.DepthFunc` | `CmdSetDepthCompareOp` — dynamic state |
@@ -96,7 +96,7 @@ Two shadow passes (depth-only, no colour clear) then the main backbuffer pass.
 
 | Method | OpenGL | Vulkan |
 |---|---|---|
-| `Draw` | `UseProgram` → marshal 144 B std140 → `BufferSubData` into the draw UBO → bind 2 texture units → `BindVertexArray` → `DrawElements` or `DrawArrays` | `getPipeline(shader, pass, mesh layout)` (skipped if unchanged) → memcpy 128 B into the ring → `CmdPushConstants` (two 8-byte device addresses) → bind vertex (+ index) → `CmdDrawIndexed` or `CmdDraw` |
+| `Draw` | `UseProgram` → `BufferSubData` 128 B into the draw UBO → bind 2 texture units → `BindVertexArray` → `DrawElements` or `DrawArrays` | `getPipeline(shader, pass, mesh layout)` (skipped if unchanged) → memcpy 128 B into the ring → `CmdPushConstants` (two 8-byte device addresses) → bind vertex (+ index) → `CmdDrawIndexed` or `CmdDraw` |
 
 The mesh carries its own vertex layout, count and indexed-ness, so one entry
 point serves face groups, the skybox cube and the UI overlay alike.
@@ -106,9 +106,9 @@ point serves face groups, the skybox cube and the UI overlay alike.
 * **Vulkan front-loads.** Almost everything expensive is startup or load time.
   The per-frame and per-draw rows are short — that is the whole point of the API.
 * **The per-draw row is deliberately thin.** The uniform block is split by
-  update frequency, so a draw sends 128–144 bytes of transform and material
-  rather than the whole ~1.3 KB of camera and light state. That block goes out
-  once per pass instead, in `BindFrameUniforms`.
+  update frequency, so a draw sends 128 bytes of transform and material rather
+  than the whole 1.3 KB of camera and light state. That block goes out once per
+  pass instead, in `BindFrameUniforms`.
 * **`waitAllFrames` appears in five methods.** Every one is a full pipeline
   drain. They are all rare by design — if one starts running per frame,
   throughput collapses.
@@ -189,7 +189,7 @@ glfw.PollEvents()
 ```
 
 Uniforms travel as **two** values split by update frequency.
-`renderer.FrameUniforms` (1184 bytes) is filled by the frame loop and
+`renderer.FrameUniforms` (1280 bytes) is filled by the frame loop and
 `Scene.FillFrameUniforms`, then published once per pass by `BindFrameUniforms`.
 `renderer.DrawUniforms` (128 bytes) carries the model matrix and the material,
 which `Mesh.draw` rewrites before each draw. Each backend snapshots both at call
@@ -297,21 +297,25 @@ Everything else is dynamic: viewport, scissor, cull mode, depth compare.
 Both backends receive the same two uniform structs and must get them to the
 shader. Nothing about this is shared code.
 
-**OpenGL — two std140 uniform blocks.** `marshalFrameStd140` and
-`marshalDrawStd140` hand-write each struct into a byte buffer at explicit
-offsets, `glBufferSubData` them into the UBOs bound to binding points 0 and 1,
-then bind the referenced textures to their fixed units. std140 pads `vec3` to 16
-bytes and rounds array strides up to 16, which is why the blocks are 1456 and
-144 bytes on this side. Those offsets are the only hand-written
-layout in the engine, and `opengl/uniforms_test.go` re-derives them from the
-generated GLSL and fails on drift. [LOGL: Advanced GLSL — uniform buffer objects]
+**OpenGL — two std140 uniform blocks.** `glBufferSubData` the struct straight
+into the UBOs bound to binding points 0 and 1, then bind the referenced textures
+to their fixed units. It is a plain memcpy, the same as Vulkan's, and that is not
+free — it is bought by the **16-byte cell rule** in `common.slang`. std140 pads a
+`vec3` to 16 bytes and gives a scalar array a 16-byte element stride, so every
+`float3` in the two blocks is declared with a scalar behind it, loose scalars
+come in fours, and `pointShadowLights` is an `int4` rather than an `int[4]`.
+Every declaration group then fills a whole 16-byte cell, at which point std140
+*is* scalar layout and no marshalling code exists on either side.
+`opengl/uniforms_test.go` re-derives std140 from the generated GLSL and fails if
+any member stops matching `unsafe.Offsetof` of its Go field.
+[LOGL: Advanced GLSL — uniform buffer objects]
 
 **Vulkan — scalar layout + buffer device address.** Go packs
 `float32`/`int32` structs with no padding, which *is* Vulkan's scalar block
 layout, so both blocks memcpy straight into this frame's ring buffer (1 MiB,
 64-byte aligned entries) and their **GPU addresses** go out as a 16-byte push
 constant. The shader dereferences those pointers — the uniform data needs no
-descriptor at all. 1184 and 128 bytes, no padding. [HTV: buffer device address]
+descriptor at all. 1280 and 128 bytes, no padding. [HTV: buffer device address]
 
 **Both split the same way.** `BindFrameUniforms` publishes the pass block once;
 each `Draw` sends only the transform and material. Before the split a single
@@ -321,10 +325,14 @@ across the pass.
 | | OpenGL | Vulkan |
 |---|---|---|
 | Transport | two shared UBOs: frame rewritten per pass, draw per draw | per-frame ring buffer: one frame entry per pass, one draw entry per draw |
-| Layout | std140, 1456 + 144 bytes, hand-written offsets | scalar, 1184 + 128 bytes, free from Go's packing |
+| Layout | std140, 1280 + 128 bytes | scalar, the same 1280 + 128 bytes |
 | Addressing | binding points 0 and 1 | two 64-bit device addresses in one push constant |
 | Textures | handles ignored — the shader samples named samplers on fixed units | handles rewritten into **bindless slot indices** in the copy |
-| Cost per draw | one 144-byte `BufferSubData` + 2 texture binds | one 128-byte memcpy + one 16-byte push constant |
+| Cost per draw | one 128-byte `BufferSubData` + 2 texture binds | one 128-byte memcpy + one 16-byte push constant |
+
+The two layout rows being identical is deliberate, not luck — see the cell rule
+under "OpenGL" above. It is what lets both backends memcpy, and it is the
+difference between one shared struct definition and two that drift.
 
 ### 4.6 Textures
 
@@ -447,12 +455,13 @@ Vulkan sets `BorderColor = OpaqueWhiteFloat` on the 2D shadow sampler. Same
 result: outside the sun's frustum is unshadowed.
 
 **The uniform struct is the contract.** `renderer/uniforms.go` has an `init`
-that panics if `LightData` stops being 68 bytes, `FrameUniforms` 1184 or
-`DrawUniforms` 128 — that is the guard on Vulkan's memcpy path.
-`opengl/uniforms_test.go` is the guard on the GL side, re-deriving both blocks'
-std140 offsets from the generated GLSL and also failing on any member it has no
-offset for. Between them, a change
-to `common.slang` cannot silently break one backend.
+that panics if `LightData` stops being 80 bytes, `FrameUniforms` 1280 or
+`DrawUniforms` 128 — a size that is not a multiple of 16 means a cell was left
+unfilled and the two layouts have already diverged. `opengl/uniforms_test.go` is
+the guard on the GL side: it re-derives std140 from the generated GLSL and checks
+every member against `unsafe.Offsetof` of the matching Go field, in both
+directions, so a field added to `common.slang` and forgotten in Go fails too.
+Between them, a change to `common.slang` cannot silently break one backend.
 
 ---
 

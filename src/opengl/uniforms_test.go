@@ -1,24 +1,28 @@
 package opengl
 
 import (
-	"fmt"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// The std140 offsets in uniforms.go are hand-written — the one layout in the
-// engine that isn't derived from the source of truth (the Vulkan backend gets
-// its scalar layout for free, because Go structs are already packed that way).
-// If common.slang gains or reorders a field, every offset after it shifts and
-// the GL backend silently renders garbage.
+// The OpenGL backend uploads renderer.FrameUniforms and renderer.DrawUniforms
+// by memcpy, which is only correct because common.slang declares both blocks in
+// 16-byte cells — see its LAYOUT RULE. Then std140, which an OpenGL 4.1 uniform
+// block must use, comes out byte-identical to the packed layout Go gives us.
 //
-// This test re-derives the layout from the generated GLSL by applying the
-// std140 rules, and fails if it disagrees with the constants.
+// Nothing enforces that at compile time. Add a float3 without a scalar behind
+// it, or an int[4] instead of an int4, and std140 inserts padding Go does not
+// have: every field after it shifts and the GL backend silently renders garbage.
+//
+// So this test re-derives the std140 layout from the generated GLSL by applying
+// the rules, and checks every member lands exactly where unsafe.Offsetof puts
+// the matching Go field.
 
 var memberRe = regexp.MustCompile(`^\s*(\w+)\s+(\w+)\s*(?:\[(\d+)\])?\s*;`)
 
@@ -62,11 +66,11 @@ func baseTypeLayout(typ string, structs map[string][]member) (align, size int) {
 	switch typ {
 	case "float", "int", "uint", "bool":
 		return 4, 4
-	case "vec2":
+	case "vec2", "ivec2", "uvec2", "bvec2":
 		return 8, 8
-	case "vec3":
+	case "vec3", "ivec3", "uvec3", "bvec3":
 		return 16, 12 // aligns to 16 but only occupies 12
-	case "vec4":
+	case "vec4", "ivec4", "uvec4", "bvec4":
 		return 16, 16
 	case "mat4x4", "mat4":
 		return 16, 64
@@ -165,112 +169,125 @@ const (
 	drawBlockHeader  = "layout(std140) uniform block_DrawUniforms_0"
 )
 
-// Compares one block's derived offsets and size against the hand-written constants
-func checkBlock(t *testing.T, header string, want map[string]int, wantSize int) {
+// Compares a derived std140 layout against the Go struct it must be identical to
+//
+// want maps each generated member to the byte offset unsafe.Offsetof reports for
+// the matching Go field, and wantSize is unsafe.Sizeof of the whole struct.
+func checkAgainstGoStruct(t *testing.T, what string, got map[string]int, gotSize int, want map[string]uintptr, wantSize uintptr) {
 	t.Helper()
-	got, size, _ := loadGeneratedBlock(t, header)
 
 	for name, expect := range want {
 		actual, ok := got[name]
 		if !ok {
-			t.Errorf("%s: missing from the generated block", name)
+			t.Errorf("%s.%s: in the Go struct but not in the generated block", what, name)
 			continue
 		}
-		if actual != expect {
-			t.Errorf("%s: generated GLSL puts it at %d, uniforms.go says %d", name, actual, expect)
+		if uintptr(actual) != expect {
+			t.Errorf("%s.%s: std140 puts it at %d, the Go struct at %d — a 16-byte cell is not full, so memcpy is wrong",
+				what, name, actual, expect)
 		}
 	}
 	for name := range got {
 		if _, ok := want[name]; !ok {
-			t.Errorf("%s: in the generated block but uniforms.go has no offset for it", name)
+			t.Errorf("%s.%s: in the generated block but the Go struct has no field for it", what, name)
 		}
 	}
 
-	// Check the block size covers the whole block, or glBufferSubData truncates it
-	if roundUp(size, 16) != wantSize {
-		t.Errorf("%s: block size constant is %d, generated block needs %d", header, wantSize, roundUp(size, 16))
+	// A size that is not a multiple of 16 means the last cell was left unfilled
+	if roundUp(gotSize, 16) != int(wantSize) {
+		t.Errorf("%s: std140 needs %d bytes, the Go struct is %d — sizes must match for memcpy",
+			what, roundUp(gotSize, 16), wantSize)
 	}
 }
 
-// Checks every hand-written frame-block offset against the generated GLSL
-func TestStd140FrameBlockOffsets(t *testing.T) {
-	checkBlock(t, frameBlockHeader, map[string]int{
-		"view":              offView,
-		"projection":        offProjection,
-		"lightSpaceMatrix":  offLightSpaceMatrix,
-		"shadowMatrices":    offShadowMatrices,
-		"viewPos":           offViewPos,
-		"farPlane":          offFarPlane,
-		"lightPos":          offLightPos,
-		"lightCount":        offLightCount,
-		"lights":            offLights,
-		"texShadowMap":      offTexShadowMap,
-		"texShadowCubeMap":  offTexShadowCubeMap,
-		"texSkybox":         offTexSkybox,
-		"shadowDirIndex":    offShadowDirIndex,
-		"pointShadowLights": offPointShadowLights,
-	}, frameBlockSize)
+// Checks the frame block's std140 layout is byte-identical to renderer.FrameUniforms
+func TestStd140FrameBlockMatchesGoStruct(t *testing.T) {
+	got, size, _ := loadGeneratedBlock(t, frameBlockHeader)
+
+	var f renderer.FrameUniforms
+	checkAgainstGoStruct(t, "FrameUniforms", got, size, map[string]uintptr{
+		"view":              unsafe.Offsetof(f.View),
+		"projection":        unsafe.Offsetof(f.Projection),
+		"lightSpaceMatrix":  unsafe.Offsetof(f.LightSpaceMatrix),
+		"shadowMatrices":    unsafe.Offsetof(f.ShadowMatrices),
+		"viewPos":           unsafe.Offsetof(f.ViewPos),
+		"farPlane":          unsafe.Offsetof(f.FarPlane),
+		"lightPos":          unsafe.Offsetof(f.LightPos),
+		"lightCount":        unsafe.Offsetof(f.LightCount),
+		"lights":            unsafe.Offsetof(f.Lights),
+		"texShadowMap":      unsafe.Offsetof(f.TexShadowMap),
+		"texShadowCubeMap":  unsafe.Offsetof(f.TexShadowCubeMap),
+		"texSkybox":         unsafe.Offsetof(f.TexSkybox),
+		"shadowDirIndex":    unsafe.Offsetof(f.ShadowDirIndex),
+		"pointShadowLights": unsafe.Offsetof(f.PointShadowLights),
+	}, unsafe.Sizeof(f))
 }
 
-// Checks every hand-written draw-block offset against the generated GLSL
-func TestStd140DrawBlockOffsets(t *testing.T) {
-	checkBlock(t, drawBlockHeader, map[string]int{
-		"model":         offModel,
-		"matAmbient":    offMatAmbient,
-		"matDiffuse":    offMatDiffuse,
-		"matSpecular":   offMatSpecular,
-		"matShininess":  offMatShininess,
-		"texOurTexture": offTexOurTexture,
-		"texNormalMap":  offTexNormalMap,
-		"useNormalMap":  offUseNormalMap,
-		"matMetallic":   offMatMetallic,
-		"matRoughness":  offMatRoughness,
-		"matAo":         offMatAo,
-	}, drawBlockSize)
+// Checks the draw block's std140 layout is byte-identical to renderer.DrawUniforms
+func TestStd140DrawBlockMatchesGoStruct(t *testing.T) {
+	got, size, _ := loadGeneratedBlock(t, drawBlockHeader)
+
+	var u renderer.DrawUniforms
+	checkAgainstGoStruct(t, "DrawUniforms", got, size, map[string]uintptr{
+		"model":         unsafe.Offsetof(u.Model),
+		"matAmbient":    unsafe.Offsetof(u.MatAmbient),
+		"matShininess":  unsafe.Offsetof(u.MatShininess),
+		"matDiffuse":    unsafe.Offsetof(u.MatDiffuse),
+		"matMetallic":   unsafe.Offsetof(u.MatMetallic),
+		"matSpecular":   unsafe.Offsetof(u.MatSpecular),
+		"matRoughness":  unsafe.Offsetof(u.MatRoughness),
+		"matAo":         unsafe.Offsetof(u.MatAo),
+		"texOurTexture": unsafe.Offsetof(u.TexDiffuse),
+		"texNormalMap":  unsafe.Offsetof(u.TexNormalMap),
+		"useNormalMap":  unsafe.Offsetof(u.UseNormalMap),
+	}, unsafe.Sizeof(u))
 }
 
-// Checks the per-light stride and member offsets against the generated LightData struct
-func TestStd140LightStride(t *testing.T) {
+// Checks the per-light stride and member offsets against renderer.LightData
+//
+// This is the one that pays for itself: LightData sits in an array, so std140
+// rounds its stride up to 16 and a single unfilled cell shifts every light after
+// the first.
+func TestStd140LightDataMatchesGoStruct(t *testing.T) {
 	_, _, structs := loadGeneratedBlock(t, frameBlockHeader)
 	members := structs["LightData_0"]
 
-	_, size := baseTypeLayout("LightData_0", structs)
-	if size != lightStride {
-		t.Errorf("lightStride = %d, generated LightData is %d bytes", lightStride, size)
-	}
-
-	want := map[string]int{
-		"type": lOffType, "kConstant": lOffConstant, "kLinear": lOffLinear,
-		"kQuadratic": lOffQuadratic, "cutoff": lOffCutoff, "color": lOffColor,
-		"intensity": lOffIntensity, "diffuse": lOffDiffuse, "specular": lOffSpecular,
-		"position": lOffPosition, "direction": lOffDirection,
-	}
+	byLogical := map[string]int{}
 	for name, off := range offsets(members, structs) {
-		expect, ok := want[logical(name)]
-		if !ok {
-			t.Errorf("%s: unexpected LightData member, which uniforms.go does not write", logical(name))
-			continue
-		}
-		if off != expect {
-			t.Errorf("light.%s: generated GLSL puts it at +%d, uniforms.go says +%d", logical(name), off, expect)
-		}
+		byLogical[logical(name)] = off
 	}
+	_, size := baseTypeLayout("LightData_0", structs)
+
+	var l renderer.LightData
+	checkAgainstGoStruct(t, "LightData", byLogical, size, map[string]uintptr{
+		"color":      unsafe.Offsetof(l.Color),
+		"intensity":  unsafe.Offsetof(l.Intensity),
+		"position":   unsafe.Offsetof(l.Position),
+		"diffuse":    unsafe.Offsetof(l.Diffuse),
+		"direction":  unsafe.Offsetof(l.Direction),
+		"specular":   unsafe.Offsetof(l.Specular),
+		"kConstant":  unsafe.Offsetof(l.Constant),
+		"kLinear":    unsafe.Offsetof(l.Linear),
+		"kQuadratic": unsafe.Offsetof(l.Quadratic),
+		"cutoff":     unsafe.Offsetof(l.Cutoff),
+		"type":       unsafe.Offsetof(l.Type),
+		"reserved0":  unsafe.Offsetof(l.Reserved0),
+		"reserved1":  unsafe.Offsetof(l.Reserved1),
+		"reserved2":  unsafe.Offsetof(l.Reserved2),
+	}, unsafe.Sizeof(l))
 }
 
-// Checks both marshals stay inside the buffers they are handed
-func TestMarshalStd140StaysInBounds(t *testing.T) {
-	var f renderer.FrameUniforms
-	f.LightCount = renderer.MaxLights
-	marshalFrameStd140(&f, make([]byte, frameBlockSize)) // panics on any out-of-range write
-
-	var u renderer.DrawUniforms
-	marshalDrawStd140(&u, make([]byte, drawBlockSize))
-
-	last := offPointShadowLights + (renderer.MaxShadowCubes-1)*pointShadowStride + 4
-	if last > frameBlockSize {
-		t.Fatal(fmt.Sprintf("last frame member ends at %d, past frameBlockSize %d", last, frameBlockSize))
+// Checks every block is a whole number of 16-byte cells, the property the whole
+// memcpy path rests on
+func TestBlocksAreWholeCells(t *testing.T) {
+	sizes := map[string]uintptr{
+		"LightData":     unsafe.Sizeof(renderer.LightData{}),
+		"FrameUniforms": unsafe.Sizeof(renderer.FrameUniforms{}),
+		"DrawUniforms":  unsafe.Sizeof(renderer.DrawUniforms{}),
 	}
-	if offMatAo+4 > drawBlockSize {
-		t.Fatal(fmt.Sprintf("last draw member ends at %d, past drawBlockSize %d", offMatAo+4, drawBlockSize))
+	for name, size := range sizes {
+		if size%16 != 0 {
+			t.Errorf("%s is %d bytes, not a multiple of 16 — some cell is unfilled", name, size)
+		}
 	}
 }

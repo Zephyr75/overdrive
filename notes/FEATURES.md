@@ -302,9 +302,17 @@ generic array avoids contorting the shader for hardware we will not ship on.
 Revisit only if a target GPU profiles the same way.
 
 **The uniform split** (`FrameUniforms` per pass, `DrawUniforms` per draw) cut the
-per-draw payload from 1312 to 128 bytes on Vulkan and from 1600 to 144 on GL.
+per-draw payload from 1312 to 128 bytes on Vulkan and from 1600 to 128 on GL.
 It did **not** measurably move the frame rate on this iGPU — the win is
 structural.
+
+**The 16-byte cell rule** that followed it is likewise not a bandwidth
+optimisation, though it did take the GL frame block from 1456 to 1280 bytes.
+Declaring both uniform structs so every group fills a whole 16-byte cell makes
+std140 byte-identical to scalar layout, which deleted the hand-written offset
+table and both marshalling functions from `opengl/uniforms.go`: OpenGL now
+uploads the Go struct verbatim, exactly as Vulkan does. One layout, one
+definition, no arithmetic to get wrong.
 
 **Measuring by FPS subtraction does not work here.** Under vsync a frame that
 crosses 16.6 ms drops cleanly to the next interval, so frame-rate deltas hide the
