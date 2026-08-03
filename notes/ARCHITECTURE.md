@@ -102,7 +102,7 @@ overdrive/
 
 **Nothing above `renderer/` imports a graphics API.** Scene, core, ecs, input and
 physics own opaque handles (`renderer.MeshHandle`, `TextureHandle`,
-`FramebufferHandle`, `ShaderHandle`, `BufferHandle`) that each backend
+`RenderTargetHandle`, `ShaderHandle`, `BufferHandle`) that each backend
 interprets in its own table.
 
 ```mermaid
@@ -239,7 +239,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | Symbol | Kind | Description |
 |---|---|---|
 | `Backend` | interface | 27 methods, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency |
-| `TextureHandle`, `BufferHandle`, `MeshHandle`, `FramebufferHandle`, `ShaderHandle` | type | Opaque `uint32`. Texture 0 is the white pixel, framebuffer 0 the backbuffer |
+| `TextureHandle`, `BufferHandle`, `MeshHandle`, `RenderTargetHandle`, `ShaderHandle` | type | Opaque `uint32`. Texture 0 is the white pixel, render target 0 the backbuffer |
 | `RenderTargetSpec`, `TargetFormat` | type | Describes an offscreen target by what it *is* — size, depth or colour, cube or not |
 | `Feature`, `Supports` | type, method | The seam for ray tracing and compute; both backends report `false` today |
 | `FrameUniforms` | type | 1280 B: camera, lights, shadow maps. Published once per pass |
@@ -265,7 +265,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `Mesh.MoveTo` / `MoveBy` | func | Rebuild vertex data and flag it for reupload |
 | `Mesh.draw` *(pkg)* | func | One `Backend.Draw` per face group, rewriting the material fields of `u` |
 | `Light` | type | Position, direction, colour, intensity, type, and its shadow target |
-| `Light.RenderLight` | func | Runs this light's depth pass: ortho for the sun, six cube faces for a point |
+| `Light.RenderShadowMap` | func | Runs this light's depth pass: ortho for the sun, six cube faces for a point |
 | `Material` | type | Ambient, diffuse (= albedo), specular, shininess, alpha, metallic, roughness, ao, plus diffuse and normal-map handles |
 | `Camera` | type | Position, front, up, yaw, pitch, FOV |
 | `Skybox` | type | The cube mesh handle and the cubemap texture |

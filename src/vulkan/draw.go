@@ -48,7 +48,7 @@ func (b *VKBackend) Draw(s renderer.ShaderHandle, m renderer.MeshHandle, u *rend
 		return
 	}
 	b.bindPipeline(cb, sh, me.layout)
-	b.pushUniforms(cb, u)
+	b.bindDrawUniforms(cb, u)
 
 	vk.CmdBindVertexBuffer(cb, 0, b.buffers[me.vbo].buffer, 0)
 	if me.indexed {
@@ -103,7 +103,7 @@ func (b *VKBackend) BindFrameUniforms(u *renderer.FrameUniforms) {
 //
 // The push constant is a pair of pointers, so neither block needs a descriptor,
 // and the caller may reuse u immediately afterwards.
-func (b *VKBackend) pushUniforms(cb vk.CommandBuffer, u *renderer.DrawUniforms) {
+func (b *VKBackend) bindDrawUniforms(cb vk.CommandBuffer, u *renderer.DrawUniforms) {
 	block := *u
 	// Translate the texture fields in this copy, the shader indexing the
 	// bindless arrays by slot rather than by engine handle

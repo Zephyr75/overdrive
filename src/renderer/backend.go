@@ -6,13 +6,13 @@ package renderer
 import "github.com/go-gl/glfw/v3.3/glfw"
 
 // Opaque handles, each backend keeping its own table. TextureHandle 0 is the
-// built-in white pixel, FramebufferHandle 0 the backbuffer.
+// built-in white pixel, RenderTargetHandle 0 the backbuffer.
 type (
-	TextureHandle     uint32
-	BufferHandle      uint32
-	MeshHandle        uint32
-	FramebufferHandle uint32
-	ShaderHandle      uint32
+	TextureHandle      uint32
+	BufferHandle       uint32
+	MeshHandle         uint32
+	RenderTargetHandle uint32
+	ShaderHandle       uint32
 )
 
 // Feature is an optional capability a backend may support. Call
@@ -64,7 +64,7 @@ type Backend interface {
 	EndFrame()
 
 	// Begins a pass on target (0 = backbuffer): binds it, sets the viewport to w×h, always clears depth, clears color only when clear is non-nil
-	BeginPass(target FramebufferHandle, w, h int, clear *[4]float32)
+	BeginPass(target RenderTargetHandle, w, h int, clear *[4]float32)
 	// Ends the pass, after which nothing may be drawn until the next BeginPass
 	EndPass()
 
@@ -111,9 +111,9 @@ type Backend interface {
 	CreateFullscreenQuad() MeshHandle
 
 	// Creates an offscreen target and its sampled view, returning both handles
-	CreateRenderTarget(spec RenderTargetSpec) (FramebufferHandle, TextureHandle)
+	CreateRenderTarget(spec RenderTargetSpec) (RenderTargetHandle, TextureHandle)
 	// Destroys a render target
-	DestroyFramebuffer(f FramebufferHandle)
+	DestroyRenderTarget(f RenderTargetHandle)
 
 	// Draws a mesh from a snapshot of *u taken at call time, leaving u reusable
 	//

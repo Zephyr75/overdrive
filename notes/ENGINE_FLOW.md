@@ -69,7 +69,7 @@ per-pass one", `vkCmdPushConstants` is "the per-draw one".
 | `DestroyTexture` | `DeleteTextures` | `waitAllFrames()`, destroy view + image + staging |
 | `DestroyBuffer` | `DeleteBuffers` | `waitAllFrames()`, `VmaDestroyBuffer` |
 | `DestroyMesh` | `DeleteVertexArrays` | `waitAllFrames()`, destroy the index buffer |
-| `DestroyFramebuffer` | `DeleteFramebuffers` | `waitAllFrames()`, destroy view + image |
+| `DestroyRenderTarget` | `DeleteFramebuffers` | `waitAllFrames()`, destroy view + image |
 | `Supports` | `false` | `false` — the seam for ray tracing / compute |
 
 ### Once per frame — 4 methods
@@ -173,7 +173,7 @@ input                       camera moves
 Backend.BeginFrame()
 
   for each shadow caster (≤1 sun, ≤1 point light):
-      Light.RenderLight:
+      Light.RenderShadowMap:
           BeginPass(shadowTarget, 1024, 1024, nil)   ← no color clear, depth only
           draw every mesh with depth / depth_cube
           EndPass()
@@ -400,7 +400,7 @@ without widening the interface.
 | `CreateRenderTarget`, depth | FBO + `DEPTH_COMPONENT` texture, `NEAREST`, clamp-to-border with a **white** border so outside the light frustum reads "fully lit", `DrawBuffer(NONE)` | Depth image usable as both attachment and sampled, plus a `ClampToBorder` / `OpaqueWhite` sampler |
 | `CreateRenderTarget`, cube | FBO + cubemap texture attached with `FramebufferTexture` (**layered**), the geometry shader routing triangles to faces | 6-layer `CubeCompatible` image, plus **two views of it**: a 2D-array view to attach and a cube view to sample |
 | `CreateRenderTarget`, colour | FBO + colour texture + a depth **renderbuffer**, which nothing samples | Colour image + view, rendered with `passOffscreenColor` (flipped viewport, CCW, no depth attachment) |
-| `DestroyFramebuffer` | `DeleteFramebuffers`, plus the depth renderbuffer if it owned one | Drains frames, destroys the attachment view and the image |
+| `DestroyRenderTarget` | `DeleteFramebuffers`, plus the depth renderbuffer if it owned one | Drains frames, destroys the attachment view and the image |
 
 **Same idea, same technique** — one layered draw for all six cube faces, driven
 by a geometry stage. [LOGL: Point Shadows]

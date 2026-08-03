@@ -63,7 +63,7 @@ func (b *GLBackend) BindFrameUniforms(f *renderer.FrameUniforms) {
 }
 
 // Uploads the per-draw block and binds its two material textures
-func (b *GLBackend) applyDrawUniforms(u *renderer.DrawUniforms) {
+func (b *GLBackend) bindDrawUniforms(u *renderer.DrawUniforms) {
 	gl.BindBuffer(gl.UNIFORM_BUFFER, b.drawUBO)
 	gl.BufferSubData(gl.UNIFORM_BUFFER, 0, drawBlockSize, unsafe.Pointer(u))
 	gl.BindBuffer(gl.UNIFORM_BUFFER, 0)

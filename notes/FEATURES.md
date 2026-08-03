@@ -54,7 +54,7 @@ BRDF:
 
 ### Shadows — both kinds, with PCF
 
-Driven by `Light.RenderLight` (`scene/light.go`), in dedicated depth passes
+Driven by `Light.RenderShadowMap` (`scene/light.go`), in dedicated depth passes
 before the main pass:
 
 - **Directional → 2D shadow map.** Orthographic light-space matrix, sampled in

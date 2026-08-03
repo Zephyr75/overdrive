@@ -30,7 +30,7 @@ type Light struct {
 	Intensity float32
 
 	backend      renderer.Backend
-	shadowTarget renderer.FramebufferHandle
+	shadowTarget renderer.RenderTargetHandle
 	depthMap     renderer.TextureHandle // sun: 2D depth map
 	depthCubeMap renderer.TextureHandle // point: depth cubemap
 	castsShadow  bool                   // set by Scene at load time
@@ -95,15 +95,17 @@ func (l *Light) setup(b renderer.Backend, castsShadow bool) {
 	}
 }
 
-// Runs this light's shadow pass, drawing every mesh into its depth target with the matching depth shader
+// Bakes this light's shadow map, drawing every mesh into its depth target with the matching depth shader
 //
-// Returns the light-space matrix, identity for point lights, for the main pass.
-func (l *Light) RenderLight(nearPlane, farPlane float32,
+// It renders the scene from the light's point of view, it does not render the
+// light itself. The matrices it needs are left behind in f — the sun's
+// light-space matrix for the main pass, the six face matrices for the geometry
+// stage — so there is nothing to return.
+func (l *Light) RenderShadowMap(nearPlane, farPlane float32,
 	depthShader, depthCubeShader renderer.ShaderHandle,
-	s *Scene, f *renderer.FrameUniforms) mgl32.Mat4 {
+	s *Scene, f *renderer.FrameUniforms) {
 
 	b := l.backend
-	lightSpaceMatrix := mgl32.Ident4()
 
 	// Static mesh geometry is baked into the OBJ vertices, so the depth passes
 	// draw everything with an identity model matrix and no material at all
@@ -114,8 +116,7 @@ func (l *Light) RenderLight(nearPlane, farPlane float32,
 	if l.Type == renderer.LightSun {
 		lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
 		lightView := mgl32.LookAtV(l.Pos, l.Pos.Sub(l.Dir), mgl32.Vec3{0.0, 1.0, 0.0})
-		lightSpaceMatrix = lightProjection.Mul4(lightView)
-		f.LightSpaceMatrix = lightSpaceMatrix
+		f.LightSpaceMatrix = lightProjection.Mul4(lightView)
 		b.BindFrameUniforms(f)
 
 		// Cull front faces, which avoids peter-panning on the shadow's near edge
@@ -146,5 +147,4 @@ func (l *Light) RenderLight(nearPlane, farPlane float32,
 	}
 
 	b.EndPass()
-	return lightSpaceMatrix
 }

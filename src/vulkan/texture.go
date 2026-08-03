@@ -342,7 +342,7 @@ func (b *VKBackend) DestroyTexture(h renderer.TextureHandle) {
 // One view is attached — a plain 2D view, or a 6-layer 2D-array view a geometry
 // stage routes faces into — and the other is sampled, as 2D or cube. Depth and
 // colour differ only in format, usage, aspect and which sampler they get.
-func (b *VKBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer.FramebufferHandle, renderer.TextureHandle) {
+func (b *VKBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer.RenderTargetHandle, renderer.TextureHandle) {
 	layers := uint32(1)
 	flags := vk.ImageCreateFlags(0)
 	if spec.Cube {
@@ -402,11 +402,11 @@ func (b *VKBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer
 		attachmentView: attachmentView, tex: tex,
 		layout: vk.ImageLayoutUndefined, valid: true,
 	})
-	return renderer.FramebufferHandle(len(b.targets) - 1), tex
+	return renderer.RenderTargetHandle(len(b.targets) - 1), tex
 }
 
 // Destroys a target's attachment view and image once the frames in flight have drained
-func (b *VKBackend) DestroyFramebuffer(f renderer.FramebufferHandle) {
+func (b *VKBackend) DestroyRenderTarget(f renderer.RenderTargetHandle) {
 	if f == 0 || int(f) >= len(b.targets) || !b.targets[f].valid {
 		return
 	}

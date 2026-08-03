@@ -157,7 +157,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 			dirCaster, pointCaster := s.ShadowCasters()
 			for _, i := range [2]int32{dirCaster, pointCaster} {
 				if i >= 0 {
-					s.Lights[i].RenderLight(nearPlane, farPlane, depthShader, depthCubeShader, s, &f)
+					s.Lights[i].RenderShadowMap(nearPlane, farPlane, depthShader, depthCubeShader, s, &f)
 				}
 			}
 		}

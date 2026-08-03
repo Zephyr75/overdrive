@@ -40,7 +40,7 @@ type GLBackend struct {
 
 	// Depth renderbuffers owned by colour render targets, keyed by their FBO.
 	// Depth targets attach a sampled texture instead and so appear here not at all.
-	targetDepthRBOs map[renderer.FramebufferHandle]uint32
+	targetDepthRBOs map[renderer.RenderTargetHandle]uint32
 
 	// Two std140 uniform buffers shared by every program: the frame block at
 	// binding point 0, rewritten once per pass, and the draw block at binding
@@ -54,7 +54,7 @@ type GLBackend struct {
 func New() *GLBackend {
 	return &GLBackend{
 		meshes:          make(map[renderer.MeshHandle]meshEntry),
-		targetDepthRBOs: make(map[renderer.FramebufferHandle]uint32),
+		targetDepthRBOs: make(map[renderer.RenderTargetHandle]uint32),
 	}
 }
 
@@ -133,7 +133,7 @@ func (b *GLBackend) EndFrame() {
 }
 
 // Binds the target framebuffer, sets the viewport and clears depth, plus color when asked
-func (b *GLBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear *[4]float32) {
+func (b *GLBackend) BeginPass(target renderer.RenderTargetHandle, w, h int, clear *[4]float32) {
 	gl.BindFramebuffer(gl.FRAMEBUFFER, uint32(target))
 	gl.Viewport(0, 0, int32(w), int32(h))
 	bits := uint32(gl.DEPTH_BUFFER_BIT)
@@ -377,7 +377,7 @@ func (b *GLBackend) CreateFullscreenQuad() renderer.MeshHandle {
 // outside the light frustum reads "fully lit". Colour targets additionally get
 // a depth renderbuffer, since anything drawing a scene offscreen still needs
 // depth testing.
-func (b *GLBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer.FramebufferHandle, renderer.TextureHandle) {
+func (b *GLBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer.RenderTargetHandle, renderer.TextureHandle) {
 	var fbo, tex uint32
 	gl.GenFramebuffers(1, &fbo)
 	gl.GenTextures(1, &tex)
@@ -432,7 +432,7 @@ func (b *GLBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer
 		} else {
 			gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0)
 		}
-		b.targetDepthRBOs[renderer.FramebufferHandle(fbo)] = rbo
+		b.targetDepthRBOs[renderer.RenderTargetHandle(fbo)] = rbo
 	} else if spec.Cube {
 		// Attach all six faces at once, the geometry shader routing triangles to them
 		gl.FramebufferTexture(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, tex, 0)
@@ -444,11 +444,11 @@ func (b *GLBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer
 		gl.ReadBuffer(gl.NONE)
 	}
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
-	return renderer.FramebufferHandle(fbo), renderer.TextureHandle(tex)
+	return renderer.RenderTargetHandle(fbo), renderer.TextureHandle(tex)
 }
 
 // Deletes a framebuffer object and any depth renderbuffer it owns, leaving its texture to DestroyTexture
-func (b *GLBackend) DestroyFramebuffer(f renderer.FramebufferHandle) {
+func (b *GLBackend) DestroyRenderTarget(f renderer.RenderTargetHandle) {
 	fbo := uint32(f)
 	if fbo == 0 {
 		return
@@ -475,7 +475,7 @@ func (b *GLBackend) Draw(s renderer.ShaderHandle, m renderer.MeshHandle, u *rend
 		return
 	}
 	gl.UseProgram(uint32(s))
-	b.applyDrawUniforms(u)
+	b.bindDrawUniforms(u)
 	gl.BindVertexArray(e.vao)
 	if e.indexed {
 		gl.DrawElements(gl.TRIANGLES, e.count, gl.UNSIGNED_INT, gl.PtrOffset(0))

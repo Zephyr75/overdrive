@@ -246,7 +246,7 @@ type VKBackend struct {
 
 	// draw-time state
 	currentPass   passKind
-	currentTarget renderer.FramebufferHandle // 0 = backbuffer pass
+	currentTarget renderer.RenderTargetHandle // 0 = backbuffer pass
 	boundPipeline vk.Pipeline
 	cullFront     bool
 	depthLequal   bool
@@ -721,7 +721,7 @@ func (b *VKBackend) EndFrame() {
 }
 
 // Transitions the target into attachment layout and begins dynamic rendering on it, with the viewport, scissor and dynamic state this pass needs
-func (b *VKBackend) BeginPass(target renderer.FramebufferHandle, w, h int, clear *[4]float32) {
+func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, w, h int, clear *[4]float32) {
 	if !b.frameActive {
 		return
 	}
