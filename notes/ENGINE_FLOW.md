@@ -29,7 +29,7 @@ howtovulkan.com.
 
 ## 0. The `Backend` contract by how often it is called
 
-`renderer.Backend`'s 27 methods are declared by **resource type** — textures,
+`renderer.Backend`'s 25 methods are declared by **resource type** — textures,
 buffers, meshes, shaders, targets, draws. That is the wrong axis for remembering
 *where a Vulkan call sits in a frame*. This table is the other axis: how often
 each method runs, and what it becomes on each backend. §4 walks the same 27
@@ -56,9 +56,7 @@ per-pass one", `vkCmdPushConstants` is "the per-draw one".
 | `LoadCubemap` | Six `TexImage2D` onto the cube target | One 6-layer `CubeCompatible` image, six faces staged contiguously, one copy |
 | `WhiteTexture` | Returns the built-in texture name | Returns `0` — handle 0 *is* bindless slot 0 |
 | `CreateBuffer` | `GenBuffers` + `BufferData` | `VmaCreateBuffer` host-visible + persistently mapped + `MemCopy` |
-| `CreateMesh` | `GenVertexArrays`, record attribute pointers, upload EBO | Pair the vertex handle with a new index buffer. No VAO — layout lives in the pipeline |
-| `CreateSkyboxMesh` | VAO owning a position-only VBO | A vertex buffer with no index buffer |
-| `CreateFullscreenQuad` | VAO owning the overlay's two triangles | A vertex buffer, layout and count recorded on the mesh |
+| `CreateMesh` | `GenVertexArrays`, record the layout's attribute pointers, upload the EBO if indexed | Pair the vertex handle with an index buffer and record the layout. No VAO — the layout keys the pipeline |
 | `CreateRenderTarget` | FBO plus a depth texture (white border) or a colour texture with a depth renderbuffer | Image usable as attachment *and* sampled, plus **two** views for cubes: 2D-array to attach, cube to sample |
 
 ### On demand, rarely — 6 methods
@@ -375,8 +373,7 @@ difference between one shared struct definition and two that drift.
 |---|---|---|
 | `CreateBuffer` | `GenBuffers` + `BufferData`, `STATIC_DRAW` or `DYNAMIC_DRAW` | Host-visible, persistently mapped VMA allocation + memcpy. `dynamic` is ignored — an update is a memcpy either way |
 | `UpdateBuffer` | `BufferData` again. The driver ghosts the old storage if a draw still reads it | Drains the frames in flight, then memcpys. There is no ghosting |
-| `CreateMesh` | Builds a **VAO**: binds the shared vertex buffer, records the `pos|normal|uv` attribute pointers, uploads this group's index buffer | Just pairs the vertex buffer handle with a new index buffer. There is no VAO — the layout lives in the pipeline |
-| `CreateSkyboxMesh` | A VAO owning a position-only vertex buffer, no indices | A vertex buffer, no index buffer, which is what marks it as the skybox layout at draw time |
+| `CreateMesh` | Builds a **VAO**: binds the vertex buffer, records the layout's attribute pointers, uploads this group's index buffer when there is one | Pairs the vertex buffer handle with an index buffer and stores the layout. There is no VAO — the layout keys the pipeline instead |
 | `DestroyMesh` / `DestroyBuffer` | `DeleteVertexArrays` / `DeleteBuffers` | Drains frames in flight first, then `VmaDestroyBuffer` |
 
 **Same idea:** a mesh is one shared vertex buffer plus one index list per
@@ -418,7 +415,7 @@ or sample an array view), and needs the image's layout tracked across passes.
 overlay differ only in what was recorded when the mesh was created — vertex
 layout, count, indexed or not — so adding a drawable kind means adding a way to
 *build* a mesh, not a way to draw one. The overlay's quad is built once by
-`CreateFullscreenQuad` and drawn like anything else; its pipeline still tests
+`core.createOverlayQuad` and drawn like anything else; its pipeline still tests
 depth without writing it, which is keyed off the fullscreen vertex layout.
 
 The interesting asymmetry is that Vulkan tracks `boundPipeline` to skip

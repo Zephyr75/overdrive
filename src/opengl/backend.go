@@ -38,6 +38,11 @@ type GLBackend struct {
 
 	meshes map[renderer.MeshHandle]meshEntry
 
+	// Float count of every vertex buffer, which is how a non-indexed mesh
+	// derives its vertex count from its layout's stride. Vulkan reads the same
+	// thing off its VMA allocation size.
+	bufferFloats map[renderer.BufferHandle]int
+
 	// Depth renderbuffers owned by colour render targets, keyed by their FBO.
 	// Depth targets attach a sampled texture instead and so appear here not at all.
 	targetDepthRBOs map[renderer.RenderTargetHandle]uint32
@@ -54,6 +59,7 @@ type GLBackend struct {
 func New() *GLBackend {
 	return &GLBackend{
 		meshes:          make(map[renderer.MeshHandle]meshEntry),
+		bufferFloats:    make(map[renderer.BufferHandle]int),
 		targetDepthRBOs: make(map[renderer.RenderTargetHandle]uint32),
 	}
 }
@@ -264,44 +270,76 @@ func (b *GLBackend) CreateBuffer(data []float32, dynamic bool) renderer.BufferHa
 	gl.GenBuffers(1, &vbo)
 	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
 	gl.BufferData(gl.ARRAY_BUFFER, len(data)*4, gl.Ptr(data), usage)
-	return renderer.BufferHandle(vbo)
+	h := renderer.BufferHandle(vbo)
+	b.bufferFloats[h] = len(data)
+	return h
 }
 
 // Respecifies a buffer's contents, the driver ghosting the old storage if a draw still reads it
 func (b *GLBackend) UpdateBuffer(h renderer.BufferHandle, data []float32) {
 	gl.BindBuffer(gl.ARRAY_BUFFER, uint32(h))
 	gl.BufferData(gl.ARRAY_BUFFER, len(data)*4, gl.Ptr(data), gl.DYNAMIC_DRAW)
+	b.bufferFloats[h] = len(data)
 }
 
 // Deletes a buffer object
 func (b *GLBackend) DestroyBuffer(h renderer.BufferHandle) {
 	vbo := uint32(h)
 	gl.DeleteBuffers(1, &vbo)
+	delete(b.bufferFloats, h)
 }
 
 // Builds a VAO recording the fixed vertex layout plus this face group's index buffer
-func (b *GLBackend) CreateMesh(vbo renderer.BufferHandle, indices []uint32) renderer.MeshHandle {
-	var vao, ebo uint32
+func (b *GLBackend) CreateMesh(vbo renderer.BufferHandle, indices []uint32, layout renderer.VertexLayout) renderer.MeshHandle {
+	var vao uint32
 	gl.GenVertexArrays(1, &vao)
-	gl.GenBuffers(1, &ebo)
-
 	gl.BindVertexArray(vao)
 	gl.BindBuffer(gl.ARRAY_BUFFER, uint32(vbo))
-	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
-	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
 
-	// position(3) | normal(3) | uv(2), 32-byte stride
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(0))
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(1, 3, gl.FLOAT, false, 8*4, gl.PtrOffset(3*4))
-	gl.EnableVertexAttribArray(1)
-	gl.VertexAttribPointer(2, 2, gl.FLOAT, false, 8*4, gl.PtrOffset(6*4))
-	gl.EnableVertexAttribArray(2)
+	var ebo uint32
+	count := int32(len(indices))
+	indexed := len(indices) > 0
+	if indexed {
+		gl.GenBuffers(1, &ebo)
+		gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+		gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)
+	} else {
+		// No index list, so the draw is a vertex sweep of the whole buffer
+		count = int32(b.bufferFloats[vbo] / layout.Floats())
+	}
+
+	setAttribPointers(layout)
 	gl.BindVertexArray(0)
 
 	h := renderer.MeshHandle(vao)
-	b.meshes[h] = meshEntry{vao: vao, ebo: ebo, count: int32(len(indices)), indexed: true}
+	b.meshes[h] = meshEntry{vao: vao, ebo: ebo, count: count, indexed: indexed}
 	return h
+}
+
+// Records the layout's attribute pointers into the bound VAO
+//
+// This is the OpenGL half of renderer.VertexLayout. The Vulkan half is
+// vertexInputState in vulkan/shader.go, which bakes the same description into a
+// pipeline instead.
+func setAttribPointers(layout renderer.VertexLayout) {
+	stride := int32(layout.Floats() * 4)
+	switch layout {
+	case renderer.LayoutPosition:
+		gl.EnableVertexAttribArray(0)
+		gl.VertexAttribPointer(0, 3, gl.FLOAT, false, stride, gl.PtrOffset(0))
+	case renderer.LayoutPositionUV:
+		gl.EnableVertexAttribArray(0)
+		gl.VertexAttribPointer(0, 3, gl.FLOAT, false, stride, gl.PtrOffset(0))
+		gl.EnableVertexAttribArray(1)
+		gl.VertexAttribPointer(1, 2, gl.FLOAT, false, stride, gl.PtrOffset(3*4))
+	default: // LayoutMesh
+		gl.EnableVertexAttribArray(0)
+		gl.VertexAttribPointer(0, 3, gl.FLOAT, false, stride, gl.PtrOffset(0))
+		gl.EnableVertexAttribArray(1)
+		gl.VertexAttribPointer(1, 3, gl.FLOAT, false, stride, gl.PtrOffset(3*4))
+		gl.EnableVertexAttribArray(2)
+		gl.VertexAttribPointer(2, 2, gl.FLOAT, false, stride, gl.PtrOffset(6*4))
+	}
 }
 
 // Deletes a mesh's VAO and the buffers it owns
@@ -318,55 +356,6 @@ func (b *GLBackend) DestroyMesh(m renderer.MeshHandle) {
 		gl.DeleteBuffers(1, &e.vbo)
 	}
 	delete(b.meshes, m)
-}
-
-// Builds the skybox VAO, which owns its position-only vertex buffer and has no indices
-func (b *GLBackend) CreateSkyboxMesh(verts []float32) renderer.MeshHandle {
-	var vao, vbo uint32
-	gl.GenVertexArrays(1, &vao)
-	gl.GenBuffers(1, &vbo)
-	gl.BindVertexArray(vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, len(verts)*4, gl.Ptr(verts), gl.STATIC_DRAW)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))
-	gl.BindVertexArray(0)
-
-	h := renderer.MeshHandle(vao)
-	b.meshes[h] = meshEntry{vao: vao, vbo: vbo, count: int32(len(verts) / 3)}
-	return h
-}
-
-// Creates the UI overlay's screen-covering quad as an ordinary mesh
-//
-// Two triangles rather than a strip, so the geometry matches the Vulkan
-// backend's exactly and one Draw can issue both.
-func (b *GLBackend) CreateFullscreenQuad() renderer.MeshHandle {
-	quadVertices := []float32{
-		// clip-space position(3) | uv(2)
-		-1, 1, 0, 0, 1,
-		-1, -1, 0, 0, 0,
-		1, 1, 0, 1, 1,
-
-		1, 1, 0, 1, 1,
-		-1, -1, 0, 0, 0,
-		1, -1, 0, 1, 0,
-	}
-	var vao, vbo uint32
-	gl.GenVertexArrays(1, &vao)
-	gl.GenBuffers(1, &vbo)
-	gl.BindVertexArray(vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
-	gl.BufferData(gl.ARRAY_BUFFER, len(quadVertices)*4, gl.Ptr(quadVertices), gl.STATIC_DRAW)
-	gl.EnableVertexAttribArray(0)
-	gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 5*4, gl.PtrOffset(0))
-	gl.EnableVertexAttribArray(1)
-	gl.VertexAttribPointer(1, 2, gl.FLOAT, false, 5*4, gl.PtrOffset(3*4))
-	gl.BindVertexArray(0)
-
-	h := renderer.MeshHandle(vao)
-	b.meshes[h] = meshEntry{vao: vao, vbo: vbo, count: 6}
-	return h
 }
 
 // --- shadow targets ----------------------------------------------------------

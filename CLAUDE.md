@@ -58,7 +58,7 @@ Cross-backend gotchas that would silently produce a mirrored or inside-out image
 
 ## Documentation map
 
-- `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 27 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §5 is the cross-backend conventions, §6 a symptom→file table, §7 the Vulkan object-ownership tree and the five lifetime classes.
+- `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 25 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §5 is the cross-backend conventions, §6 a symptom→file table, §7 the Vulkan object-ownership tree and the five lifetime classes.
 - `notes/ARCHITECTURE.md` — the code map: repository layout, the dependency rule (with the diagram), scene loading, physics/ECS, a package-by-package symbol reference, the XML/OBJ scene format and the Blender add-on, and §8 the list of dead files.
 - `notes/FEATURES.md` — what is implemented and *why it is built that way* (shadow bias, early-bail PCF, bindless vs dedicated descriptors), Part 2 the roadmap and known gaps, plus the performance history of the two backends and why FPS subtraction is not a valid measurement here.
 - `notes/TODO.md` — the working list.

@@ -59,7 +59,9 @@ func (s *Skybox) setup(b renderer.Backend) {
 		1.0, -1.0, 1.0,
 	}
 
-	s.mesh = b.CreateSkyboxMesh(vertices)
+	// The cube owns its own buffer and carries no indices, unlike scene meshes
+	// which share one buffer across their face groups
+	s.mesh = b.CreateMesh(b.CreateBuffer(vertices, false), nil, renderer.LayoutPosition)
 	tex, err := b.LoadCubemap([6]string{
 		"./textures/skybox/right.png",
 		"./textures/skybox/left.png",

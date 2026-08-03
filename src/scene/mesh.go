@@ -239,7 +239,7 @@ func (m *Mesh) setup(b renderer.Backend) {
 	m.vertexBuf = b.CreateBuffer(m.vertexData, true)
 	m.gpu = make([]renderer.MeshHandle, len(m.indexGroups))
 	for i, face := range m.indexGroups {
-		m.gpu[i] = b.CreateMesh(m.vertexBuf, face)
+		m.gpu[i] = b.CreateMesh(m.vertexBuf, face, renderer.LayoutMesh)
 	}
 
 	// Load the material textures recorded at parse time

@@ -57,14 +57,9 @@ const (
 	passCount
 )
 
-type vertexLayout int
-
-const (
-	layoutMesh       vertexLayout = iota // position(3)|normal(3)|uv(2), 32-byte stride
-	layoutSkybox                         // position(3) only, 12-byte stride
-	layoutFullscreen                     // the UI quad, position(3)|uv(2), 20-byte stride
-	layoutCount
-)
+// Pipelines are keyed by layout, so the table needs a count the enum itself
+// does not carry. renderer.VertexLayout is the shared declaration.
+const layoutCount = int(renderer.LayoutPositionUV) + 1
 
 // One texture: its image, view, and the bindless slot shaders reach it through
 type texEntry struct {
@@ -105,7 +100,7 @@ type meshEntry struct {
 	vbo         renderer.BufferHandle
 	indexBuffer vk.Buffer
 	indexAlloc  vk.VmaAllocation
-	layout      vertexLayout
+	layout      renderer.VertexLayout
 	count       uint32 // index count when indexed, vertex count otherwise
 	indexed     bool
 	valid       bool

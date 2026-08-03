@@ -110,7 +110,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 	utils.HandleError(err)
 
 	// The overlay's quad is built once, like any other mesh
-	uiQuad := b.CreateFullscreenQuad()
+	uiQuad := createOverlayQuad(b)
 
 	if s != nil {
 		input.SetScene(s)

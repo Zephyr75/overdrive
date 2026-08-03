@@ -59,7 +59,7 @@ func (b *VKBackend) shader(h renderer.ShaderHandle) *shaderEntry {
 }
 
 // Returns the pipeline for this (shader, pass, layout), building it on first use
-func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout vertexLayout) vk.Pipeline {
+func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout renderer.VertexLayout) vk.Pipeline {
 	if p := s.pipelines[pass][layout]; p != 0 {
 		return p
 	}
@@ -97,7 +97,7 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout vertexLayo
 			DepthTestEnable: pass != passOffscreenColor,
 			// Let the UI overlay test but not write, as it composites over the
 			// finished scene from the near plane
-			DepthWriteEnable: layout != layoutFullscreen,
+			DepthWriteEnable: layout != renderer.LayoutPositionUV,
 			DepthCompareOp:   vk.CompareOpLess, // dynamic, so this is only the default
 		},
 		ColorBlendState: colorBlendState(pass),
@@ -119,8 +119,8 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout vertexLayo
 }
 
 // Builds the vertex input state for a layout, dropping the attributes a depth-only pass never reads
-func vertexInputState(pass passKind, layout vertexLayout) *vk.PipelineVertexInputStateCreateInfo {
-	if layout == layoutFullscreen {
+func vertexInputState(pass passKind, layout renderer.VertexLayout) *vk.PipelineVertexInputStateCreateInfo {
+	if layout == renderer.LayoutPositionUV {
 		// Describe the UI quad, clip-space position(3) | uv(2), 20-byte stride
 		return &vk.PipelineVertexInputStateCreateInfo{
 			Bindings: []vk.VertexInputBinding{{Binding: 0, Stride: 5 * 4, InputRate: vk.VertexInputRateVertex}},
@@ -132,7 +132,7 @@ func vertexInputState(pass passKind, layout vertexLayout) *vk.PipelineVertexInpu
 	}
 
 	stride := uint32(8 * 4)
-	if layout == layoutSkybox {
+	if layout == renderer.LayoutPosition {
 		stride = 3 * 4
 	}
 	attrs := []vk.VertexInputAttribute{
@@ -141,7 +141,7 @@ func vertexInputState(pass passKind, layout vertexLayout) *vk.PipelineVertexInpu
 	// Add normals and UVs for the passes with a colour attachment, the
 	// depth-only shaders taking position alone and declaring unread attributes
 	// being rejected
-	if layout == layoutMesh && (pass == passMain || pass == passOffscreenColor) {
+	if layout == renderer.LayoutMesh && (pass == passMain || pass == passOffscreenColor) {
 		attrs = append(attrs,
 			vk.VertexInputAttribute{Location: 1, Binding: 0, Format: vk.FormatR32G32B32Sfloat, Offset: 3 * 4},
 			vk.VertexInputAttribute{Location: 2, Binding: 0, Format: vk.FormatR32G32Sfloat, Offset: 6 * 4},

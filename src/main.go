@@ -15,14 +15,17 @@ import (
 /////////////
 
 // An immovable body, its collider driving nothing of its own
+//
+// The collider is a named field rather than embedded, so the ecs.Entity method
+// Collider() has a name to occupy.
 type StaticCollider struct {
-	physics.Collider
+	collider physics.Collider
 }
 
-func (s *StaticCollider) Init(world *ecs.World)         {}
-func (s *StaticCollider) Update(world *ecs.World)       {}
-func (s *StaticCollider) GetType() string               { return "StaticCollider" }
-func (s *StaticCollider) GetCollider() physics.Collider { return s.Collider }
+func (s *StaticCollider) Init(world *ecs.World)      {}
+func (s *StaticCollider) Update(world *ecs.World)    {}
+func (s *StaticCollider) Type() string               { return "StaticCollider" }
+func (s *StaticCollider) Collider() physics.Collider { return s.collider }
 
 // A falling ball, its mesh following the collider each frame
 type Sphere struct {
@@ -37,9 +40,9 @@ func (s *Sphere) Update(world *ecs.World) {
 	s.Mesh.MoveTo(s.Pos)
 }
 
-func (s *Sphere) GetType() string { return "Sphere" }
+func (s *Sphere) Type() string { return "Sphere" }
 
-func (s *Sphere) GetCollider() physics.Collider { return s.Sphere }
+func (s *Sphere) Collider() physics.Collider { return s.Sphere }
 
 // A static ball the falling one collides against
 type Sphere2 struct {
@@ -48,10 +51,10 @@ type Sphere2 struct {
 	*scene.Mesh
 }
 
-func (s *Sphere2) Init(world *ecs.World)         {}
-func (s *Sphere2) Update(world *ecs.World)       {}
-func (s *Sphere2) GetType() string               { return "Sphere2" }
-func (s *Sphere2) GetCollider() physics.Collider { return s.Sphere }
+func (s *Sphere2) Init(world *ecs.World)      {}
+func (s *Sphere2) Update(world *ecs.World)    {}
+func (s *Sphere2) Type() string               { return "Sphere2" }
+func (s *Sphere2) Collider() physics.Collider { return s.Sphere }
 
 func main() {
 
@@ -71,13 +74,13 @@ func main() {
 func createWorld(s *scene.Scene) *ecs.World {
 	world := ecs.World{}
 
-	if m := s.GetMesh("Ground"); m != nil {
+	if m := s.Mesh("Ground"); m != nil {
 		world.AddEntities(&StaticCollider{physics.NewPlaneFromMesh(m, true)})
 	}
-	if m := s.GetMesh("Sphere2"); m != nil {
+	if m := s.Mesh("Sphere2"); m != nil {
 		world.AddEntities(&StaticCollider{physics.NewSphereFromMesh(m, true)})
 	}
-	if m := s.GetMesh("Sphere"); m != nil {
+	if m := s.Mesh("Sphere"); m != nil {
 		world.AddEntities(&Sphere{physics.NewSphereFromMesh(m, false), m})
 	}
 

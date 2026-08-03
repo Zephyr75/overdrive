@@ -13,7 +13,7 @@ type Sphere struct {
 // func (Sphere) Collider() string { return "Sphere" }
 
 // Returns the Verlet state the integrator steps
-func (s *Sphere) GetVerlet() *Verlet { return &s.Verlet }
+func (s *Sphere) Body() *Verlet { return &s.Verlet }
 
 // Creates a sphere collider at a position
 func NewSphere(pos mgl32.Vec3, radius float32, fixed bool) *Sphere {

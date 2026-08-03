@@ -22,6 +22,26 @@ var (
 	uiTexture    renderer.TextureHandle
 )
 
+// The overlay's geometry, in renderer.LayoutPositionUV
+//
+// Two triangles rather than a strip, so both backends submit identical geometry
+// through the one Draw entry point.
+var quadVertices = []float32{
+	// clip-space position(3) | uv(2)
+	-1, 1, 0, 0, 1,
+	-1, -1, 0, 0, 0,
+	1, 1, 0, 1, 1,
+
+	1, 1, 0, 1, 1,
+	-1, -1, 0, 0, 0,
+	1, -1, 0, 1, 0,
+}
+
+// Uploads the overlay's quad, once, as an ordinary mesh
+func createOverlayQuad(b renderer.Backend) renderer.MeshHandle {
+	return b.CreateMesh(b.CreateBuffer(quadVertices, false), nil, renderer.LayoutPositionUV)
+}
+
 // Rasterises the widget tree into an RGBA image, uploads it through the backend and draws it as a fullscreen quad, inside the main pass
 func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.ShaderHandle, quad renderer.MeshHandle) {
 	window := app.Window

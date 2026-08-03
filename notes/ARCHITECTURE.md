@@ -157,7 +157,7 @@ flowchart TD
     LI --> PS["Scene.pickShadowCasters<br/>first sun + first point light"]
     PS --> LS["Light.setup<br/>CreateRenderTarget for casters only"]
 
-    P --> SK["Skybox.setup<br/>CreateSkyboxMesh + LoadCubemap"]
+    P --> SK["Skybox.setup<br/>CreateBuffer + CreateMesh + LoadCubemap"]
 
     style X fill:#553c9a,color:#e2e8f0
     style SU fill:#276749,color:#e2e8f0
@@ -238,8 +238,9 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 
 | Symbol | Kind | Description |
 |---|---|---|
-| `Backend` | interface | 27 methods, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency |
+| `Backend` | interface | 25 methods, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency |
 | `TextureHandle`, `BufferHandle`, `MeshHandle`, `RenderTargetHandle`, `ShaderHandle` | type | Opaque `uint32`. Texture 0 is the white pixel, render target 0 the backbuffer |
+| `VertexLayout` | type | `LayoutMesh`, `LayoutPosition`, `LayoutPositionUV` — how a mesh's vertex buffer is read. Recorded at creation, which is what lets one `Draw` serve every drawable |
 | `RenderTargetSpec`, `TargetFormat` | type | Describes an offscreen target by what it *is* — size, depth or colour, cube or not |
 | `Feature`, `Supports` | type, method | The seam for ray tracing and compute; both backends report `false` today |
 | `FrameUniforms` | type | 1280 B: camera, lights, shadow maps. Published once per pass |
@@ -260,7 +261,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `Scene.RenderSkybox` | func | Binds a *copy* of the frame block with the view translation stripped |
 | `Scene.UpdateMeshes` | func | Reuploads the vertex buffers physics moved this frame |
 | `Scene.ShadowCasters` | func | Returns the two caster indices, or -1 |
-| `Scene.GetMesh` / `GetLight` / `GetCamera` | func | Lookup by name |
+| `Scene.Mesh` / `Light` / `Camera` | func | Lookup by name |
 | `Mesh` | type | Vertices, normals, UVs, faces, materials, plus the GPU handles |
 | `Mesh.MoveTo` / `MoveBy` | func | Rebuild vertex data and flag it for reupload |
 | `Mesh.draw` *(pkg)* | func | One `Backend.Draw` per face group, rewriting the material fields of `u` |
@@ -274,10 +275,10 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 
 | Symbol | Kind | Description |
 |---|---|---|
-| `Entity` | interface | `Init`, `Update`, `GetType`, `GetCollider` |
+| `Entity` | interface | `Init`, `Update`, `Type`, `Collider` |
 | `World` | type | A slice of entities |
 | `World.AddEntities` / `Init` / `Update` | func | Build and step the world |
-| `World.GetEntities` / `GetEntity` | func | Lookup by type string |
+| `World.Entities` / `FirstEntity` | func | Lookup by type string |
 
 ### `physics/`
 
@@ -289,6 +290,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `Sphere` | type | A `Verlet` plus a radius |
 | `NewSphere` / `NewSphereFromMesh` | func | Explicit, or bounding radius derived from a mesh |
 | `Sphere.Collide` | func | Dispatches to sphere-sphere or sphere-plane |
+| `Collider.Body` | method | The `Verlet` the integrator steps. Named `Body` because every implementer embeds a `Verlet` field |
 | `Plane` | type | A `Verlet` plus a normal, axes and half-sizes |
 | `NewPlane` / `NewPlaneFromMesh` | func | From four corners, or derived from a mesh |
 

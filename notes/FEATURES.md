@@ -31,7 +31,7 @@ Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
 ### Dual backend, one shader source
 
 - The scene layer makes zero graphics-API calls. Everything goes through
-  `renderer.Backend` (27 methods), implemented twice in `opengl/` and `vulkan/`,
+  `renderer.Backend` (25 methods), implemented twice in `opengl/` and `vulkan/`,
   selected at startup by `OVERDRIVE_BACKEND`
 - Shaders are authored once in Slang (`shaders/slang/*.slang`) and compiled per
   backend by `build_shaders.sh`: GLSL 4.10 for OpenGL, SPIR-V for Vulkan
@@ -198,7 +198,7 @@ The theory behind all of this is in `cheatsheets/PBR.md`.
 
 Widget trees from [Gutter](https://github.com/Zephyr75/gutter) are rasterised on
 the CPU into an RGBA image, uploaded with `UpdateTexture2D`, and composited as an
-ordinary fullscreen mesh built once by `CreateFullscreenQuad`. It redraws only
+ordinary fullscreen mesh built once by `core.createOverlayQuad`. It redraws only
 when the tree or the hover state changed.
 
 On Vulkan the upload is *staged* and copied at the top of the next frame, because

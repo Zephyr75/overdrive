@@ -74,11 +74,19 @@ func (b *VKBackend) buffer(h renderer.BufferHandle) *bufEntry {
 	return &b.buffers[h]
 }
 
-// Pairs a shared vertex buffer with this face group's index buffer
+// Pairs a shared vertex buffer with a layout and this face group's index buffer
 //
 // There is no VAO equivalent in Vulkan — the vertex layout is baked into the
-// pipeline instead — so a mesh is just that pair, bound per draw.
-func (b *VKBackend) CreateMesh(vertexBuf renderer.BufferHandle, indices []uint32) renderer.MeshHandle {
+// pipeline instead — so a mesh is that pair plus the layout to key the pipeline
+// on, bound per draw.
+func (b *VKBackend) CreateMesh(vertexBuf renderer.BufferHandle, indices []uint32, layout renderer.VertexLayout) renderer.MeshHandle {
+	indexed := len(indices) > 0
+	count := uint32(len(indices))
+	if !indexed {
+		// No index list, so the draw sweeps the whole vertex buffer
+		count = uint32(b.buffer(vertexBuf).size) / uint32(layout.Floats()*4)
+	}
+
 	size := uint64(len(indices) * 4)
 	if size == 0 {
 		size = 4
@@ -96,25 +104,7 @@ func (b *VKBackend) CreateMesh(vertexBuf renderer.BufferHandle, indices []uint32
 
 	b.meshes = append(b.meshes, meshEntry{
 		vbo: vertexBuf, indexBuffer: buf, indexAlloc: alloc,
-		layout: layoutMesh, count: uint32(len(indices)), indexed: true, valid: true,
-	})
-	return renderer.MeshHandle(len(b.meshes) - 1)
-}
-
-// Creates the skybox mesh, which owns its 36 non-indexed positions and has no index buffer
-func (b *VKBackend) CreateSkyboxMesh(verts []float32) renderer.MeshHandle {
-	vbo := b.createBuffer(verts, vk.BufferUsageVertexBuffer)
-	b.meshes = append(b.meshes, meshEntry{
-		vbo: vbo, layout: layoutSkybox, count: uint32(len(verts) / 3), valid: true,
-	})
-	return renderer.MeshHandle(len(b.meshes) - 1)
-}
-
-// Creates the UI overlay's screen-covering quad as an ordinary mesh
-func (b *VKBackend) CreateFullscreenQuad() renderer.MeshHandle {
-	vbo := b.createBuffer(quadVertices, vk.BufferUsageVertexBuffer)
-	b.meshes = append(b.meshes, meshEntry{
-		vbo: vbo, layout: layoutFullscreen, count: 6, valid: true,
+		layout: layout, count: count, indexed: indexed, valid: true,
 	})
 	return renderer.MeshHandle(len(b.meshes) - 1)
 }

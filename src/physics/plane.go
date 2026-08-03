@@ -38,4 +38,4 @@ func (p *Plane) Collide(c Collider) {
 }
 
 // Returns the Verlet state the integrator steps
-func (p *Plane) GetVerlet() *Verlet { return &p.Verlet }
+func (p *Plane) Body() *Verlet { return &p.Verlet }

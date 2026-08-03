@@ -73,7 +73,7 @@ func (b *VKBackend) prepareDraw(s renderer.ShaderHandle, m renderer.MeshHandle) 
 }
 
 // Binds the pipeline for this shader, pass and vertex layout, skipping the call when it is already bound
-func (b *VKBackend) bindPipeline(cb vk.CommandBuffer, sh *shaderEntry, layout vertexLayout) {
+func (b *VKBackend) bindPipeline(cb vk.CommandBuffer, sh *shaderEntry, layout renderer.VertexLayout) {
 	p := b.getPipeline(sh, b.currentPass, layout)
 	if p != b.boundPipeline {
 		vk.CmdBindPipeline(cb, vk.PipelineBindPointGraphics, p)

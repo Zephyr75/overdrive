@@ -9,9 +9,10 @@ type Collider interface {
 	// Resolves this collider against another, moving only itself
 	Collide(c Collider)
 	// Returns the Verlet state the integrator steps
-	GetVerlet() *Verlet
-
-	// Collider() string
+	//
+	// Named Body rather than Verlet because every implementer embeds the Verlet
+	// struct, and a method cannot share a name with a field.
+	Body() *Verlet
 }
 
 type Verlet struct {

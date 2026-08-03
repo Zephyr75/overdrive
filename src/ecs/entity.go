@@ -32,12 +32,12 @@ func (w *World) Update(timeInterval time.Duration) {
 	for i, entity := range w.entities {
 		for j, otherEntity := range w.entities {
 			if i != j {
-				entity.GetCollider().Collide(otherEntity.GetCollider())
+				entity.Collider().Collide(otherEntity.Collider())
 			}
 		}
 	}
 	for _, entity := range w.entities {
-		entity.GetCollider().GetVerlet().UpdatePosition(1.0 / 60.0)
+		entity.Collider().Body().UpdatePosition(1.0 / 60.0)
 	}
 
 	// for {
@@ -49,10 +49,10 @@ func (w *World) Update(timeInterval time.Duration) {
 }
 
 // Returns every entity reporting a type
-func (w *World) GetEntities(entityType string) []Entity {
+func (w *World) Entities(entityType string) []Entity {
 	var entities []Entity
 	for _, entity := range w.entities {
-		if entity.GetType() == entityType {
+		if entity.Type() == entityType {
 			entities = append(entities, entity)
 		}
 	}
@@ -60,9 +60,9 @@ func (w *World) GetEntities(entityType string) []Entity {
 }
 
 // Returns the first entity reporting a type, or nil
-func (w *World) GetEntity(entityType string) Entity {
+func (w *World) FirstEntity(entityType string) Entity {
 	for _, entity := range w.entities {
-		if entity.GetType() == entityType {
+		if entity.Type() == entityType {
 			return entity
 		}
 	}
@@ -75,9 +75,9 @@ type Entity interface {
 	// Runs once per frame, before collisions are resolved
 	Update(world *World)
 	// Names this entity's kind, for lookups by type
-	GetType() string
+	Type() string
 	// Returns the collider the physics step drives
-	GetCollider() physics.Collider
+	Collider() physics.Collider
 }
 
 // type Sphere struct {

@@ -95,7 +95,7 @@ func (s *Scene) UpdateMeshes() {
 }
 
 // Finds a mesh by name, returning nil when the scene has none
-func (s *Scene) GetMesh(name string) *Mesh {
+func (s *Scene) Mesh(name string) *Mesh {
 	for i, mesh := range s.Meshes {
 		if mesh.Name == name {
 			return &s.Meshes[i]
@@ -105,7 +105,7 @@ func (s *Scene) GetMesh(name string) *Mesh {
 }
 
 // Finds a light by name, returning nil when the scene has none
-func (s *Scene) GetLight(name string) *Light {
+func (s *Scene) Light(name string) *Light {
 	for i, light := range s.Lights {
 		if light.Name == name {
 			return &s.Lights[i]
@@ -115,7 +115,7 @@ func (s *Scene) GetLight(name string) *Light {
 }
 
 // Returns the scene's camera
-func (s *Scene) GetCamera() *Camera {
+func (s *Scene) Camera() *Camera {
 	return &s.Cam
 }
 

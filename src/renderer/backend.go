@@ -35,6 +35,35 @@ const (
 	TargetColor
 )
 
+// VertexLayout is how a mesh's vertex buffer is laid out, and therefore how the
+// backend binds it: attribute pointers on OpenGL, a pipeline variant on Vulkan.
+//
+// It is a property of the geometry, recorded once when the mesh is created, so
+// that one Draw serves every kind of drawable. A new kind of geometry means a
+// new layout here, not a new interface method.
+type VertexLayout int
+
+const (
+	// position(3)|normal(3)|uv(2): scene meshes
+	LayoutMesh VertexLayout = iota
+	// position(3): the skybox cube
+	LayoutPosition
+	// position(3)|uv(2): fullscreen quads, the UI overlay
+	LayoutPositionUV
+)
+
+// Floats returns how many float32s one vertex of this layout occupies
+func (l VertexLayout) Floats() int {
+	switch l {
+	case LayoutPosition:
+		return 3
+	case LayoutPositionUV:
+		return 5
+	default:
+		return 8
+	}
+}
+
 // RenderTargetSpec describes an offscreen target by what it *is*, not by what
 // it is used for.
 //
@@ -101,14 +130,15 @@ type Backend interface {
 	// Destroys a buffer
 	DestroyBuffer(h BufferHandle)
 
-	// Pairs a vertex buffer with one index list, in the fixed position(3)|normal(3)|uv(2) layout of 32-byte stride, one handle per material face group
-	CreateMesh(vertexBuf BufferHandle, indices []uint32) MeshHandle
-	// Destroys a mesh
+	// Pairs a vertex buffer with a vertex layout and an optional index list, one handle per material face group
+	//
+	// A nil index list makes the mesh non-indexed, its vertex count derived from
+	// the buffer's size and the layout's stride. Several meshes may share one
+	// vertex buffer, which is how a multi-material OBJ becomes one buffer plus
+	// one mesh per face group.
+	CreateMesh(vertexBuf BufferHandle, indices []uint32, layout VertexLayout) MeshHandle
+	// Destroys a mesh, leaving the vertex buffer it borrowed alone
 	DestroyMesh(m MeshHandle)
-	// Creates the skybox cube: 36 non-indexed vertices, position(3) only
-	CreateSkyboxMesh(verts []float32) MeshHandle
-	// Creates the screen-covering quad the UI overlay composites through
-	CreateFullscreenQuad() MeshHandle
 
 	// Creates an offscreen target and its sampled view, returning both handles
 	CreateRenderTarget(spec RenderTargetSpec) (RenderTargetHandle, TextureHandle)
