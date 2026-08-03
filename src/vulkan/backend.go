@@ -193,6 +193,16 @@ type VKBackend struct {
 	depthAlloc  vk.VmaAllocation
 	depthView   vk.ImageView
 
+	// The multisampled colour image the main pass renders into, resolved into
+	// the swapchain image at the end of the pass. Zero when MSAA is off, which
+	// is what every "is MSAA on" test in this package checks
+	msaaImage vk.Image
+	msaaAlloc vk.VmaAllocation
+	msaaView  vk.ImageView
+	// Sample count of the main pass, decided once in Init from
+	// settings.MSAASamples and the device's limits
+	samples vk.SampleCountFlags
+
 	// frame state
 	commandPool vk.CommandPool
 	frames      [framesInFlight]frameData
@@ -251,6 +261,7 @@ type VKBackend struct {
 func New() *VKBackend {
 	b := &VKBackend{
 		swapFormat:     vk.FormatB8G8R8A8Unorm,
+		samples:        vk.SampleCount1Bit, // Init narrows this once the device is known
 		shadow2DHandle: invalidHandle,
 	}
 	for i := range b.shadowCubeHandle {
@@ -301,6 +312,9 @@ func (b *VKBackend) Init(window *glfw.Window) error {
 		Device:         b.device,
 		Instance:       b.instance,
 	})
+
+	// Before the swapchain, which sizes its colour and depth images to it
+	b.samples = b.pickSampleCount()
 
 	if err := b.createSwapchain(); err != nil {
 		return err
@@ -750,6 +764,21 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, w, h int, clea
 		if clear != nil {
 			colorAtt.LoadOp = vk.AttachmentLoadOpClear
 			colorAtt.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
+		}
+		// Under MSAA the pass draws into the multisampled image and resolves it
+		// into the swapchain image on EndPass, so the samples themselves never
+		// need storing — which is what makes the image transient
+		if b.msaaView != 0 {
+			colorAtt.ResolveImageView = colorAtt.ImageView
+			colorAtt.ResolveImageLayout = vk.ImageLayoutColorAttachmentOptimal
+			colorAtt.ResolveMode = vk.ResolveModeAverage
+			colorAtt.ImageView = b.msaaView
+			colorAtt.StoreOp = vk.AttachmentStoreOpDontCare
+
+			b.imageBarrier(cb, b.msaaImage, vk.ImageAspectColor, 1,
+				vk.ImageLayoutUndefined, vk.ImageLayoutColorAttachmentOptimal,
+				vk.PipelineStage2ColorAttachmentOutput, vk.Access2None,
+				vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
 		}
 		depthAtt.ImageView = b.depthView
 		depthAtt.StoreOp = vk.AttachmentStoreOpDontCare

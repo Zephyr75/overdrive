@@ -1,11 +1,16 @@
 package main
 
 import (
+	"flag"
+	"fmt"
+	"image/color"
+	"os"
+
 	"github.com/Zephyr75/overdrive/core"
 	"github.com/Zephyr75/overdrive/ecs"
 	"github.com/Zephyr75/overdrive/physics"
 	"github.com/Zephyr75/overdrive/scene"
-	"image/color"
+	"github.com/Zephyr75/overdrive/settings"
 
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/go-gl/mathgl/mgl32"
@@ -57,8 +62,19 @@ func (s *Sphere2) Type() string               { return "Sphere2" }
 func (s *Sphere2) Collider() physics.Collider { return s.Sphere }
 
 func main() {
+	// Settings are a runtime input, so one build runs on either backend, at any
+	// resolution, with or without anti-aliasing. They must be loaded before
+	// NewApp, which is where the window and the backend read them
+	configPath := flag.String("config", "config.toml", "path to the engine settings file")
+	flag.Parse()
+	// A bad settings file is the user's mistake, not a crash, so it gets a line
+	// on stderr rather than utils.HandleError's stack
+	if err := settings.Load(*configPath); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 
-	app := core.NewApp("Gutter", 1920, 1080, true, nil, nil)
+	app := core.NewApp("Gutter", settings.WindowWidth, settings.WindowHeight, true, nil, nil)
 
 	scene := scene.NewScene("assets/showcase.xml", app.Backend)
 

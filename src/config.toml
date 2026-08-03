@@ -1,0 +1,26 @@
+# Overdrive engine settings
+#
+#   go run . -config config.toml     (this file is the default)
+#
+# Every key is optional; an absent one keeps the default in settings/settings.go.
+# OVERDRIVE_BACKEND and OVERDRIVE_MSAA override this file for a single run.
+
+[window]
+width = 1920
+height = 1080
+
+[shadows]
+# Extent of every shadow map, the sun's 2D map and the point light's cube alike
+width = 1024
+height = 1024
+
+[renderer]
+# "gl" (OpenGL 4.1) or "vulkan" (Vulkan 1.3)
+backend = "gl"
+
+[antialiasing]
+# "msaa" or "none". MSAA covers the backbuffer only, so it smooths geometric
+# edges and leaves shader aliasing alone
+mode = "msaa"
+# 2, 4 or 8. Vulkan clamps this to what the device supports; the spec guarantees 4
+samples = 4

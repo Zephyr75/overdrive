@@ -145,9 +145,10 @@ The rule inside a frame: **clears and viewports exist only inside
 
 | Step | Code | What happens |
 |---|---|---|
-| 1 | `core.createBackend` | Reads `OVERDRIVE_BACKEND` (`gl` default, or `vulkan`) and constructs `opengl.New()` / `vulkan.New()`. Lives in `core/` because the backend packages import `renderer`, so `renderer` cannot import them back. |
+| 0 | `settings.Load` | `main.go` decodes the file named by `-config` (`config.toml` by default) over the defaults, then lets `OVERDRIVE_BACKEND` / `OVERDRIVE_MSAA` override it. Everything below reads the result, so it has to run before `core.NewApp`. |
+| 1 | `core.createBackend` | Constructs `opengl.New()` / `vulkan.New()` from `settings.Backend`. Lives in `core/` because the backend packages import `renderer`, so `renderer` cannot import them back. |
 | 2 | `glfw.Init` | Window system up. |
-| 3 | `Backend.ConfigureWindow` | GL: hints a 4.1 core forward-compatible context, 4x MSAA. VK: hints `ClientAPI = NoAPI` — there is no context to create. |
+| 3 | `Backend.ConfigureWindow` | GL: hints a 4.1 core forward-compatible context, plus `settings.MSAASamples` samples — the default framebuffer's sample count can only be chosen here. VK: hints `ClientAPI = NoAPI` — there is no context to create. |
 | 4 | `glfw.CreateWindow` | The window exists. |
 | 5 | input callbacks | Resize, scroll, mouse. A resize only records the new size — the viewport is a per-pass decision. |
 | 6 | `Backend.Init(window)` | GL: makes the context current, enables depth/cull/blend, creates the white pixel, the black dummy cube, and the shared std140 uniform buffer. VK: instance → surface → physical device → queue family → logical device → VMA allocator → swapchain → command pool → per-frame data → samplers → descriptors → pipeline layout → default textures. |
@@ -447,6 +448,18 @@ map's memory layout matches GL's and the sampling math in the shaders is
 unchanged; the price is inverted winding, which those pipelines declare as
 `FrontFace = Clockwise`.
 
+**MSAA is a backbuffer-only property.** `settings.MSAASamples` (1 = off) is read
+once at `Init`. GL passes it to `glfw.WindowHint(glfw.Samples, …)`, since the
+default framebuffer's sample count is fixed when the window is created. Vulkan
+allocates a multisampled colour image plus a matching multisampled depth image,
+draws the main pass into them, and resolves into the swapchain image with
+`ResolveModeAverage` on the colour attachment. Offscreen targets stay
+single-sampled on both backends — a later pass has to *sample* them, and a
+multisampled texture is not something these shaders can read — so
+`vulkan/shader.go` `passSamples` gives the multisampled count to `passMain`
+only. A pipeline whose sample count disagrees with its pass's attachments is
+invalid, so this is the one place that decision lives.
+
 **Shadow border colour.** GL sets `TEXTURE_BORDER_COLOR` to opaque white;
 Vulkan sets `BorderColor = OpaqueWhiteFloat` on the 2D shadow sampler. Same
 result: outside the sun's frustum is unshadowed.
@@ -499,7 +512,8 @@ Instance                                          DestroyInstance
     │   ├── swapImages[]          owned by the swapchain, never destroyed
     │   ├── swapViews[]           DestroyImageView          ┐
     │   ├── renderSems[]          DestroySemaphore          │ destroySwapchain
-    │   └── depthImage/View       VmaDestroyImage           ┘
+    │   ├── depthImage/View       VmaDestroyImage           │
+    │   └── msaaImage/View        VmaDestroyImage           ┘ only when MSAA is on
     │
     ├── CommandPool                                 DestroyCommandPool
     │   └── frames[2].cb          freed with the pool
@@ -528,7 +542,7 @@ Instance                                          DestroyInstance
 | Class | Objects | Created | Destroyed |
 |---|---|---|---|
 | **Permanent** | instance, surface, device, allocator, command pool, descriptor pool/set/layout, pipeline layout, samplers | `Init`, once | `Shutdown`, reverse order |
-| **Swapchain-sized** | swapchain, image views, render semaphores, depth image + view | `createSwapchain` | `destroySwapchain` — **also on every resize** |
+| **Swapchain-sized** | swapchain, image views, render semaphores, depth image + view, MSAA colour image + view | `createSwapchain` | `destroySwapchain` — **also on every resize** |
 | **Per frame in flight** (×2) | command buffer, fence, acquire semaphore, uniform ring | `createFrameData` | `Shutdown` |
 | **Per resource** | shader modules + pipelines, textures, buffers, meshes, shadow targets | load time, on demand | `Destroy*` (after `waitAllFrames`) or `Shutdown` |
 | **Retired** | images/views/staging replaced mid-frame | `retire`, when the UI canvas resizes | `drainRetired`, once `framesInFlight + 1` frames have passed |

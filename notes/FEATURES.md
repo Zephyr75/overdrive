@@ -21,6 +21,7 @@ Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
   - [Environment and reflection](#environment-and-reflection)
   - [Scene and assets](#scene-and-assets)
   - [UI overlay](#ui-overlay)
+  - [Anti-aliasing](#anti-aliasing--msaa-on-the-backbuffer)
 - [Part 2 — roadmap](#part-2--roadmap)
 - [Performance notes](#performance-notes)
 
@@ -204,6 +205,27 @@ when the tree or the hover state changed.
 On Vulkan the upload is *staged* and copied at the top of the next frame, because
 a copy cannot be recorded inside a render pass — one frame of latency, no queue
 stall. `main.go` currently passes a nil widget, so only the debug crosshair draws.
+
+### Anti-aliasing — MSAA on the backbuffer
+
+`settings.MSAASamples` (1 or 0 off, 2/4/8 on, default 4, overridable with
+`OVERDRIVE_MSAA`) is read once when the backend initialises, because both
+backends bake the count into an object they build there: GL into the window's
+default framebuffer, Vulkan into a multisampled colour + depth pair resolved into
+the swapchain image at the end of the main pass. Vulkan clamps the request to
+`framebufferColor/DepthSampleCounts`, so an unsupported 8× steps down to 4×
+rather than failing device-side; 1 and 4 are guaranteed by the spec.
+
+MSAA rather than a post-process filter because it needs no new pass and no new
+render target: FXAA or TAA would mean rendering the scene offscreen, and an
+offscreen colour target has no depth attachment on the Vulkan backend
+(`passOffscreenColor` is colour-only, for post-processing that reads a finished
+image). It also only smooths geometric edges — shader aliasing (specular
+highlights, normal-map shimmer) is untouched, which is what a post-process pass
+would buy.
+
+The cost is real and worth measuring on the target GPU: on an Intel UHD 620 at
+1920×1080 the showcase scene runs ~49 FPS off, ~44 at 4×, ~28 at 8×.
 
 ---
 

@@ -91,7 +91,7 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout renderer.V
 			FrontFace: frontFace(pass),
 			LineWidth: 1,
 		},
-		MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: vk.SampleCount1Bit},
+		MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: b.passSamples(pass)},
 		DepthStencilState: &vk.PipelineDepthStencilStateCreateInfo{
 			// An offscreen colour pass has no depth attachment to test against
 			DepthTestEnable: pass != passOffscreenColor,
@@ -163,6 +163,18 @@ func frontFace(pass passKind) vk.FrontFace {
 		return vk.FrontFaceCounterClockwise
 	}
 	return vk.FrontFaceClockwise
+}
+
+// Reports the sample count a pass's pipelines must rasterise at, which has to equal that of the pass's attachments
+//
+// Only the backbuffer is multisampled: shadow maps and offscreen colour targets
+// are sampled by later passes, and a multisample texture is not something the
+// shaders can read.
+func (b *VKBackend) passSamples(pass passKind) vk.SampleCountFlags {
+	if pass == passMain {
+		return b.samples
+	}
+	return vk.SampleCount1Bit
 }
 
 // Builds the alpha-blend state of the passes that own a color attachment, the shadow passes having none to blend into
