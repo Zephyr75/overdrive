@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Overdrive is a Go game engine whose graphics layer runs on **both OpenGL 4.1 and Vulkan 1.3** from one shader set, picked at startup by `src/config.toml` (or `OVERDRIVE_BACKEND`). It also carries an ECS, Verlet physics, a gutter-based UI overlay and a Blender XML export plugin.
+Overdrive is a Go game engine whose graphics layer runs on **both OpenGL 4.1 and Vulkan 1.3** from one shader set, picked at startup by the TOML settings file (`src/configs/opengl.toml` by default). It also carries an ECS, Verlet physics, a gutter-based UI overlay and a Blender XML export plugin.
 
 ## Build & run
 
@@ -14,14 +14,12 @@ The Go module root is **`src/`** (module `github.com/Zephyr75/overdrive`). Run e
 cd src
 SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh   # required; see note below
 go build ./...
-go test ./...        # std140 layout + showcase-scene checks; no GPU needed
-go run .             # reads config.toml
-go run . -config other.toml
+go test ./...        # std140 layout + settings + showcase-scene checks; no GPU needed
+go run .             # reads configs/opengl.toml
 
-OVERDRIVE_BACKEND=gl     go run .   # env overrides the file, for one run
-OVERDRIVE_BACKEND=vulkan go run .
-OVERDRIVE_MSAA=1         go run .   # anti-aliasing off; 2/4/8 turn it on
-OVERDRIVE_VK_VALIDATION=1 OVERDRIVE_BACKEND=vulkan go run .
+go run . -config configs/opengl.toml   # OpenGL 4.1 core, 4x MSAA
+go run . -config configs/vulkan.toml   # Vulkan 1.3, same settings otherwise
+OVERDRIVE_VK_VALIDATION=1 go run . -config configs/vulkan.toml
 
 go test ./opengl/                        # after any common.slang edit
 go test ./scene/ -run TestShowcaseLoads   # single test

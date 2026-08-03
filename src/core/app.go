@@ -39,7 +39,7 @@ func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
-// Selects the graphics backend named by settings.Backend, which the config file and OVERDRIVE_BACKEND both feed
+// Selects the graphics backend named by settings.Backend, which the config file sets
 //
 // It lives here rather than in renderer/ because the backend packages import
 // renderer, which would otherwise be an import cycle.

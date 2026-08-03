@@ -2,8 +2,6 @@ package settings
 
 import (
 	"fmt"
-	"os"
-	"strconv"
 
 	"github.com/BurntSushi/toml"
 )
@@ -33,10 +31,10 @@ type Config struct {
 	} `toml:"antialiasing"`
 }
 
-// Loads a settings file over the defaults, then lets the environment override both
+// Loads a settings file over the defaults
 //
-// The environment wins because it is the more specific instruction: a config
-// file is the project's setup, OVERDRIVE_BACKEND / OVERDRIVE_MSAA are one run's.
+// The file is the only source: no environment variable competes with it, so what
+// a run was configured with is always readable from the file it was given.
 func Load(path string) error {
 	cfg := current()
 
@@ -52,8 +50,6 @@ func Load(path string) error {
 	if err := apply(cfg); err != nil {
 		return fmt.Errorf("settings %s: %w", path, err)
 	}
-
-	applyEnv()
 	return nil
 }
 
@@ -99,7 +95,7 @@ func apply(c Config) error {
 	return nil
 }
 
-// Accepts the backend names the engine has always taken from OVERDRIVE_BACKEND, folding the aliases
+// Accepts the backend names, folding the aliases onto the two createBackend switches on
 func normaliseBackend(name string) (string, error) {
 	switch name {
 	case "", "gl", "opengl":
@@ -128,28 +124,4 @@ func checkSamples(n int) error {
 		return nil
 	}
 	return fmt.Errorf("antialiasing samples must be 1, 2, 4 or 8, got %d", n)
-}
-
-// Applies the per-run environment overrides, which are the file's values' only competition
-//
-// Invalid values are ignored rather than fatal: an environment variable is a
-// convenience for one run, and the config file has already given a usable answer.
-func applyEnv() {
-	if v, ok := os.LookupEnv("OVERDRIVE_BACKEND"); ok {
-		if name, err := normaliseBackend(v); err == nil {
-			Backend = name
-		}
-	}
-	// A sample count, 0 or 1 meaning "no anti-aliasing" — the one variable
-	// covers both the mode and the count, since MSAA is the only mode there is
-	if v, ok := os.LookupEnv("OVERDRIVE_MSAA"); ok {
-		if n, err := strconv.Atoi(v); err == nil && checkSamples(n) == nil {
-			MSAASamples = n
-			if n > 1 {
-				AntiAliasing = AAMSAA
-			} else {
-				AntiAliasing = AANone
-			}
-		}
-	}
 }

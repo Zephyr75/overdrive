@@ -1,0 +1,26 @@
+# Vulkan 1.3, 4x MSAA
+#
+#   go run . -config configs/vulkan.toml
+#
+# Paired with configs/opengl.toml (the default): the two differ in the backend
+# line alone, so running one after the other compares the backends on identical
+# settings.
+#
+# Every key is optional; an absent one keeps the default in settings/settings.go.
+# This file is the engine's only configuration input — nothing in the
+# environment overrides it.
+
+[window]
+width = 1920
+height = 1080
+
+[shadows]
+width = 1024
+height = 1024
+
+[renderer]
+backend = "vulkan"
+
+[antialiasing]
+mode = "msaa"
+samples = 4

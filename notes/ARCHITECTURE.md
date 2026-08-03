@@ -82,7 +82,7 @@ overdrive/
     │   ├── input.go       keyboard, camera movement
     │   └── callback.go    mouse look, scroll FOV, framebuffer resize
     │
-    ├── config.toml        the settings file main.go loads by default
+    ├── configs/           the settings files: opengl.toml (loaded by default) and vulkan.toml, the same settings on either backend
     ├── settings/          resolution, backend and anti-aliasing globals + their TOML loader
     ├── utils/             vector parsing, Euler conversion, error handling
     │
@@ -129,8 +129,8 @@ graph TD
 
 The two dotted edges are the whole reason `createBackend` lives in `core/`: the
 backend packages import `renderer`, so `renderer` cannot import them back, and
-somebody above both has to pick one. `OVERDRIVE_BACKEND` (`gl` by default, or
-`vulkan`) is read there and nowhere else.
+somebody above both has to pick one. `settings.Backend` (`gl` by default, or
+`vulkan`, set by the config file) is read there and nowhere else.
 
 Two further invariants, both enforced by convention rather than by the compiler:
 
@@ -232,7 +232,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `NewApp` | func | Creates the backend, hints and creates the window, wires input, then `Backend.Init` |
 | `App.Run` | func | Compiles the five shader sets, builds the UI quad, then loops until the window closes |
 | `App.Quit` | func | Asks the window to close |
-| `createBackend` *(pkg)* | func | Reads `OVERDRIVE_BACKEND`. The only place that names `opengl` or `vulkan` |
+| `createBackend` *(pkg)* | func | Switches on `settings.Backend`. The only place that names `opengl` or `vulkan` |
 | `renderUI` *(pkg)* | func | Rasterises the widget tree to RGBA, uploads it, draws the quad. Redraws only when the tree or hover state changed |
 
 ### `renderer/`
@@ -316,7 +316,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `AAMode` | type | `AANone` or `AAMSAA` |
 | `MSAAEnabled` | func | Mode is MSAA *and* the count actually multisamples |
 | `Config` | type | The TOML file's shape: `[window]`, `[shadows]`, `[renderer]`, `[antialiasing]` |
-| `Load` | func | Decodes a settings file over the defaults, validates it, then applies the `OVERDRIVE_*` overrides. Rejects unknown keys and values, changing nothing when it does |
+| `Load` | func | Decodes a settings file over the defaults and validates it — the engine's only configuration input. Rejects unknown keys and values, changing nothing when it does |
 | `AspectRatio` / `ShadowAspectRatio` | func | For the camera and cube-shadow projections |
 | `ParseVec3` | func | `"x,y,z"` → `mgl32.Vec3` |
 | `EulerToDirection` | func | Pitch/yaw/roll → direction vector |

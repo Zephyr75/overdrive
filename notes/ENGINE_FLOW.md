@@ -43,7 +43,7 @@ per-pass one", `vkCmdPushConstants` is "the per-draw one".
 
 | Method | OpenGL | Vulkan |
 |---|---|---|
-| `ConfigureWindow` | `WindowHint`: 4.1 core, forward-compatible, 4× samples | `WindowHint(ClientAPI, NoAPI)` |
+| `ConfigureWindow` | `WindowHint`: 4.1 core, forward-compatible, `settings.MSAASamples` samples | `WindowHint(ClientAPI, NoAPI)` |
 | `Init` | `MakeContextCurrent`, `gl.Init`, enable depth/cull/blend, white pixel + black cube, shared UBO on binding 0 | `CreateInstance` → surface → `EnumeratePhysicalDevices` → queue family → `CreateDevice` → `VmaCreateAllocator` → swapchain → `CreateCommandPool` → per-frame data → samplers → descriptors → pipeline layout → default textures |
 | `Shutdown` | Nothing — objects die with the context | `DeviceWaitIdle`, then destroy everything in reverse creation order (see §7) |
 
@@ -145,7 +145,7 @@ The rule inside a frame: **clears and viewports exist only inside
 
 | Step | Code | What happens |
 |---|---|---|
-| 0 | `settings.Load` | `main.go` decodes the file named by `-config` (`config.toml` by default) over the defaults, then lets `OVERDRIVE_BACKEND` / `OVERDRIVE_MSAA` override it. Everything below reads the result, so it has to run before `core.NewApp`. |
+| 0 | `settings.Load` | `main.go` decodes the file named by `-config` (`configs/opengl.toml` by default) over the defaults — the engine's only configuration input. Everything below reads the result, so it has to run before `core.NewApp`. |
 | 1 | `core.createBackend` | Constructs `opengl.New()` / `vulkan.New()` from `settings.Backend`. Lives in `core/` because the backend packages import `renderer`, so `renderer` cannot import them back. |
 | 2 | `glfw.Init` | Window system up. |
 | 3 | `Backend.ConfigureWindow` | GL: hints a 4.1 core forward-compatible context, plus `settings.MSAASamples` samples — the default framebuffer's sample count can only be chosen here. VK: hints `ClientAPI = NoAPI` — there is no context to create. |
@@ -487,7 +487,7 @@ Between them, a change to `common.slang` cannot silently break one backend.
 | UI overlay lags by a frame on Vulkan | Expected: `UpdateTexture2D` stages, `BeginFrame` copies |
 | Neither backend starts | `./build_shaders.sh` — the generated shaders are git-ignored |
 
-Run with `OVERDRIVE_BACKEND=gl` (default) or `=vulkan`, and set
+Run with `-config configs/opengl.toml` or `-config configs/vulkan.toml`, and set
 `OVERDRIVE_VK_VALIDATION=1` while developing the Vulkan path.
 
 ---

@@ -65,7 +65,7 @@ func main() {
 	// Settings are a runtime input, so one build runs on either backend, at any
 	// resolution, with or without anti-aliasing. They must be loaded before
 	// NewApp, which is where the window and the backend read them
-	configPath := flag.String("config", "config.toml", "path to the engine settings file")
+	configPath := flag.String("config", "configs/opengl.toml", "path to the engine settings file")
 	flag.Parse()
 	// A bad settings file is the user's mistake, not a crash, so it gets a line
 	// on stderr rather than utils.HandleError's stack

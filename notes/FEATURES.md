@@ -33,7 +33,7 @@ Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
 
 - The scene layer makes zero graphics-API calls. Everything goes through
   `renderer.Backend` (25 methods), implemented twice in `opengl/` and `vulkan/`,
-  selected at startup by `OVERDRIVE_BACKEND`
+  selected at startup by `[renderer] backend` in the config file
 - Shaders are authored once in Slang (`shaders/slang/*.slang`) and compiled per
   backend by `build_shaders.sh`: GLSL 4.10 for OpenGL, SPIR-V for Vulkan
 - The Vulkan path is the modern stack: 1.3 dynamic rendering, buffer device
@@ -208,8 +208,8 @@ stall. `main.go` currently passes a nil widget, so only the debug crosshair draw
 
 ### Anti-aliasing — MSAA on the backbuffer
 
-`settings.MSAASamples` (1 or 0 off, 2/4/8 on, default 4, overridable with
-`OVERDRIVE_MSAA`) is read once when the backend initialises, because both
+`[antialiasing] mode` and `samples` in the config file (`none`, or `msaa` at
+2/4/8) are read once when the backend initialises, because both
 backends bake the count into an object they build there: GL into the window's
 default framebuffer, Vulkan into a multisampled colour + depth pair resolved into
 the swapchain image at the end of the main pass. Vulkan clamps the request to

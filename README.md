@@ -17,7 +17,7 @@ custom add-on. The export covers meshes, camera, lights and materials.
   [Slang](https://github.com/shader-slang/slang) and compiled per backend, GLSL
   4.10 for OpenGL and SPIR-V for Vulkan. The scene code never calls a graphics
   API directly. It talks to an abstract `Backend` interface, and the backend is
-  chosen at runtime with `OVERDRIVE_BACKEND`.
+  chosen at runtime by the settings file.
 * Modern Vulkan setup. Vulkan 1.3 dynamic rendering, buffer device address with
   scalar layout uniforms, bindless descriptors, synchronization2, and 2 frames
   in flight.
@@ -100,7 +100,7 @@ Resolution, shadow-map resolution, backend and anti-aliasing come from a TOML
 file, so one build covers every combination:
 
 ```sh
-go run .                        # reads config.toml
+go run .                        # reads configs/opengl.toml
 go run . -config low_end.toml   # or any other file
 ```
 
@@ -123,20 +123,28 @@ samples = 4           # 2, 4 or 8
 
 Every key is optional, an absent one keeping its default. An unknown key or
 value is an error rather than a shrug, since a settings file that is silently
-ignored is worse than one that fails.
+ignored is worse than one that fails. The file is the engine's only
+configuration input, so what a run was configured with is always readable from
+the file it was given.
+
+`configs/opengl.toml` and `configs/vulkan.toml` are the same settings on the two
+backends, for comparing them.
 
 ### Picking a backend
 
-`[renderer] backend` chooses it. For a single run the environment wins over the
-file:
+`[renderer] backend`, and nothing else — no environment variable overrides the
+file. Two ready-made files differ in that line alone, so running one after the
+other compares the backends on identical settings:
 
 ```sh
-OVERDRIVE_BACKEND=gl     go run .   # OpenGL 4.1 core (default)
-OVERDRIVE_BACKEND=vulkan go run .   # Vulkan 1.3
-OVERDRIVE_MSAA=1         go run .   # anti-aliasing off; 2/4/8 turn it on
+go run . -config configs/opengl.toml   # OpenGL 4.1 core
+go run . -config configs/vulkan.toml   # Vulkan 1.3
 
-OVERDRIVE_VK_VALIDATION=1 OVERDRIVE_BACKEND=vulkan go run .   # + validation layers
+OVERDRIVE_VK_VALIDATION=1 go run . -config configs/vulkan.toml   # + validation layers
 ```
+
+`OVERDRIVE_VK_VALIDATION` is a debugging switch for the Vulkan layers, not a
+setting: it changes nothing about what is rendered.
 
 ### Shaders
 
