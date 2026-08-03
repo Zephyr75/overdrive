@@ -21,7 +21,8 @@ Small, concrete items. Anything that needs a paragraph of reasoning lives in
 
 ## Rendering
 
-- [~] Anti-aliasing — the GL context is hinted for 4× MSAA, the Vulkan backend has none
+- [x] Anti-aliasing — MSAA on the backbuffer of both backends, `settings.MSAASamples` (or `OVERDRIVE_MSAA`) choosing the count
+- [ ] Post-process AA (FXAA/TAA) — needs the scene rendered offscreen, which needs a depth attachment on colour render targets (the VK backend's `passOffscreenColor` has none)
 - [x] Framebuffers — generalised into `CreateRenderTarget(RenderTargetSpec)`
 - [x] Normal mapping (tangent-space, per-fragment TBN)
 - [ ] HDR + tone mapping + bloom — needs a half-float format binding in `go-vulkan`, see `FEATURES.md` §2

@@ -94,11 +94,46 @@ go run .                  # OpenGL by default
 
 Run from the module root, because asset and shader paths are relative.
 
+### Settings
+
+Resolution, shadow-map resolution, backend and anti-aliasing come from a TOML
+file, so one build covers every combination:
+
+```sh
+go run .                        # reads config.toml
+go run . -config low_end.toml   # or any other file
+```
+
+```toml
+[window]
+width = 1920
+height = 1080
+
+[shadows]
+width = 1024
+height = 1024
+
+[renderer]
+backend = "gl"        # or "vulkan"
+
+[antialiasing]
+mode = "msaa"         # or "none"
+samples = 4           # 2, 4 or 8
+```
+
+Every key is optional, an absent one keeping its default. An unknown key or
+value is an error rather than a shrug, since a settings file that is silently
+ignored is worse than one that fails.
+
 ### Picking a backend
+
+`[renderer] backend` chooses it. For a single run the environment wins over the
+file:
 
 ```sh
 OVERDRIVE_BACKEND=gl     go run .   # OpenGL 4.1 core (default)
 OVERDRIVE_BACKEND=vulkan go run .   # Vulkan 1.3
+OVERDRIVE_MSAA=1         go run .   # anti-aliasing off; 2/4/8 turn it on
 
 OVERDRIVE_VK_VALIDATION=1 OVERDRIVE_BACKEND=vulkan go run .   # + validation layers
 ```

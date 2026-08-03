@@ -82,7 +82,8 @@ overdrive/
     │   ├── input.go       keyboard, camera movement
     │   └── callback.go    mouse look, scroll FOV, framebuffer resize
     │
-    ├── settings/          window and shadow resolution globals
+    ├── config.toml        the settings file main.go loads by default
+    ├── settings/          resolution, backend and anti-aliasing globals + their TOML loader
     ├── utils/             vector parsing, Euler conversion, error handling
     │
     ├── shaders/
@@ -310,6 +311,12 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 |---|---|---|
 | `WindowWidth` / `WindowHeight` | var | 1920×1080, updated on resize |
 | `ShadowWidth` / `ShadowHeight` | var | 1024², fixed |
+| `Backend` | var | `"gl"` or `"vulkan"`, the name `core.createBackend` switches on |
+| `AntiAliasing` / `MSAASamples` | var | `AAMSAA` ×4 by default; both read once at `Backend.Init` |
+| `AAMode` | type | `AANone` or `AAMSAA` |
+| `MSAAEnabled` | func | Mode is MSAA *and* the count actually multisamples |
+| `Config` | type | The TOML file's shape: `[window]`, `[shadows]`, `[renderer]`, `[antialiasing]` |
+| `Load` | func | Decodes a settings file over the defaults, validates it, then applies the `OVERDRIVE_*` overrides. Rejects unknown keys and values, changing nothing when it does |
 | `AspectRatio` / `ShadowAspectRatio` | func | For the camera and cube-shadow projections |
 | `ParseVec3` | func | `"x,y,z"` → `mgl32.Vec3` |
 | `EulerToDirection` | func | Pitch/yaw/roll → direction vector |

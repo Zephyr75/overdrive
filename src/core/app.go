@@ -2,7 +2,6 @@ package core
 
 import (
 	"fmt"
-	"os"
 	"runtime"
 	"time"
 
@@ -40,18 +39,18 @@ func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
-// Selects the graphics backend from OVERDRIVE_BACKEND, defaulting to "gl"
+// Selects the graphics backend named by settings.Backend, which the config file and OVERDRIVE_BACKEND both feed
 //
 // It lives here rather than in renderer/ because the backend packages import
 // renderer, which would otherwise be an import cycle.
 func createBackend() renderer.Backend {
-	switch os.Getenv("OVERDRIVE_BACKEND") {
-	case "", "gl", "opengl":
+	switch settings.Backend {
+	case "gl":
 		return opengl.New()
-	case "vulkan", "vk":
+	case "vulkan":
 		return vulkan.New()
 	default:
-		panic("unknown OVERDRIVE_BACKEND value")
+		panic("unknown backend " + settings.Backend)
 	}
 }
 

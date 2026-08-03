@@ -14,6 +14,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"github.com/Zephyr75/overdrive/renderer"
+	"github.com/Zephyr75/overdrive/settings"
 )
 
 // One drawable: its vertex array, an optional index buffer, and everything Draw
@@ -66,13 +67,20 @@ func New() *GLBackend {
 
 // --- lifecycle ---------------------------------------------------------------
 
-// Asks GLFW for a 4.1 core forward-compatible context with 4x multisampling
+// Asks GLFW for a 4.1 core forward-compatible context, multisampled when settings.MSAASamples says so
+//
+// The sample count is a property of the default framebuffer, which GLFW creates
+// with the window, so this hint is the only place it can be chosen.
 func (b *GLBackend) ConfigureWindow() {
 	glfw.WindowHint(glfw.ContextVersionMajor, 4)
 	glfw.WindowHint(glfw.ContextVersionMinor, 1)
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
-	glfw.WindowHint(glfw.Samples, 4)
+	samples := 0
+	if settings.MSAAEnabled() {
+		samples = settings.MSAASamples
+	}
+	glfw.WindowHint(glfw.Samples, samples)
 }
 
 // Makes the context current and creates the built-in textures and shared uniform buffer
@@ -85,6 +93,17 @@ func (b *GLBackend) Init(window *glfw.Window) error {
 
 	gl.Enable(gl.DEPTH_TEST)
 	gl.Enable(gl.CULL_FACE)
+
+	// GL_MULTISAMPLE is enabled by default, so this only matters to turn it off
+	// — and to keep the state explicit next to the window hint that pairs with
+	// it. A single-sampled default framebuffer ignores it either way, as do the
+	// engine's offscreen targets, which are never multisample textures
+	if settings.MSAAEnabled() {
+		gl.Enable(gl.MULTISAMPLE)
+	} else {
+		gl.Disable(gl.MULTISAMPLE)
+	}
+
 	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
 	gl.Enable(gl.BLEND)
 

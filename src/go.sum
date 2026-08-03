@@ -1,3 +1,5 @@
+github.com/BurntSushi/toml v1.6.0 h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=
+github.com/BurntSushi/toml v1.6.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/Zephyr75/gutter v0.1.2 h1:VoQO7Pa8i9/3bytDJXRoMkV/IQFhZiezpL7PS9zBoYw=
 github.com/Zephyr75/gutter v0.1.2/go.mod h1:o53vgxIf5mPqFYqh9WaJI4U2E85Vq2cQHWyRn74Y4gg=
 github.com/disintegration/imaging v1.6.2 h1:w1LecBlG2Lnp8B3jk5zSuNqd7b4DXhcjwek1ei82L+c=

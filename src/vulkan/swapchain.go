@@ -4,6 +4,8 @@ import (
 	"go-vulkan/vk"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
+
+	"github.com/Zephyr75/overdrive/settings"
 )
 
 // Builds the swapchain, its image views, the per-image render semaphores and the shared depth buffer
@@ -65,7 +67,67 @@ func (b *VKBackend) createSwapchain() error {
 		}
 	}
 
+	if err := b.createMSAABuffer(); err != nil {
+		return err
+	}
 	return b.createDepthBuffer()
+}
+
+// Resolves settings.MSAASamples against the device's limits, returning the sample count of the main pass
+//
+// Colour and depth must agree, since the main pass attaches one of each, so the
+// two limits are intersected. The spec guarantees 1 and 4 in both, which is why
+// stepping down can never loop past a supported count.
+func (b *VKBackend) pickSampleCount() vk.SampleCountFlags {
+	if !settings.MSAAEnabled() {
+		return vk.SampleCount1Bit
+	}
+	want := vk.SampleCount2Bit
+	switch {
+	case settings.MSAASamples >= 8:
+		want = vk.SampleCount8Bit
+	case settings.MSAASamples >= 4:
+		want = vk.SampleCount4Bit
+	}
+
+	props := vk.GetPhysicalDeviceProperties2(b.physicalDevice)
+	supported := props.FramebufferColorSampleCounts & props.FramebufferDepthSampleCounts
+	for want > vk.SampleCount1Bit && supported&want == 0 {
+		want >>= 1
+	}
+	return want
+}
+
+// Creates the multisampled colour image the main pass renders into, or nothing when MSAA is off
+//
+// It is transient: nothing ever samples it, the pass resolving it straight into
+// the swapchain image, so a tiler can keep it in on-chip memory.
+func (b *VKBackend) createMSAABuffer() error {
+	if b.samples == vk.SampleCount1Bit {
+		return nil
+	}
+	img, alloc, err := b.allocator.VmaCreateImage(vk.ImageCreateInfo{
+		ImageType: vk.ImageType2D,
+		Format:    b.swapFormat,
+		Extent:    vk.Extent3D{Width: b.swapExtent.Width, Height: b.swapExtent.Height, Depth: 1},
+		Usage:     vk.ImageUsageColorAttachment | vk.ImageUsageTransientAttachment,
+		Samples:   b.samples,
+	}, vk.VmaAllocationCreateInfo{
+		Flags: vk.VmaAllocationCreateDedicatedMemory,
+		Usage: vk.VmaMemoryUsageAuto,
+	})
+	if err != nil {
+		return err
+	}
+	b.msaaImage, b.msaaAlloc = img, alloc
+
+	b.msaaView, err = vk.CreateImageView(b.device, vk.ImageViewCreateInfo{
+		Image: img, ViewType: vk.ImageViewType2D, Format: b.swapFormat,
+		SubresourceRange: vk.ImageSubresourceRange{
+			AspectMask: vk.ImageAspectColor, LevelCount: 1, LayerCount: 1,
+		},
+	})
+	return err
 }
 
 // Creates the one depth image and view every main pass renders into
@@ -75,6 +137,8 @@ func (b *VKBackend) createDepthBuffer() error {
 		Format:    depthFormat,
 		Extent:    vk.Extent3D{Width: b.swapExtent.Width, Height: b.swapExtent.Height, Depth: 1},
 		Usage:     vk.ImageUsageDepthStencilAttachment,
+		// Match the colour attachment, which a pass's attachments must all do
+		Samples: b.samples,
 	}, vk.VmaAllocationCreateInfo{
 		Flags: vk.VmaAllocationCreateDedicatedMemory,
 		Usage: vk.VmaMemoryUsageAuto,
@@ -107,6 +171,11 @@ func (b *VKBackend) destroySwapchain() {
 		vk.DestroyImageView(b.device, b.depthView)
 		b.allocator.VmaDestroyImage(b.depthImage, b.depthAlloc)
 		b.depthView = 0
+	}
+	if b.msaaView != 0 {
+		vk.DestroyImageView(b.device, b.msaaView)
+		b.allocator.VmaDestroyImage(b.msaaImage, b.msaaAlloc)
+		b.msaaView, b.msaaImage = 0, 0
 	}
 	if b.swapchain != 0 {
 		vk.DestroySwapchainKHR(b.device, b.swapchain)
