@@ -51,9 +51,6 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	}
 
 	// Create the backend before the window, so it can set its own hints
-	//
-	// Held as a renderer.Backend rather than a *vulkan.Backend: that is what
-	// keeps invariant 1, so nothing above renderer/ ever sees a vk.* type
 	app.Backend = vulkan.New()
 
 	glfw.Init()

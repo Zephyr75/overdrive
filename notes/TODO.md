@@ -21,10 +21,10 @@ Small, concrete items. Anything that needs a paragraph of reasoning lives in
 
 ## Backend
 
-The ordered plan is `BACKEND_DECISION.md` §9. These are its first items.
+The ordered plan is `tmp/BACKEND_DECISION.md` §9. These are its first items.
 
 - [x] Delete the OpenGL backend — 2026-08-05
-- [ ] Drop the dead 16-byte cell rule from `renderer/uniforms.go` and `common.slang` — `BACKEND_DECISION.md` §5.3
+- [ ] Drop the dead 16-byte cell rule from `renderer/uniforms.go` and `common.slang` — `tmp/BACKEND_DECISION.md` §5.3
 - [ ] Shader hot-reload — the biggest single velocity win, and independent of everything else
 - [ ] `go-vulkan`: formats, barrier rework, compute, storage images, blit — `go-vulkan/BINDINGS_GAP.md` §7 batches 1-6
 - [ ] `PipelineSpec`, replacing `CreateShader` + `SetCullFace` / `SetDepthFunc`
@@ -44,7 +44,7 @@ The ordered plan is `BACKEND_DECISION.md` §9. These are its first items.
 - [ ] Mipmaps — needs `CmdBlitImage`, `go-vulkan/BINDINGS_GAP.md` §5.2
 - [ ] Shadow cascades — currently fixed at 1024², no CSM
 - [ ] Geometry shader for fur
-- [ ] Ray-traced shadows — `FEATURES.md` §3, `BACKEND_DECISION.md` §8
+- [ ] Ray-traced shadows — `FEATURES.md` §3, `tmp/BACKEND_DECISION.md` §8
 - [ ] Ray marching for basic shapes and clouds — existed in the pre-Slang GLSL tree, not ported; `shaders/slang/` has only `forward`, `depth`, `depth_cube`, `skybox`, `ui`
 
 ## Tooling and cleanup

@@ -33,7 +33,7 @@ Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
 
 - The scene layer makes zero graphics-API calls. Everything goes through
   `renderer.Backend` (25 methods), implemented in `vulkan/`. An OpenGL 4.1
-  backend existed until 2026-08-05; `BACKEND_DECISION.md` §1–2 is why it went and
+  backend existed until 2026-08-05; `tmp/BACKEND_DECISION.md` §1–2 is why it went and
   why the abstraction stayed
 - Shaders are authored in Slang (`shaders/slang/*.slang`) and compiled to SPIR-V
   by `build_shaders.sh`
@@ -41,7 +41,7 @@ Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
   buffer device address with scalar layout for uniforms, bindless descriptor
   indexing, synchronization2, VMA, 2 frames in flight
 - **What it cannot express yet** — compute, pipeline objects, a pass list,
-  per-material shaders, HDR formats — is `BACKEND_DECISION.md` §6, and the
+  per-material shaders, HDR formats — is `tmp/BACKEND_DECISION.md` §6, and the
   ordered work to fix it is §9
 
 ### Lighting — Cook-Torrance PBR, two light types
@@ -269,7 +269,7 @@ a single skybox sample.
 into `forward.slang`'s shadow test, replacing the shadow-map passes and reusing
 the existing forward pass and light loop. `cheatsheets/RAYTRACING.md` §5 covers
 the ray-query vs RT-pipeline trade-off and the acceleration-structure plumbing;
-`BACKEND_DECISION.md` §8 is the decision context. Follow-ups: RT ambient
+`tmp/BACKEND_DECISION.md` §8 is the decision context. Follow-ups: RT ambient
 occlusion → reflections → one-bounce GI.
 
 Hardware ray tracing is **not** universal — a GTX 1080 or most laptop iGPUs have
@@ -288,7 +288,7 @@ Smaller items, all of them deliberate for now:
 | Physical device is `devices[0]`, not scored | `vulkan/backend.go` |
 | No rendered-image regression test | nothing checks the frame, only that the scene parses |
 | No GPU timestamp queries, so a pass cannot be profiled | needs query-pool bindings, `go-vulkan/BINDINGS_GAP.md` §5.4 |
-| The uniform structs still obey the dead 16-byte cell rule | `BACKEND_DECISION.md` §5.3 |
+| The uniform structs still obey the dead 16-byte cell rule | `tmp/BACKEND_DECISION.md` §5.3 |
 
 ---
 
@@ -337,7 +337,7 @@ rate on this iGPU — the win is structural.
 either; it existed so std140 came out byte-identical to scalar layout and neither
 backend had to marshal. With OpenGL gone the rule buys nothing — scalar layout
 matches Go's packing unconditionally — and it is now dead weight the uniform
-structs still carry. `BACKEND_DECISION.md` §5.3 is the removal.
+structs still carry. `tmp/BACKEND_DECISION.md` §5.3 is the removal.
 
 **Measuring by FPS subtraction does not work here.** Under vsync a frame that
 crosses 16.6 ms drops cleanly to the next interval, so frame-rate deltas hide the

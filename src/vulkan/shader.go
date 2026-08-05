@@ -6,6 +6,7 @@ import (
 
 	"go-vulkan/vk"
 
+	"github.com/Zephyr75/overdrive/paths"
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
@@ -42,7 +43,7 @@ func (b *VKBackend) CreateShader(name string, hasGeometry bool) (renderer.Shader
 
 // Reads one precompiled SPIR-V stage from shaders/vk into a shader module
 func (b *VKBackend) loadModule(name, stage string) (vk.ShaderModule, error) {
-	path := fmt.Sprintf("shaders/vk/%s.%s.spv", name, stage)
+	path := paths.Shader(fmt.Sprintf("%s.%s.spv", name, stage))
 	code, err := os.ReadFile(path)
 	if err != nil {
 		return 0, fmt.Errorf("read SPIR-V %s: %w (run ./build_shaders.sh)", path, err)

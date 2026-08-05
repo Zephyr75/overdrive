@@ -24,18 +24,22 @@ Nothing about backend internals is repeated here.
 
 ## 1. Repository layout
 
-The Go module root is **`src/`** (module `github.com/Zephyr75/overdrive`). Every
-asset, shader and texture path is relative to it, so every command runs from
-there.
+The Go module root is **`src/`** (module `github.com/Zephyr75/overdrive`), so
+`go` commands run from there. Runtime files are *not* found relative to the
+working directory: `paths` (§2.1) resolves them against the project root, the
+directory holding both `assets/` and `src/`.
 
 ```
 overdrive/
 ├── README.md              public overview, build and run
 ├── CLAUDE.md              working rules for this repo
 ├── notes/                 this documentation, see notes/README.md
-├── textures/              fonts and images used by the UI layer
+├── configs/               the settings files: vulkan.toml is the default
+├── assets/                scene XML, Comfortaa.ttf, meshes/ (OBJ+MTL), textures/
+│   └── _unused/           moved out of the build, not referenced by any scene
 └── src/                   the engine, and the Go module root
     ├── main.go            builds an App, loads a Scene, builds an ECS World
+    ├── paths/             the one place a runtime path is spelled out
     ├── build_shaders.sh   Slang → SPIR-V, must run before first build
     │
     ├── core/              app lifecycle and the frame loop
@@ -44,7 +48,7 @@ overdrive/
     │
     ├── renderer/          the abstraction, imports no graphics API
     │   ├── backend.go     Backend interface, opaque handles, RenderTargetSpec
-    │   └── uniforms.go    FrameUniforms, DrawUniforms, the layout guard
+    │   └── uniforms.go    FrameUniforms, DrawUniforms, the init() size guard
     │
     ├── vulkan/            Vulkan 1.3 backend — the only package that may import vk.*
     │   ├── backend.go     device, swapchain, passes, lifetimes
@@ -75,19 +79,43 @@ overdrive/
     │   ├── input.go       keyboard, camera movement
     │   └── callback.go    mouse look, scroll FOV, framebuffer resize
     │
-    ├── configs/           the settings files: vulkan.toml is loaded by default
     ├── settings/          resolution and anti-aliasing globals + their TOML loader
     ├── utils/             vector parsing, Euler conversion, error handling
     │
-    ├── shaders/
-    │   ├── slang/         the source of truth, authored once
-    │   └── vk/            generated SPIR-V — git-ignored
-    │
-    ├── assets/            scene XML plus meshes/ (OBJ + MTL)
-    ├── textures/          colour and normal maps, skybox and cubemap faces
-    └── plugin/
-        └── xml_export.py  Blender add-on that writes the scene XML
+    └── shaders/
+        ├── slang/         the source of truth, authored once
+        └── vk/            generated SPIR-V — git-ignored
 ```
+
+`xml_export.py`, the Blender add-on that writes the scene XML, sits at the
+repository root beside the assets it produces.
+
+### 1.1 Runtime paths
+
+No package outside `paths/` may write a relative path literal. `paths` finds the
+project root once — walking up from the working directory for a directory
+containing both `assets/` and `src/` — and every runtime file is resolved
+against it:
+
+| call | resolves to |
+|---|---|
+| `paths.Asset("showcase.xml")` | `<root>/assets/showcase.xml` |
+| `paths.Mesh("Cube.obj")` | `<root>/assets/meshes/Cube.obj` |
+| `paths.Texture("skybox/top.png")` | `<root>/assets/textures/skybox/top.png` |
+| `paths.Shader("forward.vert.spv")` | `<root>/src/shaders/vk/forward.vert.spv` |
+| `paths.Config("vulkan.toml")` | `<root>/configs/vulkan.toml` |
+
+`paths.Config` is the exception: a bare name resolves under `configs/`, anything
+carrying a separator is a path the user typed and is used as given, so
+`-config /tmp/try.toml` works. `OVERDRIVE_ROOT` overrides discovery for a build
+whose layout is not the repository's.
+
+Why it exists: the literals it replaced (`assets/…` in `scene/mesh.go`,
+`./textures/skybox/…` in `scene/skybox.go`, `shaders/vk/…` in
+`vulkan/shader.go`) each assumed the process had started from one specific
+directory. `go test ./scene/` runs with the working directory set to
+`src/scene/`, so `TestShowcaseLoads` never found its scene and skipped rather
+than ran — silently, for as long as it has existed.
 
 ---
 
@@ -98,7 +126,7 @@ physics own opaque handles (`renderer.MeshHandle`, `TextureHandle`,
 `RenderTargetHandle`, `ShaderHandle`, `BufferHandle`) that the backend
 interprets in its own table. This is what makes `go test ./...` runnable without
 a GPU, and it is why the abstraction is kept with a single backend
-(`BACKEND_DECISION.md` §4).
+(`tmp/BACKEND_DECISION.md` §4).
 
 ```mermaid
 graph TD
@@ -221,7 +249,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 |---|---|---|
 | `App` | type | Window, backend, dimensions, debug flag, input callbacks |
 | `NewApp` | func | Constructs the backend (`vulkan.New()`, the only place it is named), hints and creates the window, wires input, then `Backend.Init` |
-| `App.Run` | func | Loads the five shader sets, builds the UI quad, then loops until the window closes. The frame shape is hardcoded here — see `BACKEND_DECISION.md` §6 |
+| `App.Run` | func | Loads the five shader sets, builds the UI quad, then loops until the window closes. The frame shape is hardcoded here — see `tmp/BACKEND_DECISION.md` §6 |
 | `App.Quit` | func | Asks the window to close |
 | `renderUI` *(pkg)* | func | Rasterises the widget tree to RGBA, uploads it, draws the quad. Redraws only when the tree or hover state changed |
 
@@ -234,9 +262,9 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `VertexLayout` | type | `LayoutMesh`, `LayoutPosition`, `LayoutPositionUV` — how a mesh's vertex buffer is read. Recorded at creation, which is what lets one `Draw` serve every drawable |
 | `RenderTargetSpec`, `TargetFormat` | type | Describes an offscreen target by what it *is* — size, depth or colour, cube or not |
 | `Feature`, `Supports` | type, method | The seam for ray tracing and compute; returns `false` today and has never been wired |
-| `FrameUniforms` | type | 1280 B: camera, lights, shadow maps. Published once per pass |
+| `FrameUniforms` | type | 1184 B: camera, lights, shadow maps. Published once per pass |
 | `DrawUniforms` | type | 128 B: model matrix and material. Sent per draw |
-| `LightData` | type | 80 B, mirrors the `LightData` struct in `common.slang` |
+| `LightData` | type | 68 B, mirrors the `LightData` struct in `common.slang` |
 | `MaxLights`, `MaxShadowCubes` | const | 8 and 4, must match `common.slang` |
 
 ### `scene/`

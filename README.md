@@ -46,7 +46,7 @@ custom add-on. The export covers meshes, camera, lights and materials.
 
 ## Roadmap
 
-The ordered plan lives in [`notes/BACKEND_DECISION.md`](notes/BACKEND_DECISION.md)
+The ordered plan lives in [`notes/tmp/BACKEND_DECISION.md`](notes/tmp/BACKEND_DECISION.md)
 §9. In short:
 
 * Compute shaders, pipeline objects and a pass list — the substrate that makes
@@ -92,7 +92,10 @@ go build ./...
 go run .
 ```
 
-Run from the module root, because asset and shader paths are relative.
+`go` commands run from `src/`, the module root. Where you launch the binary from
+does not matter — assets, textures, shaders and configs are resolved against the
+project root, found by walking up from the working directory. Set
+`OVERDRIVE_ROOT` to point somewhere else.
 
 ### Settings
 
@@ -172,6 +175,6 @@ No GPU needed. They check that the showcase scene loads and parses.
 | [`ENGINE_FLOW.md`](notes/ENGINE_FLOW.md) | **Start here for the renderer.** One frame from `main()` to the GPU, then the `Backend` contract method by method. §0 indexes all 25 methods by how often they run. |
 | [`ARCHITECTURE.md`](notes/ARCHITECTURE.md) | The code map: repository layout, the dependency rule, scene loading, the package-by-package symbol reference, the scene format. |
 | [`FEATURES.md`](notes/FEATURES.md) | What is implemented and why it is built that way, the roadmap, and the performance history. |
-| [`BACKEND_DECISION.md`](notes/BACKEND_DECISION.md) | Why Vulkan only, what the abstraction cannot yet express, and the ordered work to fix that. |
+| [`BACKEND_DECISION.md`](notes/tmp/BACKEND_DECISION.md) | Why Vulkan only, what the abstraction cannot yet express, and the ordered work to fix that. |
 | [`TODO.md`](notes/TODO.md) | The working list. |
 | [`cheatsheets/`](notes/README.md) | Reference notes on PBR, ray tracing, OpenGL, Vulkan, linear algebra and real-time technique in general. |

@@ -18,10 +18,7 @@ const (
 	LightPoint = 1
 )
 
-// LightData mirrors the LightData struct in common.slang (80 bytes)
-//
-// Field order is not descriptive, it is the 16-byte cell rule — which is now
-// vestigial, see the comment below.
+// LightData mirrors the LightData struct in common.slang (68 bytes)
 type LightData struct {
 	Color     [3]float32
 	Intensity float32
@@ -33,9 +30,6 @@ type LightData struct {
 	Constant, Linear  float32
 	Quadratic, Cutoff float32
 	Type              int32
-	// Padding to a multiple of 16, kept from the std140 era. Free for
-	// spot-light outer cutoff, point-light radius, whatever is next
-	Reserved0, Reserved1, Reserved2 float32
 }
 
 // The uniform data is split by how often it changes, not by what it describes.
@@ -46,12 +40,9 @@ type LightData struct {
 // Both mirror common.slang field for field, and the backend memcpys them —
 // there is no marshalling code. Slang compiles with -fvk-use-scalar-layout, and
 // scalar layout is exactly Go's packing for float32/int32 structs, so the two
-// agree by construction as long as the field *order* matches.
-//
-// Both structs are still laid out in 16-byte cells — every [3]float32 followed
-// by a scalar, loose scalars in fours, no scalar arrays. That was std140's rule,
-// required while OpenGL was a backend. It no longer constrains anything and the
-// structs can be reordered freely; see notes/BACKEND_DECISION.md §5.3.
+// agree by construction as long as the field *order* matches. Use only float32,
+// int32, arrays of those, and mgl32 matrices; anything with a wider alignment
+// would break the correspondence.
 //
 // The init below guards the sizes, which is what catches editing one side and
 // not the other.
@@ -97,10 +88,10 @@ func init() {
 	// Go packs float32/int32 structs with no padding, which is exactly Vulkan's
 	// scalar layout. These sizes are the tripwire for editing this file without
 	// editing common.slang, or the other way round
-	if unsafe.Sizeof(LightData{}) != 80 {
+	if unsafe.Sizeof(LightData{}) != 68 {
 		panic("renderer.LightData no longer matches common.slang")
 	}
-	if unsafe.Sizeof(FrameUniforms{}) != 1280 {
+	if unsafe.Sizeof(FrameUniforms{}) != 1184 {
 		panic("renderer.FrameUniforms no longer matches common.slang")
 	}
 	if unsafe.Sizeof(DrawUniforms{}) != 128 {

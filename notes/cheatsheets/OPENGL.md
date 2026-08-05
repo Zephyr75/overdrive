@@ -2,7 +2,7 @@
 
 > **Scope** GLFW/GLAD/GLM setup, buffer objects, the coordinate pipeline, textures, per-fragment tests, framebuffers, GLSL. Go call signatures throughout (`go-gl`).
 >
-> This is API reference, kept deliberately. Overdrive's OpenGL backend was deleted on 2026-08-05 (`../BACKEND_DECISION.md`); nothing here describes the engine.
+> This is API reference, kept deliberately. Overdrive's OpenGL backend was deleted on 2026-08-05 (`../tmp/BACKEND_DECISION.md`); nothing here describes the engine.
 >
 > **Not here** the Vulkan equivalent of each concept → `VULKAN.md`. The physics behind the lighting formulas → `PBR.md`. Techniques built on top of the API (shadow maps, deferred, AO, TAA) → `GRAPHICS.md` §1.
 >

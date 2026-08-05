@@ -29,7 +29,7 @@ float3x3 inverse3(float3x3 m) {
     return r;
 }
 
-// Declared in 16-byte cells, see the layout note above FrameUniforms
+// 68 bytes, mirrored field for field by renderer.LightData
 struct LightData {
     float3 color;     float intensity;
     float3 position;  float diffuse;
@@ -37,11 +37,6 @@ struct LightData {
     float kConstant;  float kLinear;
     float kQuadratic; float cutoff;
     int type; // 0 = directional, 1 = point
-    // 17 fields is not a multiple of 4, and std140 rounds a struct's array
-    // stride up to 16 regardless. Declaring the remainder keeps Go's mirror the
-    // same size instead of leaving an invisible hole. Spend it on spot lights
-    // (outer cutoff), point-light radius, or whatever comes next
-    float reserved0, reserved1, reserved2;
 };
 
 // Keep in sync with MaxLights in renderer/uniforms.go
@@ -58,15 +53,14 @@ struct LightData {
 // FrameUniforms is written once per pass (three times a frame: two shadow bakes
 // and the main pass), DrawUniforms once per draw (~15 times a frame). Before the
 // split every draw re-sent all of it, ~1200 bytes of which never varied between
-// draws. Keep each struct's field order identical to renderer/uniforms.go — that
-// order *is* the Vulkan scalar layout.
+// draws.
 //
-// The reason the field order below looks arbitrary: every declaration group
-// fills a whole 16-byte cell — a float3 always followed by a scalar, loose
-// scalars in fours, scalar arrays declared as vectors (int4, not int[4]). That
-// was std140's rule, mandatory while OpenGL was a backend. Scalar layout has no
-// such requirement, so the rule is now vestigial and these structs can be
-// reordered freely; see notes/BACKEND_DECISION.md §5.3.
+// LAYOUT: keep each struct's field order identical to renderer/uniforms.go, and
+// use only float/int scalars, vectors and matrices. Slang compiles with
+// -fvk-use-scalar-layout, and scalar layout packs exactly as Go packs a struct
+// of float32/int32 — so the two agree with no padding and no marshalling code,
+// as long as the order matches. Nothing else is required: no 16-byte cells, no
+// vec3-plus-scalar pairing, no vectors standing in for scalar arrays.
 
 // Camera, lights and shadow maps: constant across every draw of a pass
 struct FrameUniforms {
@@ -90,17 +84,13 @@ struct FrameUniforms {
     // Light index owning each cube slot, -1 when the slot is unused
     // Point light l casts a cube shadow when some slot s holds l
     // It then samples shadowCubeMap[s]
-    //
-    // A vector rather than int[MAX_SHADOW_CUBES], from the std140 era; scalar
-    // layout would pack the array fine
-    int4 pointShadowLights;
+    int pointShadowLights[MAX_SHADOW_CUBES];
 };
 
 // Transform and material of one face group: the only things a draw changes
 struct DrawUniforms {
     float4x4 model;
-    // Each float3 carries a scalar in its 16-byte cell, see the layout rule
-    // above. Metallic-roughness PBR scalars, matDiffuse is the base-colour tint
+    // Metallic-roughness PBR scalars, matDiffuse is the base-colour tint
     float3 matAmbient;  float matShininess;
     float3 matDiffuse;  float matMetallic;
     float3 matSpecular; float matRoughness;

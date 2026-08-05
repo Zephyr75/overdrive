@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Zephyr75/overdrive/paths"
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
@@ -25,10 +26,10 @@ func TestMain(m *testing.M) {
 // Loads the showcase scene, skipping the test when its assets are absent
 func loadShowcase(t *testing.T) Scene {
 	t.Helper()
-	if _, err := os.Stat("assets/showcase.xml"); err != nil {
+	if _, err := os.Stat(paths.Asset("showcase.xml")); err != nil {
 		t.Skipf("showcase assets missing: %v", err)
 	}
-	return LoadScene("assets/showcase.xml")
+	return LoadScene(paths.Asset("showcase.xml"))
 }
 
 // Checks the scene parses into the expected meshes and lights, and picks both shadow casters

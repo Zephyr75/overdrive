@@ -403,6 +403,11 @@ func (b *VKBackend) createSurfaceAndDevice() error {
 	// ScalarBlockLayout matches the -fvk-use-scalar-layout SPIR-V,
 	// GeometryShader is the point shadow pass, and the descriptor-indexing
 	// group is what makes the bindless texture arrays legal
+	//
+	// ScalarBlockLayout is load-bearing, not a convenience: LightData is 68
+	// bytes, so the lights[] array stride is not 16-aligned and the standard
+	// layout rules reject it. Confirm with
+	// `spirv-val --scalar-block-layout shaders/vk/*.spv` — plain spirv-val fails
 	dev, err := vk.CreateDevice(b.physicalDevice, vk.DeviceCreateInfo{
 		QueueCreateInfos: []vk.DeviceQueueCreateInfo{
 			{QueueFamilyIndex: b.queueFamily, Priorities: []float32{1}},

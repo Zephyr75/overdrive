@@ -99,7 +99,7 @@ Two entry points, and picking between them is a design decision:
 | Best for | replacing one effect (shadows, AO) in a raster pipeline | full path tracers, recursive rays, many material types |
 | Cost to adopt | small | a second pipeline and a whole binding table |
 
-> **The engine's plan** — Overdrive's roadmap takes the ray-query route: drop a ray query into `forward.slang`'s shadow test, replacing the shadow-map passes, reusing the existing forward pass and light loop. Hardware ray tracing is not universal, so a compute BVH is the baseline and `Backend.Supports(FeatureRayTracing)` is the fork between them. See `../FEATURES.md` and `../BACKEND_DECISION.md` §8.
+> **The engine's plan** — Overdrive's roadmap takes the ray-query route: drop a ray query into `forward.slang`'s shadow test, replacing the shadow-map passes, reusing the existing forward pass and light loop. Hardware ray tracing is not universal, so a compute BVH is the baseline and `Backend.Supports(FeatureRayTracing)` is the fork between them. See `../FEATURES.md` and `../tmp/BACKEND_DECISION.md` §8.
 
 The natural adoption order, cheapest and most convincing first: **shadows → ambient occlusion → reflections → one-bounce GI**. Each removes a screen-space approximation (`GRAPHICS.md` §1) and its artefacts.
 

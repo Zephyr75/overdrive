@@ -9,18 +9,18 @@ an abstraction (`renderer/`) that keeps every other package free of graphics
 calls. It also carries an ECS, Verlet physics, a gutter-based UI overlay and a
 Blender XML export plugin.
 
-An OpenGL 4.1 backend existed until 2026-08-05 and was deleted; `notes/BACKEND_DECISION.md`
+An OpenGL 4.1 backend existed until 2026-08-05 and was deleted; `notes/tmp/BACKEND_DECISION.md`
 records why, and is the roadmap for what the abstraction grows into next.
 
 ## Build & run
 
-The Go module root is **`src/`** (module `github.com/Zephyr75/overdrive`). Run everything from there — asset, shader and texture paths are relative to it.
+The Go module root is **`src/`** (module `github.com/Zephyr75/overdrive`), so `go` commands run from there. The working directory does not otherwise matter: every runtime file is resolved by the `paths` package against a discovered project root, so nothing in the tree may hold a relative path literal.
 
 ```sh
 cd src
 SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh   # required; see note below
 go build ./...
-go test ./...        # showcase-scene checks; no GPU needed
+go test ./...        # uniform layout + showcase-scene checks; no GPU needed
 go run .             # reads configs/vulkan.toml
 
 go run . -config configs/vulkan.toml     # the same, named explicitly
@@ -31,6 +31,13 @@ go test ./scene/ -run TestShowcaseLoads   # single test
 
 `go vet ./...` reports two pre-existing `possible misuse of unsafe.Pointer` in
 `vulkan/backend.go`; they are the device-address arithmetic and are not new.
+
+To validate the generated SPIR-V, pass the layout flag — plain `spirv-val` is
+wrong here:
+
+```sh
+for f in shaders/vk/*.spv; do spirv-val --scalar-block-layout "$f"; done
+```
 
 Stale paths to ignore: the two top-level scripts (`overdrive.sh`, `overdrive_build.sh`) are still cmake wrappers naming `go/` or `cpp/`. The C++ tree was deleted; the Go tree moved to `src/`. Fix references as you touch them rather than following them.
 
@@ -55,9 +62,13 @@ Four invariants hold the engine together. Breaking any of them is how it goes wr
 
 2. **Clears and viewports exist only inside `Backend.BeginPass`.** Never add a free-floating clear to scene or core code.
 
-3. **Uniforms are two typed structs, split by update frequency.** `renderer.FrameUniforms` (1280 bytes, camera/lights/shadow maps) is published once per pass by `BindFrameUniforms`; `renderer.DrawUniforms` (128 bytes, model matrix + material) goes out per draw. Both mirror `shaders/slang/common.slang` field for field, and the backend **uploads them by memcpy** into a ring buffer plus two pushed device addresses. That works because Slang compiles with `-fvk-use-scalar-layout` and scalar layout is exactly Go's packing for `float32`/`int32` structs — so keeping the *field order* in step is the whole requirement. An `init()` size panic in `renderer/uniforms.go` guards it.
+3. **Uniforms are two typed structs, split by update frequency.** `renderer.FrameUniforms` (1184 bytes, camera/lights/shadow maps) is published once per pass by `BindFrameUniforms`; `renderer.DrawUniforms` (128 bytes, model matrix + material) goes out per draw. Both mirror `shaders/slang/common.slang` field for field, and the backend **uploads them by memcpy** into a ring buffer plus two pushed device addresses.
 
-   Both structs are still laid out in 16-byte cells (every `float3` followed by a scalar, no scalar arrays). That was std140's rule, required while OpenGL was a backend; it is now vestigial and the structs can be reordered freely. See `notes/BACKEND_DECISION.md` §5.3 — that cleanup has not been done yet.
+   That works because Slang compiles with `-fvk-use-scalar-layout` and scalar layout is exactly Go's packing for `float32`/`int32` structs — so **keeping the field order in step is the whole requirement**. No 16-byte cells, no `vec3`-plus-scalar pairing, no vectors standing in for scalar arrays; that was std140's rule and it went with the OpenGL backend on 2026-08-05. Use only `float32`, `int32`, arrays of those, and `mgl32` matrices — anything with a wider alignment breaks the correspondence.
+
+   The guard is an `init()` size panic in `renderer/uniforms.go`. It catches a member added, removed or resized — it cannot catch two members swapped, which leaves the size identical and renders silent garbage. **After editing `common.slang`, rebuild shaders and look at the scene.** To check a layout by hand, `spirv-dis shaders/vk/forward.frag.spv | grep OpMemberDecorate` prints the offsets the compiler actually emitted.
+
+   `ScalarBlockLayout` is load-bearing: `LightData` is 68 bytes, so `lights[]` has a non-16-aligned stride that the standard layout rules reject. `spirv-val` fails on these modules unless given `--scalar-block-layout`.
 
 4. **Shaders are authored once in Slang** (`src/shaders/slang/`) and compiled to SPIR-V. The backend does not read `.slang` at runtime, so `build_shaders.sh` must run before the first build and after every shader edit.
 
@@ -70,7 +81,7 @@ Conventions that would silently produce a mirrored or inside-out image: the main
 - `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method. §0 indexes all 25 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §5 is the rendering conventions, §6 a symptom→file table, §7 the Vulkan object-ownership tree and the five lifetime classes.
 - `notes/ARCHITECTURE.md` — the code map: repository layout, the dependency rule (with the diagram), scene loading, physics/ECS, a package-by-package symbol reference, the XML/OBJ scene format and the Blender add-on, and §8 the list of dead files.
 - `notes/FEATURES.md` — what is implemented and *why it is built that way* (shadow bias, early-bail PCF, bindless vs dedicated descriptors), Part 2 the roadmap and known gaps, plus the performance history.
-- `notes/BACKEND_DECISION.md` — **the current plan.** Why Vulkan only, what the `Backend` interface cannot yet express, and the ordered work items to fix that.
+- `notes/tmp/BACKEND_DECISION.md` — **the current plan.** Why Vulkan only, what the `Backend` interface cannot yet express, and the ordered work items to fix that.
 - `notes/TODO.md` — the working list.
 - `notes/README.md` — index of `notes/`, and the shared conventions the cheatsheets follow.
 - `notes/cheatsheets/` — engine-independent reference: `GRAPHICS.md` (real-time techniques, procedural generation, physics simulation, AI, compression, optimisation, GPGPU, emulation), `PBR.md`, `RAYTRACING.md`, `OPENGL.md`, `VULKAN.md`, `ALGEBRA.md`. All English, all opening with a Scope / Not here / Source block. `OPENGL.md` is kept deliberately — it is API reference, not a description of this engine.

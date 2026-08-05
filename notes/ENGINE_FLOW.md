@@ -6,7 +6,7 @@ method, showing what the Vulkan backend does with each one and why.
 
 `ARCHITECTURE.md` is the map (where every package and symbol lives) and
 `FEATURES.md` is the feature list with the reasoning behind each one.
-`BACKEND_DECISION.md` is where the interface is *going*. This is the operational
+`tmp/BACKEND_DECISION.md` is where the interface is *going*. This is the operational
 document: what actually happens, in order.
 
 An OpenGL 4.1 backend existed until 2026-08-05. Where a decision here only makes
@@ -90,7 +90,7 @@ Two shadow passes (depth-only, no colour clear) then the main backbuffer pass.
 
 | Method | What it does |
 |---|---|
-| `BindFrameUniforms` | Memcpy 1280 B into the ring, cache its device address for the pass's draws |
+| `BindFrameUniforms` | Memcpy 1184 B into the ring, cache its device address for the pass's draws |
 | `BeginPass` | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state |
 | `SetCullFace` | `CmdSetCullMode` — dynamic state, no extra pipeline |
 | `SetDepthFunc` | `CmdSetDepthCompareOp` — dynamic state |
@@ -141,7 +141,7 @@ The rule above the line: **nothing in `scene/`, `core/`, `ecs/`, `input/` or
 `physics/` imports a graphics API.** They own handles (`renderer.MeshHandle`,
 `renderer.TextureHandle`, …), which are opaque integers the backend interprets
 in its own table. This is why `go test ./...` needs no GPU, and it is why the
-abstraction is kept with a single backend (`BACKEND_DECISION.md` §4).
+abstraction is kept with a single backend (`tmp/BACKEND_DECISION.md` §4).
 
 The rule inside a frame: **clears and viewports exist only inside
 `Backend.BeginPass`.** No free-floating clear calls anywhere else.
@@ -195,12 +195,12 @@ glfw.PollEvents()
 ```
 
 The frame shape is **hardcoded here**, which is the constraint
-`BACKEND_DECISION.md` §6 identifies: a new pass — a probe capture, a tonemap, a
+`tmp/BACKEND_DECISION.md` §6 identifies: a new pass — a probe capture, a tonemap, a
 volumetric composite — is an edit to `App.Run` rather than a new file. The `Pass`
 interface in §9 item 5 is what changes that.
 
 Uniforms travel as **two** values split by update frequency.
-`renderer.FrameUniforms` (1280 bytes) is filled by the frame loop and
+`renderer.FrameUniforms` (1184 bytes) is filled by the frame loop and
 `Scene.FillFrameUniforms`, then published once per pass by `BindFrameUniforms`.
 `renderer.DrawUniforms` (128 bytes) carries the model matrix and the material,
 which `Mesh.draw` rewrites before each draw. The backend snapshots both at call
@@ -231,7 +231,7 @@ map of that.
 
 `GeometryShader` is enabled because `depth_cube.slang` routes triangles to the
 six faces of a point light's shadow cube in one layered pass. It is a deliberate
-choice, not an accident — see `BACKEND_DECISION.md` §10.
+choice, not an accident — see `tmp/BACKEND_DECISION.md` §10.
 
 ### 4.2 Frame and passes
 
@@ -280,7 +280,7 @@ plane [LOGL: Cubemaps], and the sun's shadow pass culls front faces to avoid
 peter-panning [LOGL: Shadow Mapping].
 
 > These two are the interface's only pipeline state, which is exactly the gap
-> `BACKEND_DECISION.md` §6 names: there is no blend control and no depth-write
+> `tmp/BACKEND_DECISION.md` §6 names: there is no blend control and no depth-write
 > control, so a transparent material cannot be expressed. The `PipelineSpec`
 > work item replaces both methods.
 
@@ -319,9 +319,14 @@ Go packs `float32`/`int32` structs with no padding, which *is* Vulkan's scalar
 block layout (Slang compiles with `-fvk-use-scalar-layout`). So both blocks
 memcpy straight into this frame's ring buffer (1 MiB, 64-byte aligned entries)
 and their **GPU addresses** go out as a 16-byte push constant. The shader
-dereferences those pointers — the uniform data needs no descriptor at all. 1280
+dereferences those pointers — the uniform data needs no descriptor at all. 1184
 and 128 bytes, no padding, no marshalling code.
 [HTV: buffer device address]
+
+`ScalarBlockLayout` is enabled at device creation (`vulkan/backend.go:414`) and
+is load-bearing: `LightData` is 68 bytes, so `lights[]` has a stride that is not
+16-aligned and the *standard* layout rules reject it. `spirv-val` must be given
+`--scalar-block-layout` or it fails on every module.
 
 **The split.** `BindFrameUniforms` publishes the pass block once; each `Draw`
 sends only the transform and material. Before the split a single 1312-byte block
@@ -330,22 +335,32 @@ went out on every draw, roughly 1.2 KB of which was identical across the pass.
 | | How |
 |---|---|
 | Transport | per-frame ring buffer: one frame entry per pass, one draw entry per draw |
-| Layout | scalar, 1280 + 128 bytes |
+| Layout | scalar, 1184 + 128 bytes |
 | Addressing | two 64-bit device addresses in one push constant |
 | Textures | handles rewritten into **bindless slot indices** in the copy |
 | Cost per draw | one 128-byte memcpy + one 16-byte push constant |
 
-**The one rule that survives:** keep the field *order* in
-`renderer/uniforms.go` and `shaders/slang/common.slang` identical. Scalar layout
-and Go packing agree by construction as long as that holds; the `init()` size
-panic in `renderer/uniforms.go` is the tripwire for editing one and not the
-other.
+**The one rule:** keep the field *order* in `renderer/uniforms.go` and
+`shaders/slang/common.slang` identical, and use only `float32`/`int32`, arrays
+of those, and matrices. Scalar layout and Go packing then agree by construction.
 
-Both structs are also still laid out in 16-byte cells — every `float3` followed
-by a scalar, `pointShadowLights` an `int4` rather than an `int[4]`. That was
-std140's rule, mandatory while OpenGL was a backend. **It constrains nothing
-now**, and `BACKEND_DECISION.md` §5.3 is the cleanup that removes it. Until then
-the padding fields (`LightData.Reserved0..2`) are free space, not requirements.
+Nothing else is required. The 16-byte cells, the `float3`-plus-scalar pairing and
+the `int4`-not-`int[4]` trick were std140's rule, mandatory while OpenGL was a
+backend, and were removed on 2026-08-05 along with `LightData`'s three reserved
+floats (80 → 68 bytes, and `FrameUniforms` 1280 → 1184).
+
+The guard is the `init()` size panic in `renderer/uniforms.go`. It catches a
+member added, removed or resized. It does **not** catch two members swapped —
+that leaves every size and offset identical and renders silent garbage.
+
+So after editing `common.slang`, rebuild the shaders and look at the scene. To
+check a layout by hand, the compiler records what it actually chose:
+
+```sh
+spirv-dis shaders/vk/forward.frag.spv | grep OpMemberDecorate
+```
+
+Those offsets should equal `unsafe.Offsetof` of the matching Go field, in order.
 
 ### 4.6 Textures
 
@@ -413,7 +428,7 @@ The two-views trick is required: a cube view cannot be attached and an array vie
 cannot be sampled as a cube. The image's layout is tracked across passes.
 
 > `TargetColor` exists but nothing uses it yet — it is the seam an HDR target
-> lands on, once the half-float format is bound (`BACKEND_DECISION.md` §7).
+> lands on, once the half-float format is bound (`tmp/BACKEND_DECISION.md` §7).
 
 ### 4.9 Draws
 
@@ -437,7 +452,7 @@ means what it says — *does this physical device have the extension* — rather
 than the cross-backend performance hint an earlier design intended. The first
 real answer will be `FeatureRayTracing` against `VK_KHR_ray_query` availability,
 which is a genuine runtime fork: a GTX 1080 runs the same engine with a compute
-BVH instead. See `BACKEND_DECISION.md` §5.2 and §8.
+BVH instead. See `tmp/BACKEND_DECISION.md` §5.2 and §8.
 
 ---
 
@@ -479,10 +494,9 @@ invalid, so this is the one place that decision lives.
 sampler, so outside the sun's frustum reads unshadowed.
 
 **The uniform struct is the contract.** `renderer/uniforms.go` has an `init`
-that panics if `LightData` stops being 80 bytes, `FrameUniforms` 1280 or
-`DrawUniforms` 128. That is the tripwire for editing the Go structs without
-editing `common.slang`, or the other way round. Field *order* is what has to
-match; the sizes are how a mismatch is caught.
+that panics if `LightData` stops being 68 bytes, `FrameUniforms` 1184 or
+`DrawUniforms` 128. Field *order* is what has to match, and the size panic does
+not check order — see §4.5 for how to verify it.
 
 ---
 
@@ -491,7 +505,8 @@ match; the sizes are how a mismatch is caught.
 | Symptom | Look at |
 |---|---|
 | The image is mirrored, or culled inside-out | `vulkan/backend.go` `BeginPass` viewport, `vulkan/shader.go` `frontFace` (§5) |
-| Garbage uniforms after editing `common.slang` | Field order vs `renderer/uniforms.go`; the `init()` panic catches size drift only |
+| Garbage uniforms after editing `common.slang` | `go test ./renderer/` after rebuilding shaders — it diffs offsets and names against the SPIR-V (§4.5) |
+| `spirv-val` rejects every module | Missing `--scalar-block-layout`; `LightData`'s 68-byte stride is legal only under it (§4.5) |
 | Validation complains about image layouts | `imageBarrier` call sites in `BeginPass` / `EndPass` / `recordImageUpload` |
 | A resource is destroyed while in use | `waitAllFrames`, `retire`, `drainRetired` (§7) |
 | Shadows missing on one light | `Scene.pickShadowCasters` — only the first sun and first point light get maps |

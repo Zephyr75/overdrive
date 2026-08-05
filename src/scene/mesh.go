@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 
+	"github.com/Zephyr75/overdrive/paths"
 	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/utils"
 )
@@ -59,7 +60,7 @@ func (m *Mesh) MoveTo(dest mgl32.Vec3) {
 
 // Parses the OBJ and MTL files an XML mesh names into geometry and materials
 func (mXml MeshXml) toMesh() Mesh {
-	objFile, err := os.Open("assets/meshes/" + mXml.Obj)
+	objFile, err := os.Open(paths.Mesh(mXml.Obj))
 	if err != nil {
 		fmt.Println("Error opening file:", err)
 		return Mesh{}
@@ -137,7 +138,7 @@ func (mXml MeshXml) toMesh() Mesh {
 		mtlName = strings.TrimSuffix(mXml.Obj, ".obj") + ".mtl"
 	}
 
-	mtlFile, err := os.Open("assets/meshes/" + mtlName)
+	mtlFile, err := os.Open(paths.Mesh(mtlName))
 	if err != nil {
 		fmt.Println("Error opening file:", err)
 		return Mesh{}
@@ -203,11 +204,11 @@ func (mXml MeshXml) toMesh() Mesh {
 // Resolves an MTL texture reference to a project-local path
 //
 // Blender bakes the absolute path of the machine that exported the scene, so
-// only the basename is kept and resolved against the engine's own textures/
+// only the basename is kept and resolved against the engine's own textures
 // directory — otherwise a scene only loads on the machine it was authored on.
 func texturePath(ref string) string {
 	ref = strings.ReplaceAll(ref, "\\", "/")
-	return "textures/" + path.Base(ref)
+	return paths.Texture(path.Base(ref))
 }
 
 // Flattens the OBJ face lists into the interleaved vertex array and per-group index lists

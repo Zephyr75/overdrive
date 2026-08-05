@@ -1,0 +1,16 @@
+# go run . -config configs/vulkan.toml
+
+[window]
+width = 1920
+height = 1080
+
+[shadows]
+width = 1024
+height = 1024
+
+[renderer]
+backend = "vulkan"
+
+[antialiasing]
+mode = "msaa"
+samples = 4

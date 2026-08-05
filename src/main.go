@@ -8,6 +8,7 @@ import (
 
 	"github.com/Zephyr75/overdrive/core"
 	"github.com/Zephyr75/overdrive/ecs"
+	"github.com/Zephyr75/overdrive/paths"
 	"github.com/Zephyr75/overdrive/physics"
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
@@ -65,18 +66,18 @@ func main() {
 	// Settings are a runtime input, so one build runs at any resolution, with
 	// or without anti-aliasing. They must be loaded before NewApp, which is
 	// where the window and the backend read them
-	configPath := flag.String("config", "configs/vulkan.toml", "path to the engine settings file")
+	configName := flag.String("config", "vulkan.toml", "settings file: a bare name resolves under configs/, a path is used as given")
 	flag.Parse()
 	// A bad settings file is the user's mistake, not a crash, so it gets a line
 	// on stderr rather than utils.HandleError's stack
-	if err := settings.Load(*configPath); err != nil {
+	if err := settings.Load(paths.Config(*configName)); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
 	app := core.NewApp("Gutter", settings.WindowWidth, settings.WindowHeight, true, nil, nil)
 
-	scene := scene.NewScene("assets/showcase.xml", app.Backend)
+	scene := scene.NewScene(paths.Asset("showcase.xml"), app.Backend)
 
 	world := createWorld(&scene)
 
@@ -184,7 +185,7 @@ func MainWindow(app core.App) ui.UIElement {
 								},
 							},
 							StyleText: ui.StyleText{
-								Font:      "Comfortaa.ttf",
+								Font:      paths.Asset("Comfortaa.ttf"),
 								FontSize:  counter,
 								FontColor: black,
 							},
@@ -227,7 +228,7 @@ func MainWindow(app core.App) ui.UIElement {
 						},
 					},
 					StyleText: ui.StyleText{
-						Font:      "Comfortaa.ttf",
+						Font:      paths.Asset("Comfortaa.ttf"),
 						FontSize:  counter,
 						FontColor: black,
 					},

@@ -3,6 +3,7 @@ package scene
 import (
 	"github.com/go-gl/mathgl/mgl32"
 
+	"github.com/Zephyr75/overdrive/paths"
 	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/settings"
 )
@@ -63,12 +64,12 @@ func (s *Skybox) setup(b renderer.Backend) {
 	// which share one buffer across their face groups
 	s.mesh = b.CreateMesh(b.CreateBuffer(vertices, false), nil, renderer.LayoutPosition)
 	tex, err := b.LoadCubemap([6]string{
-		"./textures/skybox/right.png",
-		"./textures/skybox/left.png",
-		"./textures/skybox/top.png",
-		"./textures/skybox/bottom.png",
-		"./textures/skybox/front.png",
-		"./textures/skybox/back.png",
+		paths.Texture("skybox/right.png"),
+		paths.Texture("skybox/left.png"),
+		paths.Texture("skybox/top.png"),
+		paths.Texture("skybox/bottom.png"),
+		paths.Texture("skybox/front.png"),
+		paths.Texture("skybox/back.png"),
 	})
 	if err != nil {
 		println("Error loading skybox:", err.Error())
