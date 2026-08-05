@@ -35,8 +35,8 @@ const (
 	TargetColor
 )
 
-// VertexLayout is how a mesh's vertex buffer is laid out, and therefore how the
-// backend binds it: attribute pointers on OpenGL, a pipeline variant on Vulkan.
+// VertexLayout is how a mesh's vertex buffer is laid out, and therefore which
+// pipeline variant the backend binds it with.
 //
 // It is a property of the geometry, recorded once when the mesh is created, so
 // that one Draw serves every kind of drawable. A new kind of geometry means a

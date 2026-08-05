@@ -9,10 +9,9 @@ import (
 // Config is the on-disk form of the package's variables, one TOML file passed
 // to the binary with -config
 //
-// It exists so that resolution, backend and anti-aliasing are runtime inputs:
-// the same build runs on either backend at any resolution. Every field is
-// optional — decoding starts from the defaults above, so a file that names only
-// what it changes is valid.
+// It exists so that resolution and anti-aliasing are runtime inputs: one build
+// runs at any resolution. Every field is optional — decoding starts from the
+// defaults above, so a file that names only what it changes is valid.
 type Config struct {
 	Window struct {
 		Width  int
@@ -95,15 +94,17 @@ func apply(c Config) error {
 	return nil
 }
 
-// Accepts the backend names, folding the aliases onto the two createBackend switches on
+// Accepts the backend names
+//
+// Vulkan is the only backend, so this only rejects. It is kept so that a config
+// still naming OpenGL fails with an explanation rather than running Vulkan
+// silently, and so a second backend has a place to be named later.
 func normaliseBackend(name string) (string, error) {
 	switch name {
-	case "", "gl", "opengl":
-		return "gl", nil
-	case "vulkan", "vk":
+	case "", "vulkan", "vk":
 		return "vulkan", nil
 	}
-	return "", fmt.Errorf("unknown backend %q, want \"gl\" or \"vulkan\"", name)
+	return "", fmt.Errorf("unknown backend %q, want \"vulkan\"", name)
 }
 
 // Accepts the anti-aliasing mode names

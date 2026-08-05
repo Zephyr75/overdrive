@@ -10,13 +10,15 @@ notes/
 ├── ARCHITECTURE.md     the code map: layout, packages, symbols, scene format
 ├── FEATURES.md         what is implemented and why, roadmap, performance history
 ├── TODO.md             the working list
+├── BACKEND_DECISION.md why Vulkan only, what the interface must grow, in what order
 ├── LIGHTING_PLAN.md    proposal, not yet built: clustered forward + shadow atlas
+│                       design sound, implementation constraints stale — see its banner
 ├── LIGHTING_IMPL.md    the build order for it, Parts A-H, one at a time
 └── cheatsheets/        reference notes, engine-independent
     ├── GRAPHICS.md     real-time techniques, procedural, physics, AI, GPGPU, optimisation
     ├── PBR.md          radiometry, BRDF, Cook-Torrance, metallic-roughness, IBL
     ├── RAYTRACING.md   ray vs path tracing, acceleration structures, Vulkan RT
-    ├── OPENGL.md       the OpenGL API, call by call
+    ├── OPENGL.md       the OpenGL API, call by call — reference only, no longer a backend
     ├── VULKAN.md       the Vulkan 1.3 object model, for OpenGL developers
     └── ALGEBRA.md      linear algebra and quaternions, geometric reading
 ```
@@ -25,13 +27,14 @@ notes/
 
 | I want to… | Read |
 |---|---|
-| understand how a frame is drawn, or touch either backend | `ENGINE_FLOW.md` — start at §0 |
+| understand how a frame is drawn, or touch the backend | `ENGINE_FLOW.md` — start at §0 |
 | find where something lives in `src/` | `ARCHITECTURE.md` §5 |
 | know whether a feature exists, or why it was built that way | `FEATURES.md` Part 1 |
-| pick up the next piece of work | `TODO.md`, then `FEATURES.md` Part 2 |
-| know where the lighting and shadow work is heading | `LIGHTING_PLAN.md` |
+| pick up the next piece of work | `BACKEND_DECISION.md` §9, then `TODO.md` |
+| know why there is one backend, or what the interface still can't express | `BACKEND_DECISION.md` |
+| know where the lighting and shadow work is heading | `LIGHTING_PLAN.md` — read its staleness banner first |
 | pick up the next part of that work | `LIGHTING_IMPL.md` |
-| debug a wrong image on one backend only | `ENGINE_FLOW.md` §5 and §6 |
+| debug a wrong image | `ENGINE_FLOW.md` §5 and §6 |
 | understand a Vulkan object's lifetime | `ENGINE_FLOW.md` §7 |
 | revise the theory behind the shaders | `cheatsheets/PBR.md` |
 | revise an API call I have forgotten | `cheatsheets/OPENGL.md`, `cheatsheets/VULKAN.md` |

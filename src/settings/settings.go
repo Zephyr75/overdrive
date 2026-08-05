@@ -3,7 +3,7 @@
 //
 // They are plain package variables rather than a struct threaded through the
 // engine, because they are read from everywhere (camera aspect ratio, shadow
-// pass extent, backend selection) and written exactly once, before the window
+// pass extent, anti-aliasing) and written exactly once, before the window
 // exists. Load must therefore run before core.NewApp; nothing re-reads them.
 package settings
 
@@ -21,17 +21,17 @@ var (
 	ShadowWidth  int = 1024
 	ShadowHeight int = 1024
 
-	// Which renderer.Backend core.createBackend builds: "gl" or "vulkan"
-	Backend string = "gl"
+	// The graphics API. Vulkan is the only backend; the key survives so a
+	// config naming another one is rejected rather than silently ignored
+	Backend string = "vulkan"
 
 	// Anti-aliasing on the backbuffer. Offscreen targets — shadow maps above
 	// all — stay single-sampled whatever this says, since a later pass has to
 	// sample them.
 	//
-	// Read once at Backend.Init, because both backends bake the choice into an
-	// object they create there: GL into the window's default framebuffer,
-	// Vulkan into the swapchain's colour and depth images plus every main-pass
-	// pipeline. Changing either value afterwards does nothing.
+	// Read once at Backend.Init, because the backend bakes the choice into the
+	// swapchain's colour and depth images plus every main-pass pipeline.
+	// Changing either value afterwards does nothing.
 	AntiAliasing AAMode = AAMSAA
 	// Samples per pixel when AntiAliasing is AAMSAA: 2, 4 or 8, Vulkan clamping
 	// the request to what the device reports

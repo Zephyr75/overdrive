@@ -1,8 +1,8 @@
 # Overdrive :speedboat:
 
 Overdrive is a game engine, not just a renderer. It is written in Go and its
-graphics layer runs on both OpenGL and Vulkan, picked at startup, one binary
-carries both backends.
+graphics layer runs on Vulkan 1.3, behind an abstraction that keeps every other
+package free of graphics calls.
 
 You build scenes in Blender and export them to the engine's XML format with a
 custom add-on. The export covers meshes, camera, lights and materials.
@@ -11,16 +11,14 @@ custom add-on. The export covers meshes, camera, lights and materials.
 
 ## Features
 
-### Rendering (OpenGL and Vulkan)
+### Rendering
 
-* Two backends from one set of shaders. Shaders are written once in
-  [Slang](https://github.com/shader-slang/slang) and compiled per backend, GLSL
-  4.10 for OpenGL and SPIR-V for Vulkan. The scene code never calls a graphics
-  API directly. It talks to an abstract `Backend` interface, and the backend is
-  chosen at runtime by the settings file.
 * Modern Vulkan setup. Vulkan 1.3 dynamic rendering, buffer device address with
-  scalar layout uniforms, bindless descriptors, synchronization2, and 2 frames
-  in flight.
+  scalar layout uniforms, bindless descriptors, synchronization2, VMA, and 2
+  frames in flight.
+* Shaders written once in [Slang](https://github.com/shader-slang/slang) and
+  compiled to SPIR-V. The scene code never calls a graphics API directly — it
+  talks to an abstract `Backend` interface.
 * Physically based shading. A metallic-roughness Cook-Torrance BRDF with
   GGX distribution, Smith geometry and Fresnel-Schlick, energy conserving, with
   Reinhard tone mapping.
@@ -32,7 +30,7 @@ custom add-on. The export covers meshes, camera, lights and materials.
 * Normal mapping in tangent space, worked out per pixel so meshes need no extra
   tangent data.
 * Materials and textures, with colour and normal maps and bindless texture
-  arrays on the Vulkan backend.
+  arrays.
 * Skybox that doubles as the ambient environment, so metals reflect it and
   dielectrics pick up a soft tint.
 * OBJ and MTL mesh loading with XML scene files.
@@ -48,18 +46,22 @@ custom add-on. The export covers meshes, camera, lights and materials.
 
 ## Roadmap
 
-* Basic ray tracing on Vulkan. Hardware ray traced shadows then ambient
-  occlusion and reflections. Vulkan only, the OpenGL backend keeps shadow maps.
-  See [`notes/FEATURES.md`](notes/FEATURES.md).
+The ordered plan lives in [`notes/BACKEND_DECISION.md`](notes/BACKEND_DECISION.md)
+§9. In short:
+
+* Compute shaders, pipeline objects and a pass list — the substrate that makes
+  everything below a new file rather than engine surgery.
+* HDR, tone mapping and bloom, plus support for many dynamic lights.
 * Texture driven PBR. Metallic, roughness and AO maps so the values vary per
   texel instead of per material.
 * Real image based lighting. Prefilter the skybox into an irradiance map, a
   roughness mip chain and a BRDF lookup table, replacing today's single sample
   approximation.
+* Reflection probes and volumetric rendering.
+* Ray tracing. A software BVH first, then hardware ray queries where the GPU has
+  them. See [`notes/FEATURES.md`](notes/FEATURES.md).
 * A physics engine with rigid bodies and collisions, built out from the existing
   Verlet base.
-* HDR, tone mapping and bloom, plus support for many dynamic lights. See
-  [`notes/FEATURES.md`](notes/FEATURES.md).
 
 ## Build and run
 
@@ -68,9 +70,7 @@ custom add-on. The export covers meshes, camera, lights and materials.
 Tested on Arch Linux. You need Go 1.26 or newer, plus:
 
 ```sh
-# windowing and OpenGL come from your GPU's Mesa or driver stack
 sudo pacman -S base-devel glfw
-# Vulkan backend:
 sudo pacman -S vulkan-icd-loader
 sudo pacman -S vulkan-validation-layers   # optional, for OVERDRIVE_VK_VALIDATION=1
 ```
@@ -89,18 +89,18 @@ Prebuilt SDKs for other systems are on the
 cd src                    # the Go module
 SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh   # or just ./build_shaders.sh if slangc is on PATH
 go build ./...
-go run .                  # OpenGL by default
+go run .
 ```
 
 Run from the module root, because asset and shader paths are relative.
 
 ### Settings
 
-Resolution, shadow-map resolution, backend and anti-aliasing come from a TOML
-file, so one build covers every combination:
+Resolution, shadow-map resolution and anti-aliasing come from a TOML file, so
+one build covers every combination:
 
 ```sh
-go run .                        # reads configs/opengl.toml
+go run .                        # reads configs/vulkan.toml
 go run . -config low_end.toml   # or any other file
 ```
 
@@ -114,7 +114,7 @@ width = 1024
 height = 1024
 
 [renderer]
-backend = "gl"        # or "vulkan"
+backend = "vulkan"
 
 [antialiasing]
 mode = "msaa"         # or "none"
@@ -127,31 +127,23 @@ ignored is worse than one that fails. The file is the engine's only
 configuration input, so what a run was configured with is always readable from
 the file it was given.
 
-`configs/opengl.toml` and `configs/vulkan.toml` are the same settings on the two
-backends, for comparing them.
+`[renderer] backend` accepts only `"vulkan"`. It is kept so a config naming
+another backend fails with an explanation, and so a second one has somewhere to
+be named later.
 
-### Picking a backend
-
-`[renderer] backend`, and nothing else — no environment variable overrides the
-file. Two ready-made files differ in that line alone, so running one after the
-other compares the backends on identical settings:
+### Validation layers
 
 ```sh
-go run . -config configs/opengl.toml   # OpenGL 4.1 core
-go run . -config configs/vulkan.toml   # Vulkan 1.3
-
-OVERDRIVE_VK_VALIDATION=1 go run . -config configs/vulkan.toml   # + validation layers
+OVERDRIVE_VK_VALIDATION=1 go run .
 ```
 
-`OVERDRIVE_VK_VALIDATION` is a debugging switch for the Vulkan layers, not a
-setting: it changes nothing about what is rendered.
+A debugging switch, not a setting: it changes nothing about what is rendered.
 
 ### Shaders
 
-Shader sources live in `shaders/slang/`. The generated `shaders/gl/` and
-`shaders/vk/` directories are not checked in, so run `./build_shaders.sh` before
-your first build and after every shader edit — neither backend reads the
-`.slang` files at runtime.
+Shader sources live in `shaders/slang/`. The generated `shaders/vk/` directory is
+not checked in, so run `./build_shaders.sh` before your first build and after
+every shader edit — the backend does not read the `.slang` files at runtime.
 
 ### Tests
 
@@ -159,18 +151,16 @@ your first build and after every shader edit — neither backend reads the
 go test ./...
 ```
 
-No GPU needed. The tests check the std140 uniform layout derived from the
-generated GLSL against the Go structs the backends upload, which is the one
-place the two backends could silently drift apart.
+No GPU needed. They check that the showcase scene loads and parses.
 
 ## Repository layout
 
 | Path | Contents |
 |------|----------|
 | `src/` | The engine, and the Go module root. |
-| `src/renderer/` | The backend abstraction: one interface, opaque handles, one typed uniform struct. |
-| `src/opengl/`, `src/vulkan/` | The two backend implementations. Every graphics call lives in these. |
-| `src/shaders/slang/` | Shader sources, compiled to both backends by `build_shaders.sh`. |
+| `src/renderer/` | The backend abstraction: one interface, opaque handles, the two typed uniform structs. |
+| `src/vulkan/` | The backend. Every graphics call lives here. |
+| `src/shaders/slang/` | Shader sources, compiled to SPIR-V by `build_shaders.sh`. |
 | `src/scene/`, `src/ecs/`, `src/physics/` | Scene graph, entity component system, Verlet physics. No graphics calls. |
 | `src/plugin/` | The Blender add-on that exports a scene to XML. |
 | `notes/` | Engine documentation and graphics cheatsheets — see [`notes/README.md`](notes/README.md). |
@@ -179,8 +169,9 @@ place the two backends could silently drift apart.
 
 | Document | What it covers |
 |----------|----------------|
-| [`ENGINE_FLOW.md`](notes/ENGINE_FLOW.md) | **Start here for the renderer.** One frame from `main()` to the GPU, then the `Backend` contract method by method with what each backend does. §0 indexes all 25 methods by how often they run. |
+| [`ENGINE_FLOW.md`](notes/ENGINE_FLOW.md) | **Start here for the renderer.** One frame from `main()` to the GPU, then the `Backend` contract method by method. §0 indexes all 25 methods by how often they run. |
 | [`ARCHITECTURE.md`](notes/ARCHITECTURE.md) | The code map: repository layout, the dependency rule, scene loading, the package-by-package symbol reference, the scene format. |
-| [`FEATURES.md`](notes/FEATURES.md) | What is implemented and why it is built that way, the roadmap, and the performance history of the two backends. |
+| [`FEATURES.md`](notes/FEATURES.md) | What is implemented and why it is built that way, the roadmap, and the performance history. |
+| [`BACKEND_DECISION.md`](notes/BACKEND_DECISION.md) | Why Vulkan only, what the abstraction cannot yet express, and the ordered work to fix that. |
 | [`TODO.md`](notes/TODO.md) | The working list. |
 | [`cheatsheets/`](notes/README.md) | Reference notes on PBR, ray tracing, OpenGL, Vulkan, linear algebra and real-time technique in general. |

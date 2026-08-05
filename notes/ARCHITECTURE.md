@@ -36,7 +36,7 @@ overdrive/
 ├── textures/              fonts and images used by the UI layer
 └── src/                   the engine, and the Go module root
     ├── main.go            builds an App, loads a Scene, builds an ECS World
-    ├── build_shaders.sh   Slang → GLSL 4.10 + SPIR-V, must run before first build
+    ├── build_shaders.sh   Slang → SPIR-V, must run before first build
     │
     ├── core/              app lifecycle and the frame loop
     │   ├── app.go         NewApp (window + backend), App.Run (the frame loop)
@@ -46,14 +46,7 @@ overdrive/
     │   ├── backend.go     Backend interface, opaque handles, RenderTargetSpec
     │   └── uniforms.go    FrameUniforms, DrawUniforms, the layout guard
     │
-    ├── opengl/            OpenGL 4.1 backend — may import gl.*
-    │   ├── backend.go     resource tables, passes, draws
-    │   ├── shader.go      compile, link, pin sampler units and block bindings
-    │   ├── uniforms.go    UBO upload (a memcpy) and the sampler unit map
-    │   └── uniforms_test.go  derives std140 from the generated GLSL, diffs it
-    │                         against the Go structs
-    │
-    ├── vulkan/            Vulkan 1.3 backend — may import vk.*
+    ├── vulkan/            Vulkan 1.3 backend — the only package that may import vk.*
     │   ├── backend.go     device, swapchain, passes, lifetimes
     │   ├── buffer.go      VMA allocations
     │   ├── draw.go        the uniform ring, push constants, Draw
@@ -82,13 +75,12 @@ overdrive/
     │   ├── input.go       keyboard, camera movement
     │   └── callback.go    mouse look, scroll FOV, framebuffer resize
     │
-    ├── configs/           the settings files: opengl.toml (loaded by default) and vulkan.toml, the same settings on either backend
-    ├── settings/          resolution, backend and anti-aliasing globals + their TOML loader
+    ├── configs/           the settings files: vulkan.toml is loaded by default
+    ├── settings/          resolution and anti-aliasing globals + their TOML loader
     ├── utils/             vector parsing, Euler conversion, error handling
     │
     ├── shaders/
     │   ├── slang/         the source of truth, authored once
-    │   ├── gl/            generated GLSL 4.10 — git-ignored
     │   └── vk/            generated SPIR-V — git-ignored
     │
     ├── assets/            scene XML plus meshes/ (OBJ + MTL)
@@ -103,8 +95,10 @@ overdrive/
 
 **Nothing above `renderer/` imports a graphics API.** Scene, core, ecs, input and
 physics own opaque handles (`renderer.MeshHandle`, `TextureHandle`,
-`RenderTargetHandle`, `ShaderHandle`, `BufferHandle`) that each backend
-interprets in its own table.
+`RenderTargetHandle`, `ShaderHandle`, `BufferHandle`) that the backend
+interprets in its own table. This is what makes `go test ./...` runnable without
+a GPU, and it is why the abstraction is kept with a single backend
+(`BACKEND_DECISION.md` §4).
 
 ```mermaid
 graph TD
@@ -117,20 +111,17 @@ graph TD
     E --> P[physics]
     P --> S
     I --> S
-    C -.->|createBackend only| GL[opengl]
-    C -.->|createBackend only| VK[vulkan]
-    GL --> R
+    C -.->|constructs it| VK[vulkan]
     VK --> R
 
     style R fill:#553c9a,color:#e2e8f0
-    style GL fill:#276749,color:#e2e8f0
     style VK fill:#2b6cb0,color:#e2e8f0
 ```
 
-The two dotted edges are the whole reason `createBackend` lives in `core/`: the
-backend packages import `renderer`, so `renderer` cannot import them back, and
-somebody above both has to pick one. `settings.Backend` (`gl` by default, or
-`vulkan`, set by the config file) is read there and nowhere else.
+The dotted edge is the only place `vulkan` is named above `renderer/`:
+`core.NewApp` calls `vulkan.New()` and immediately holds the result as a
+`renderer.Backend`. `settings.Backend` still exists, but only so a config naming
+another backend is rejected rather than ignored.
 
 Two further invariants, both enforced by convention rather than by the compiler:
 
@@ -229,10 +220,9 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | Symbol | Kind | Description |
 |---|---|---|
 | `App` | type | Window, backend, dimensions, debug flag, input callbacks |
-| `NewApp` | func | Creates the backend, hints and creates the window, wires input, then `Backend.Init` |
-| `App.Run` | func | Compiles the five shader sets, builds the UI quad, then loops until the window closes |
+| `NewApp` | func | Constructs the backend (`vulkan.New()`, the only place it is named), hints and creates the window, wires input, then `Backend.Init` |
+| `App.Run` | func | Loads the five shader sets, builds the UI quad, then loops until the window closes. The frame shape is hardcoded here — see `BACKEND_DECISION.md` §6 |
 | `App.Quit` | func | Asks the window to close |
-| `createBackend` *(pkg)* | func | Switches on `settings.Backend`. The only place that names `opengl` or `vulkan` |
 | `renderUI` *(pkg)* | func | Rasterises the widget tree to RGBA, uploads it, draws the quad. Redraws only when the tree or hover state changed |
 
 ### `renderer/`
@@ -243,10 +233,10 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `TextureHandle`, `BufferHandle`, `MeshHandle`, `RenderTargetHandle`, `ShaderHandle` | type | Opaque `uint32`. Texture 0 is the white pixel, render target 0 the backbuffer |
 | `VertexLayout` | type | `LayoutMesh`, `LayoutPosition`, `LayoutPositionUV` — how a mesh's vertex buffer is read. Recorded at creation, which is what lets one `Draw` serve every drawable |
 | `RenderTargetSpec`, `TargetFormat` | type | Describes an offscreen target by what it *is* — size, depth or colour, cube or not |
-| `Feature`, `Supports` | type, method | The seam for ray tracing and compute; both backends report `false` today |
+| `Feature`, `Supports` | type, method | The seam for ray tracing and compute; returns `false` today and has never been wired |
 | `FrameUniforms` | type | 1280 B: camera, lights, shadow maps. Published once per pass |
 | `DrawUniforms` | type | 128 B: model matrix and material. Sent per draw |
-| `LightData` | type | 68 B, mirrors the `Light` struct in `common.slang` |
+| `LightData` | type | 80 B, mirrors the `LightData` struct in `common.slang` |
 | `MaxLights`, `MaxShadowCubes` | const | 8 and 4, must match `common.slang` |
 
 ### `scene/`
@@ -311,7 +301,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 |---|---|---|
 | `WindowWidth` / `WindowHeight` | var | 1920×1080, updated on resize |
 | `ShadowWidth` / `ShadowHeight` | var | 1024², fixed |
-| `Backend` | var | `"gl"` or `"vulkan"`, the name `core.createBackend` switches on |
+| `Backend` | var | `"vulkan"`, the only accepted value. Kept so a config naming another backend is rejected rather than ignored |
 | `AntiAliasing` / `MSAASamples` | var | `AAMSAA` ×4 by default; both read once at `Backend.Init` |
 | `AAMode` | type | `AANone` or `AAMSAA` |
 | `MSAAEnabled` | func | Mode is MSAA *and* the count actually multisamples |
@@ -397,14 +387,13 @@ scene…**
 
 ## 7. Shaders
 
-Authored **once** in Slang under `src/shaders/slang/`, compiled per backend by
-`build_shaders.sh` into GLSL 4.10 and SPIR-V. Neither backend reads `.slang` at
-runtime, so the script must run before the first build and after every shader
-edit.
+Authored in Slang under `src/shaders/slang/` and compiled to SPIR-V by
+`build_shaders.sh`. The backend does not read `.slang` at runtime, so the script
+must run before the first build and after every shader edit.
 
 | Set | Stages | Used by |
 |---|---|---|
-| `common.slang` | — | Included by all of them: `MAX_LIGHTS`, `LightData`, `FrameUniforms`, `DrawUniforms`, and the per-backend uniform access macros `FRAME` / `DRAW` |
+| `common.slang` | — | Included by all of them: `MAX_LIGHTS`, `LightData`, `FrameUniforms`, `DrawUniforms`, the bindless sampler arrays, and the `FRAME` / `DRAW` access macros |
 | `forward` | vert, frag | The main pass. Cook-Torrance PBR, normal mapping, both shadow tests, skybox ambient, Reinhard tonemap |
 | `depth` | vert, frag | The directional light's 2D shadow pass |
 | `depth_cube` | vert, **geo**, frag | The point light's cube shadow pass, one layered draw for all six faces |

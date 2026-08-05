@@ -504,7 +504,7 @@ std::unique_ptr<Backend> b = std::make_unique<VKBackend>();
 b->beginFrame();                          // resolved at runtime through the vtable
 ```
 
-Exactly the engine's pattern — `scene/` talks to an abstract `Backend`, `opengl/` and `vulkan/` implement it. Go spells the same thing as an interface value with no vtable syntax; see `../ENGINE_FLOW.md` §4.
+Exactly the engine's pattern — `scene/` talks to an abstract `Backend` and `vulkan/` implements it. Go spells the same thing as an interface value with no vtable syntax; see `../ENGINE_FLOW.md` §4.
 
 ---
 

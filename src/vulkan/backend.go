@@ -786,9 +786,10 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, w, h int, clea
 		info.RenderArea = vk.Rect2D{Extent: b.swapExtent}
 		info.ColorAttachments = []vk.RenderingAttachmentInfo{colorAtt}
 
-		// Flip the viewport height, turning Vulkan's y-down clip space back into
-		// OpenGL's y-up. That also cancels the winding flip, so the scene's CCW
-		// front faces stay correct without touching any geometry
+		// Flip the viewport height, turning Vulkan's y-down clip space y-up,
+		// which is what the projection matrices in scene/ assume. That also
+		// cancels the winding flip, so the scene's CCW front faces stay correct
+		// without touching any geometry
 		viewport.Y = float32(b.swapExtent.Height)
 		viewport.Width = float32(b.swapExtent.Width)
 		viewport.Height = -float32(b.swapExtent.Height)
@@ -845,9 +846,10 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, w, h int, clea
 		depthAtt.ImageView = t.attachmentView
 		depthAtt.StoreOp = vk.AttachmentStoreOpStore
 
-		// Keep the viewport positive, so the shadow map's memory layout matches
-		// OpenGL's and the sampling math in the shaders is unchanged. The cost
-		// is inverted winding, which the pipeline declares as CW front faces
+		// Keep the viewport positive here, unlike the main pass: the shadow map
+		// is sampled as a texture rather than presented, so it wants the y-down
+		// memory layout the depth comparison in the shaders expects. The cost is
+		// inverted winding, which the pipeline declares as CW front faces
 		viewport.Width = float32(w)
 		viewport.Height = float32(h)
 	}
@@ -892,8 +894,7 @@ func (b *VKBackend) EndPass() {
 // --- dynamic state -----------------------------------------------------------
 
 // Cull mode and depth compare are Vulkan 1.3 dynamic state, so these stay
-// immediate calls like their OpenGL counterparts instead of forcing a separate
-// pipeline per combination.
+// immediate calls instead of forcing a separate pipeline per combination.
 
 // Records the cull mode, remembering it for the next pass that starts
 func (b *VKBackend) SetCullFace(front bool) {

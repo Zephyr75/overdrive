@@ -24,8 +24,8 @@ var (
 
 // The overlay's geometry, in renderer.LayoutPositionUV
 //
-// Two triangles rather than a strip, so both backends submit identical geometry
-// through the one Draw entry point.
+// Two triangles rather than a strip, so it goes out through the one Draw entry
+// point like any other mesh.
 var quadVertices = []float32{
 	// clip-space position(3) | uv(2)
 	-1, 1, 0, 0, 1,

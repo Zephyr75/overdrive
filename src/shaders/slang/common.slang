@@ -1,14 +1,11 @@
 // Shared declarations for every Overdrive shader
 //
-// One Slang source feeds both backends, build_shaders.sh compiles it twice
-//   -DTARGET_VK -target spirv -> Vulkan, BDA push constant + bindless arrays
-//   no define   -target glsl  -> OpenGL, std140 UBO + named samplers
+// build_shaders.sh compiles this to SPIR-V: BDA push constant + bindless arrays
 //
-// The block is split by update frequency: FrameUniforms once per pass,
-// DrawUniforms once per draw. Both backends see the same two structs
-// Vulkan memcpys them into a ring and pushes two device addresses, OpenGL
-// memcpys them into two std140 UBOs. Both are memcpys because of the LAYOUT
-// RULE below, which is what makes std140 and scalar layout byte-identical
+// The uniform data is split by update frequency: FrameUniforms once per pass,
+// DrawUniforms once per draw. The backend memcpys both into a host-visible ring
+// and pushes their device addresses, with no marshalling — Slang's scalar layout
+// and Go's struct packing agree field for field
 
 // Slang has no matrix inverse intrinsic, so here is the adjugate/det one
 // Used to build the normal matrix transpose(inverse(mat3(model)))
@@ -64,15 +61,12 @@ struct LightData {
 // draws. Keep each struct's field order identical to renderer/uniforms.go — that
 // order *is* the Vulkan scalar layout.
 //
-// LAYOUT RULE, and the reason the field order below looks arbitrary: every
-// declaration group must fill a whole 16-byte cell. std140 (what an OpenGL 4.1
-// uniform block must use) aligns a float3 to 16 while it occupies only 12, and
-// gives a scalar array a 16-byte element stride. Both would insert padding that
-// Go's packed struct does not have, forcing the GL backend to marshal field by
-// field. So: every float3 is immediately followed by one scalar, loose scalars
-// come in fours, and a scalar array is declared as a vector (int4, not int[4]).
-// Then std140 and scalar layout are byte-identical and both backends just
-// memcpy. Break the rule and opengl/uniforms_test.go fails.
+// The reason the field order below looks arbitrary: every declaration group
+// fills a whole 16-byte cell — a float3 always followed by a scalar, loose
+// scalars in fours, scalar arrays declared as vectors (int4, not int[4]). That
+// was std140's rule, mandatory while OpenGL was a backend. Scalar layout has no
+// such requirement, so the rule is now vestigial and these structs can be
+// reordered freely; see notes/BACKEND_DECISION.md §5.3.
 
 // Camera, lights and shadow maps: constant across every draw of a pass
 struct FrameUniforms {
@@ -86,8 +80,7 @@ struct FrameUniforms {
     // Active lights in lights[], 0 to MAX_LIGHTS
     int lightCount;
     LightData lights[MAX_LIGHTS];
-    // Bindless texture-array slots, Vulkan only
-    // The GL shader samples the named samplers below instead
+    // Bindless texture-array slots, indices into textures2D/texturesCube
     int texShadowMap;
     int texShadowCubeMap;
     int texSkybox;
@@ -98,8 +91,8 @@ struct FrameUniforms {
     // Point light l casts a cube shadow when some slot s holds l
     // It then samples shadowCubeMap[s]
     //
-    // A vector, not int[MAX_SHADOW_CUBES]: std140 would give a scalar array a
-    // 16-byte element stride, 64 bytes to carry 16 bytes of indices
+    // A vector rather than int[MAX_SHADOW_CUBES], from the std140 era; scalar
+    // layout would pack the array fine
     int4 pointShadowLights;
 };
 
@@ -112,14 +105,12 @@ struct DrawUniforms {
     float3 matDiffuse;  float matMetallic;
     float3 matSpecular; float matRoughness;
     float matAo;
-    // Bindless texture-array slots, Vulkan only
+    // Bindless texture-array slots, indices into textures2D
     int texOurTexture;
     int texNormalMap;
     // 1 when the bound material has a normal map, 0 uses the geometric normal
     int useNormalMap;
 };
-
-#ifdef TARGET_VK
 
 // BDA, one pointer per block lives in a 16-byte push constant
 // Both point into the host-visible ring the backend uploads into: the frame
@@ -135,8 +126,7 @@ struct PushConstants { FrameUniforms *frame; DrawUniforms *draw; };
 // Shadow maps get dedicated non-bindless bindings
 // PCF kernels tap them many times per fragment
 // Intel's Vulkan driver re-fetches a dynamically indexed bindless descriptor per tap
-// Going bindless here made Vulkan run ~1.7x slower than OpenGL
-// A plain bound descriptor, what the GL backend uses, fixes it
+// Going bindless here cost ~1.7x the frame time; a plain bound descriptor fixes it
 [[vk::binding(2, 0)]] Sampler2D shadowMap2D;
 [[vk::binding(3, 0)]] SamplerCube shadowCubeMap[MAX_SHADOW_CUBES];
 
@@ -147,33 +137,6 @@ struct PushConstants { FrameUniforms *frame; DrawUniforms *draw; };
 #define TEX_SHADOWMAP (shadowMap2D)
 #define TEX_SKYBOX (texturesCube[FRAME.texSkybox])
 
-// GL projection matrices give clip z in [-w, w], Vulkan clips to [0, w]
+// The projection matrices built in scene/ are the OpenGL convention, giving
+// clip z in [-w, w]; Vulkan clips to [0, w], so every vertex stage remaps
 #define TO_VK_DEPTH(pos) ((pos).z = ((pos).z + (pos).w) * 0.5)
-
-#else // OpenGL
-
-// Two std140 blocks, bound to binding points 0 and 1
-// The backend rewrites the frame block once per pass and the draw block per draw
-ConstantBuffer<FrameUniforms> frameUbo;
-ConstantBuffer<DrawUniforms> drawUbo;
-
-// GL keeps texture unit semantics
-// The backend binds each sampler to a unit with glUniform1i
-// So they stay separate named samplers
-Sampler2D shadowMap;
-Sampler2D ourTexture;
-Sampler2D normalMap;
-SamplerCube shadowCubeMap[MAX_SHADOW_CUBES];
-SamplerCube skybox;
-
-#define FRAME (frameUbo)
-#define DRAW (drawUbo)
-#define TEX_OUR (ourTexture)
-#define TEX_NORMAL (normalMap)
-#define TEX_SHADOWMAP (shadowMap)
-#define TEX_SKYBOX (skybox)
-
-// GL clip space already matches, no remap
-#define TO_VK_DEPTH(pos)
-
-#endif

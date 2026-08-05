@@ -22,4 +22,3 @@ go.work
 
 # Generated shaders (built from shaders/slang by build_shaders.sh)
 src/shaders/vk/
-src/shaders/gl/

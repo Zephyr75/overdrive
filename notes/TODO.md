@@ -19,26 +19,39 @@ Small, concrete items. Anything that needs a paragraph of reasoning lives in
 - [ ] Verlet distance constraints — `physics/link.go` is commented out
 - [ ] Audio support
 
+## Backend
+
+The ordered plan is `BACKEND_DECISION.md` §9. These are its first items.
+
+- [x] Delete the OpenGL backend — 2026-08-05
+- [ ] Drop the dead 16-byte cell rule from `renderer/uniforms.go` and `common.slang` — `BACKEND_DECISION.md` §5.3
+- [ ] Shader hot-reload — the biggest single velocity win, and independent of everything else
+- [ ] `go-vulkan`: formats, barrier rework, compute, storage images, blit — `go-vulkan/BINDINGS_GAP.md` §7 batches 1-6
+- [ ] `PipelineSpec`, replacing `CreateShader` + `SetCullFace` / `SetDepthFunc`
+- [ ] `Pass` interface and a pass list, replacing the hardcoded frame in `core/app.go`
+- [ ] Compute in `Backend` — `Dispatch`, `CreateStorageBuffer`, `CreateStorageImage`
+
 ## Rendering
 
-- [x] Anti-aliasing — MSAA on the backbuffer of both backends, `[antialiasing]` in the config file choosing the mode and count
-- [ ] Post-process AA (FXAA/TAA) — needs the scene rendered offscreen, which needs a depth attachment on colour render targets (the VK backend's `passOffscreenColor` has none)
+- [x] Anti-aliasing — MSAA on the backbuffer, `[antialiasing]` in the config file choosing the mode and count
+- [ ] Post-process AA (FXAA/TAA) — needs the scene rendered offscreen, which needs a depth attachment on colour render targets (`passOffscreenColor` has none)
 - [x] Framebuffers — generalised into `CreateRenderTarget(RenderTargetSpec)`
 - [x] Normal mapping (tangent-space, per-fragment TBN)
-- [ ] HDR + tone mapping + bloom — needs a half-float format binding in `go-vulkan`, see `FEATURES.md` §2
+- [ ] HDR + tone mapping + bloom — needs a half-float format binding, `go-vulkan/BINDINGS_GAP.md` §7 batch 1. See `FEATURES.md` §2
 - [ ] Ambient occlusion (SSAO)
-- [ ] Blending / transparency
+- [ ] Blending / transparency — blocked on `PipelineSpec`, since there is no blend state in the interface
 - [ ] Instancing
-- [ ] Mipmaps on the GL backend
+- [ ] Mipmaps — needs `CmdBlitImage`, `go-vulkan/BINDINGS_GAP.md` §5.2
 - [ ] Shadow cascades — currently fixed at 1024², no CSM
 - [ ] Geometry shader for fur
-- [ ] Ray-traced shadows on Vulkan — `FEATURES.md` §3
+- [ ] Ray-traced shadows — `FEATURES.md` §3, `BACKEND_DECISION.md` §8
 - [ ] Ray marching for basic shapes and clouds — existed in the pre-Slang GLSL tree, not ported; `shaders/slang/` has only `forward`, `depth`, `depth_cube`, `skybox`, `ui`
 
 ## Tooling and cleanup
 
-- [ ] GPU timestamp queries, to profile the two backends against each other — blocked on query-pool bindings in `go-vulkan`
-- [ ] Image comparison between backends in the test suite
+- [ ] GPU timestamp queries, to profile one pass against another — blocked on query-pool bindings, `go-vulkan/BINDINGS_GAP.md` §5.4
+- [ ] Debug object names (`SetDebugUtilsObjectNameEXT`) so validation and RenderDoc show names, not handles — `go-vulkan/BINDINGS_GAP.md` §5.5
+- [ ] A rendered-image regression test — nothing checks the frame today, only that the scene parses
 - [ ] Score physical devices instead of taking `devices[0]`
 - [ ] Delete or implement the dead files listed in `ARCHITECTURE.md` §8
 - [ ] `overdrive.sh` and `overdrive_build.sh` at the repo root are still cmake wrappers for the deleted C++ tree

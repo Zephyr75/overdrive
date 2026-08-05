@@ -2,6 +2,32 @@
 
 **Status: proposal, under iteration. Nothing here is implemented yet.**
 
+> **Stale as of 2026-08-05 — the constraint this plan was designed around is
+> gone.** The OpenGL 4.1 backend was deleted (`BACKEND_DECISION.md`), so the
+> "GL 4.1 floor" that shapes §6, §7 and much of §9 no longer applies. Compute
+> shaders, storage buffers and storage images are all reachable once
+> `go-vulkan/BINDINGS_GAP.md` §7 batches 2-4 land. Specifically, revisit:
+>
+> - **§6, the CPU-built cluster grid.** Built on the CPU only because GL 4.1 had
+>   no compute and no SSBOs. A compute build is now open, and would itself be a
+>   worthwhile experiment.
+> - **Texture buffers (`samplerBuffer`) as the transport** for the light and tile
+>   record arrays. A storage buffer is the natural expression now.
+> - **§9's uniform-block size ceilings.** A GL 4.1 uniform block guarantees only
+>   16 KB; that number should not constrain anything here.
+> - **The parity language throughout** — "symmetric across the two backends",
+>   "byte-identical here" — which no longer has a second side to be symmetric
+>   with.
+> - **The `int4`-not-`int[4]` and 16-byte-cell requirements** in §4. Vestigial;
+>   see `BACKEND_DECISION.md` §5.3.
+> - **The ordering.** `BACKEND_DECISION.md` §9 items 1-6 (pipelines, pass list,
+>   compute) now come before this plan's Part B onward, since they are what a
+>   shadow atlas would be built on.
+>
+> The lighting *design* — clustered forward, the atlas, the static/dynamic split,
+> the capacity arithmetic — is unaffected and still the plan. Only the
+> implementation constraints changed, and they all loosened.
+
 Unlike the other engine documents, this one describes what the code *should*
 become, not what it does today. §12 is the implementation plan, split into eight
 parts meant to be picked up one at a time. When a part lands, its content moves
@@ -9,7 +35,7 @@ into `FEATURES.md` (why it is built that way) and `ENGINE_FLOW.md` (how a frame
 runs), and the part is struck from here. When this file is empty, delete it.
 
 Scope: many shadowed lights, static and dynamic, scalable from a discrete GPU
-down to an integrated laptop one, on both backends.
+down to an integrated laptop one.
 
 Not here: the current fixed 1-directional + 1-point shadow budget
 (`FEATURES.md` Part 1), the `Backend` contract as it stands today
@@ -47,11 +73,12 @@ not by imitation:
   post-process AA. Clustered forward is multisample-native.
 - **It degrades by scalar, not by code path.** Low-end is a coarser froxel grid
   and a smaller atlas — the same shaders, the same passes. No second renderer to
-  keep alive across two backends.
+  keep alive.
 - **It leaves the forward path intact** for transparency and the IBL ambient
   term, both of which a G-buffer makes awkward.
-- **It respects the GL 4.1 floor.** Every piece below is expressible without
-  compute shaders or SSBOs (see §6).
+- ~~**It respects the GL 4.1 floor.** Every piece below is expressible without
+  compute shaders or SSBOs (see §6).~~ Void — see the banner. The design does not
+  *need* compute, which is still a virtue; it is no longer a constraint.
 
 The one expectation to correct: clustered shading reduces *shading* cost only.
 It does not make a single shadow map cheaper to bake. The shadowed-light budget
@@ -164,10 +191,10 @@ ShadowCount int32   // 1 for sun and spot, 6 for point
 Reserved0, Reserved1, Reserved2 float32
 ```
 
-Both cells stay full and no existing member moves, so the std140 guarantee holds
-— but `opengl/uniforms_test.go` and both `init()` size guards must be updated in
-the same commit. 96 is still a multiple of 16, which is the only thing the
-LAYOUT RULE in `common.slang` actually requires.
+No existing member moves, so the mirror in `common.slang` stays valid — but the
+`init()` size guard must be updated in the same commit. The 16-byte cell padding
+shown here is no longer required (`BACKEND_DECISION.md` §5.3); keeping or
+dropping it is free.
 
 `Radius` is derived once at load from the attenuation terms — the distance at
 which `intensity / (c + l·d + q·d²)` falls below 1/255. It is what both the
@@ -197,10 +224,10 @@ type ShadowRecord struct {
 ```
 
 **Records live in a texel buffer, not in `FrameUniforms`.** The §5.1 partition
-is 337 tiles, so 337 records — 32 KB at 96 bytes each, twice the 16 KB a GL 4.1
-uniform block is guaranteed to hold. A uniform block would cap the design at
-about 140 records (≈ 23 point lights) for no reason other than where the bytes
-sit. So `ShadowRecord[]` goes in the same texture buffer as the cluster data
+is 337 tiles, so 337 records — 32 KB at 96 bytes each, well past what a uniform
+block is a sensible home for, and the count is data-driven rather than fixed.
+(The original argument was GL 4.1's guaranteed 16 KB uniform block; that number
+no longer applies, but a growable array still does not belong in `FrameUniforms`.) So `ShadowRecord[]` goes in the same texture buffer as the cluster data
 (§6), and `CreateTexelBuffer` lands in Part B, well before clustering needs it.
 
 `FrameUniforms` keeps only `TexShadowRecords`, the handle to that buffer.
@@ -223,10 +250,10 @@ six-matrix array and the geometry stage that consumed it both disappear —
 `depth_cube.slang` is deleted, along with the `FrontFace = Clockwise` divergence
 it forced on the Vulkan backend (§11).
 
-The `init()` size guard and `opengl/uniforms_test.go` must be updated in the
-same commit as any of this. Rebuild shaders and run `go test ./opengl/` — that
-test re-derives std140 from the generated GLSL and is the only thing standing
-between a mislaid field and silently garbage OpenGL rendering.
+The `init()` size guard in `renderer/uniforms.go` must be updated in the same
+commit as any of this, and the shaders rebuilt. The guard catches a wrong
+*size*; a wrong field *order* renders silent garbage and nothing catches it
+automatically, so eyeball the showcase scene.
 
 ---
 
@@ -242,8 +269,10 @@ and `Light.depthCubeMap` all disappear.
 
 That is the difference from the current scheme, which calls
 `CreateRenderTarget` once per casting light and so needs one texture, one
-framebuffer and one sampler unit each. GL 4.1 guarantees only 16 units per
-stage, which is the hard wall this design exists to get past.
+framebuffer and one sampler binding each — one target per casting light, which
+is the wall this design exists to get past. (It was a harder wall under GL 4.1's
+16-units-per-stage guarantee; with bindless descriptors it is a soft one, so the
+atlas is now a bandwidth and cache argument rather than a capacity one.)
 
 Each atlas is a single 2D depth target carved into power-of-two tiles by a
 quadtree allocator (4096 → 2048 → … → 128). Everything is a 2D tile: a sun gets
@@ -470,17 +499,13 @@ writes two arrays:
 The fragment shader computes its cluster from `gl_FragCoord.xy` and view depth,
 reads its offset and count, and loops only over that cluster's lights.
 
-**CPU-built on both backends, deliberately.** GL 4.1 has neither compute shaders
-nor SSBOs (both 4.3), so the GL path must build on the CPU regardless; making
-Vulkan do the same keeps the two backends byte-identical here, which is a stated
-goal. Both upload the arrays as a **texture buffer** — `samplerBuffer`, GL 3.1
-core, `Buffer<uint>` in Slang, an ordinary uniform texel buffer on Vulkan.
-
-A GPU cluster build behind `Supports(FeatureCompute)` is the later optimisation,
-and only if profiling shows the CPU build mattering. Note that
-`Backend.Supports` currently returns `false` on both backends
-(`opengl/backend.go:499`, `vulkan/backend.go:939`) — the seam exists but has
-never been wired.
+**CPU-built first, but no longer forced.** This was originally CPU-only because
+GL 4.1 had neither compute shaders nor SSBOs. With that gone, start on the CPU
+because it is simpler, then move the build to compute once `Dispatch` exists
+(`BACKEND_DECISION.md` §9 item 6) — a GPU cluster build is a good first user of
+it. The transport was going to be a **texture buffer** (`Buffer<uint>` in Slang);
+a plain storage buffer, or a device address like the uniform blocks already use,
+is the simpler expression now.
 
 **Before any of this**, the attenuation early-out is worth doing on its own:
 
@@ -526,8 +551,9 @@ only inside `BeginPass`) holds, with the one amendment in §8.
 
 ## 8. Backend interface changes
 
-Three additions. Each is symmetric across the two backends, which is the test of
-whether it belongs in `Backend` at all.
+Three additions. Re-read these against `BACKEND_DECISION.md` §6 before building
+them — `PipelineSpec` and the `Pass` interface may absorb the first, and
+`CreateStorageBuffer` supersedes the third.
 
 ```go
 // Restricts drawing to a sub-rect of the current pass's target
@@ -544,19 +570,21 @@ CopyDepthRegion(src, dst RenderTargetHandle, srcX, srcY, dstX, dstY, w, h int)
 
 // Creates a buffer readable by shaders as a flat array of texels
 //
-// The cluster light-index list, which is too large for a uniform block and
-// which GL 4.1 cannot express as an SSBO
+// The cluster light-index list, too large for a uniform block
+//
+// Superseded: CreateStorageBuffer (BACKEND_DECISION.md §9 item 6) is the same
+// thing without the texel-buffer indirection
 CreateTexelBuffer(sizeBytes int) (BufferHandle, TextureHandle)
 UpdateTexelBuffer(h BufferHandle, data []uint32)
 ```
 
 Mapping:
 
-| method | OpenGL 4.1 | Vulkan 1.3 |
-|---|---|---|
-| `SetViewportScissor` | `glViewport` + `glScissor` + `GL_SCISSOR_TEST` | `vkCmdSetViewport` + `vkCmdSetScissor`, already dynamic |
-| `CopyDepthRegion` | `glBlitFramebuffer`, `GL_DEPTH_BUFFER_BIT` | `vkCmdCopyImage` |
-| `CreateTexelBuffer` | buffer + `glTexBuffer` | `VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT` + buffer view |
+| method | Vulkan 1.3 |
+|---|---|
+| `SetViewportScissor` | `vkCmdSetViewport` + `vkCmdSetScissor`, already dynamic |
+| `CopyDepthRegion` | `vkCmdCopyImage` — needs no new binding |
+| `CreateTexelBuffer` | `VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT` + buffer view, or just a storage buffer |
 
 `SetViewportScissor` amends invariant 2, which currently says viewports exist
 only inside `BeginPass`. The amended rule: **a viewport is set by `BeginPass`,
@@ -646,10 +674,10 @@ Divergences removed:
 
 - `depth_cube.slang` and its geometry stage disappear — every tile is an
   ordinary 2D depth draw. Vulkan's `FrontFace = Clockwise` shadow-pass
-  declaration, which exists only to make the geometry-stage cube map match GL's
-  memory layout, goes with it.
-- The cube sampler array (`shadowCubeMap[MAX_SHADOW_CUBES]`, bindless on Vulkan,
-  dedicated units on OpenGL) collapses to two ordinary 2D samplers.
+  declaration, which exists only to make the geometry-stage cube map's memory
+  layout come out right, goes with it.
+- The cube sampler array (`shadowCubeMap[MAX_SHADOW_CUBES]`) collapses to two
+  ordinary 2D samplers.
 
 Divergences added: **none**, as long as the cluster build stays on the CPU (§6).
 
@@ -662,7 +690,7 @@ documented in `ENGINE_FLOW.md` §5 and are unaffected by this work.
 ## 12. Implementation plan
 
 **Split out to `LIGHTING_IMPL.md`** — eight parts, each independently shippable,
-each ending on a green build and the same image from both backends. That file
+each ending on a green build and a correct showcase scene. That file
 carries the per-part steps, test gates and risks; this is the shape of it.
 
 | part | theme | backend work | unlocks |
@@ -692,7 +720,7 @@ Parts E and G answer the two halves of the original question — E for how many
 *shadowed* lights, G for how many lights at all.
 
 Deferred shading appears nowhere in that list, on purpose. It costs MSAA, an MRT
-rewrite of both backends, and the clean ambient/direct split §10 depends on — in
+rewrite, and the clean ambient/direct split §10 depends on — in
 exchange for a bandwidth-versus-ALU trade that only pays at light counts this
 design reaches by other means.
 
@@ -707,10 +735,10 @@ Points to settle while iterating on this document:
    halves the VRAM but makes the blit same-texture, which is undefined when the
    regions overlap and awkward to prove otherwise. Recommendation: two textures,
    revisit if VRAM ever binds.
-2. ~~**Where records live.**~~ *Settled:* the texel buffer, built in Part B and
-   filled in Part C. The §5.1 partition alone is 337 records = 32 KB, twice what
-   a GL 4.1 uniform block guarantees, so a uniform array would cap the atlas at
-   roughly 23 point lights for no reason but storage.
+2. ~~**Where records live.**~~ *Settled:* not in `FrameUniforms`. The §5.1
+   partition alone is 337 records = 32 KB, and the count is data-driven. A
+   storage buffer or a device address is the natural home now that GL 4.1's
+   uniform-block ceiling is not the reason.
 3. **Sun cascades.** This plan gives the directional light one tile. A single
    ortho map over a large scene is the current quality ceiling, and cascades
    (3–4 tiles, split by view depth) fit the atlas naturally — but they are a

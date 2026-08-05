@@ -62,10 +62,10 @@ func (s *Sphere2) Type() string               { return "Sphere2" }
 func (s *Sphere2) Collider() physics.Collider { return s.Sphere }
 
 func main() {
-	// Settings are a runtime input, so one build runs on either backend, at any
-	// resolution, with or without anti-aliasing. They must be loaded before
-	// NewApp, which is where the window and the backend read them
-	configPath := flag.String("config", "configs/opengl.toml", "path to the engine settings file")
+	// Settings are a runtime input, so one build runs at any resolution, with
+	// or without anti-aliasing. They must be loaded before NewApp, which is
+	// where the window and the backend read them
+	configPath := flag.String("config", "configs/vulkan.toml", "path to the engine settings file")
 	flag.Parse()
 	// A bad settings file is the user's mistake, not a crash, so it gets a line
 	// on stderr rather than utils.HandleError's stack

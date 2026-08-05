@@ -2,6 +2,14 @@
 
 **Status: proposal, under iteration. Nothing here is implemented yet.**
 
+> **Stale as of 2026-08-05.** The OpenGL backend was deleted
+> (`BACKEND_DECISION.md`), so every "backend work: both" cell below is now a
+> single implementation, and the GL 4.1 limits that shaped `LIGHTING_PLAN.md`
+> are void. Read that file's banner first. Part A remains correct and
+> independently useful; Parts B onward should be re-sequenced after
+> `BACKEND_DECISION.md` §9 items 4-6 (pipeline objects, pass list, compute),
+> which are the substrate they would now be built on.
+
 The step-by-step build order for `LIGHTING_PLAN.md`, split out so each file
 stays readable. Eight parts, meant to be picked up one at a time.
 
@@ -69,16 +77,14 @@ Every part ends with the same check, run from `src/`:
 ```sh
 SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh
 go build ./... && go test ./...
-go run . -config configs/opengl.toml     # eyeball the showcase scene
-go run . -config configs/vulkan.toml     # same frame, same image
-OVERDRIVE_VK_VALIDATION=1 go run . -config configs/vulkan.toml   # clean log
+go run .                                       # eyeball the showcase scene
+OVERDRIVE_VK_VALIDATION=1 go run .             # clean log
 ```
 
-`go test ./opengl/` is the one that matters most: it re-derives std140 from the
-generated GLSL and diffs every member against `unsafe.Offsetof`. Any part that
-touches `common.slang` or `renderer/uniforms.go` is not done until it passes.
-The two backends must produce the same image — a divergence here is the symptom
-table in `ENGINE_FLOW.md` §6, not something to defer.
+The validation log is the one that matters most now. The cross-backend image
+diff that used to catch a mislaid uniform field no longer exists, so any part
+touching `common.slang` or `renderer/uniforms.go` has to be eyeballed against
+the showcase scene deliberately — see `ENGINE_FLOW.md` §6.
 
 ---
 
@@ -95,7 +101,7 @@ scene that is actually lit.
 
 **Touches.** `renderer/uniforms.go`, `shaders/slang/common.slang`,
 `shaders/slang/forward.slang`, `scene/light.go`, `scene/scene.go`,
-`plugin/xml_export.py`, `assets/showcase.xml`, `opengl/uniforms_test.go`.
+`plugin/xml_export.py`, `assets/showcase.xml`, the `init()` size guard in `renderer/uniforms.go`.
 
 **Steps.**
 
@@ -138,9 +144,9 @@ scene that is actually lit.
 *faster* than 8 lights without one).
 
 **Risks.** The `LightData` growth is the single most dangerous edit in the whole
-plan — a mislaid field silently renders garbage on OpenGL only. `go test
-./opengl/` is the guard; do not skip it, and do not batch this step with
-anything else in one commit.
+plan — a mislaid field silently renders garbage. The `init()` size guard catches
+a wrong *size*, not a wrong *order*, so eyeball the scene and do not batch this
+step with anything else in one commit.
 
 **Unlocks.** ~64 lights. Every capacity number in §5.5.
 
@@ -155,15 +161,15 @@ nothing yet using them.
 its own. Landing it separately keeps Part C's shader and scene changes from
 being debugged simultaneously with fresh Vulkan object lifetimes.
 
-**Touches.** `renderer/backend.go`, `opengl/backend.go`, `opengl/uniforms.go`,
-`vulkan/backend.go`, `vulkan/draw.go`, `ENGINE_FLOW.md`.
+**Touches.** `renderer/backend.go`, `vulkan/backend.go`, `vulkan/draw.go`,
+`ENGINE_FLOW.md`.
 
 **Steps.**
 
 1. Add `SetViewportScissor`, `CopyDepthRegion` and
    `CreateTexelBuffer`/`UpdateTexelBuffer` to the `Backend` interface (§8, with
    the per-API mapping table).
-2. Implement on OpenGL: `glViewport` + `glScissor` with `GL_SCISSOR_TEST`
+2. Implement it: `CmdSetViewport` + `CmdSetScissor` on the sub-rect
    enabled for the atlas pass; `glBlitFramebuffer` with `GL_DEPTH_BUFFER_BIT`;
    buffer + `glTexBuffer` with `GL_R32UI`.
 3. Implement on Vulkan: `vkCmdSetViewport`/`vkCmdSetScissor` (both already
@@ -195,9 +201,9 @@ part, not just at the end.
 
 **Why here.** Needs Part B's plumbing; everything after needs this data model.
 
-**Touches.** `renderer/uniforms.go`, both shaders, `scene/light.go`,
-`scene/scene.go`, `core/app.go`, `opengl/uniforms.go`, `vulkan/draw.go`,
-`opengl/uniforms_test.go`, delete `shaders/slang/depth_cube.slang`.
+**Touches.** `renderer/uniforms.go` (and its `init()` size guard), the shaders,
+`scene/light.go`, `scene/scene.go`, `core/app.go`, `vulkan/draw.go`,
+delete `shaders/slang/depth_cube.slang`.
 
 **Steps.**
 
@@ -221,14 +227,12 @@ part, not just at the end.
    `records[light.shadowFirst + face]`. Keep the 4-tap early-bail; **clamp every
    tap to the record's rect inset by one texel** (§5.2).
 6. `common.slang`: `shadowMap2D` and `shadowCubeMap[]` collapse to two
-   `Sampler2D`. On OpenGL that frees `MaxShadowCubes` texture units — renumber
-   the unit constants in `opengl/uniforms.go`. On Vulkan the dedicated cube
-   descriptors go.
+   `Sampler2D`, and the dedicated cube descriptors go.
 7. Interim allocation: hardcode a fixed partition (sun tile + N point-light tile
    groups) so the part is testable before Part D exists.
 
 **Gate.** The standard gate, and specifically: the showcase scene's shadows are
-pixel-wise indistinguishable from before this part on both backends. This is a
+pixel-wise indistinguishable from before this part. This is a
 pure refactor of *where* shadow data lives.
 
 **Risks.** Tile bleeding (missing rect clamp) shows as shadows from the wrong
@@ -283,7 +287,7 @@ bake within a texel allowance.
 **Why here.** The single largest win in the plan, and it needs D's
 reallocation signal to know when a cached tile is invalid.
 
-**Touches.** `scene/`, `core/app.go`, both backends (`CopyDepthRegion` from
+**Touches.** `scene/`, `core/app.go`, `vulkan/` (`CopyDepthRegion` from
 Part B).
 
 **Steps.**
@@ -327,16 +331,15 @@ AO work will need in place.
 
 **Why here.** See "Ordering rationale" above — after shadows, before clustering.
 
-**Touches.** `renderer/backend.go`, both backends, `core/app.go`,
+**Touches.** `renderer/backend.go`, `vulkan/`, `core/app.go`,
 `shaders/slang/depth.slang`.
 
 **Steps.**
 
 1. `BeginPass` currently always clears depth, which would erase the prepass
    result at the start of the main pass. Add a `keepDepth bool` (or a small
-   `PassOptions`) — OpenGL skips the depth bit in `glClear`, Vulkan sets the
-   depth attachment `loadOp` to `LOAD`. This is the only interface change in
-   the part.
+   `PassOptions`) that gives the depth attachment a `Load` op rather than
+   `Clear`. This is the only interface change in the part.
 2. Prepass: `BeginPass` on the backbuffer, depth only, `depth.slang`, every
    scene mesh with its real model matrix.
 3. Main pass: `BeginPass(..., keepDepth: true)`, then `SetDepthFunc` to `EQUAL`
@@ -389,11 +392,12 @@ Part F.
    clusters skips tile allocation entirely (§2.2). This is the synergy the
    ordering was chosen for.
 
-**Explicitly not done here.** A GPU cluster build. GL 4.1 has no compute and no
-SSBO, so the CPU path is required regardless; keeping Vulkan on the same path
-keeps the backends identical (§11). Revisit behind `Supports(FeatureCompute)`
-only if profiling shows the CPU build mattering — and note that `Supports`
-returns `false` on both backends today and has never been wired.
+**No longer blocked.** This part originally ruled out a GPU cluster build,
+because GL 4.1 had neither compute shaders nor SSBOs and keeping both backends on
+one path was a stated goal. Neither reason survives. Build on the CPU first
+anyway — it is simpler and it is not obviously the bottleneck — but a compute
+build is now a legitimate follow-up rather than an impossibility, and would make
+a good first user of `Dispatch` (`BACKEND_DECISION.md` §9 item 6).
 
 **Gate.** The standard gate, plus a stress scene with 200+ unshadowed lights
 holding frame rate, and the froxel grid visualised as a debug overlay at least
@@ -430,7 +434,7 @@ controls exists.
    atlas, 8×5×12 clusters, `maxPerCluster` 16, cheap PCF.
 4. Extend `settings`' existing test coverage to the new keys and their defaults.
 
-**Gate.** The standard gate across all three configs, on both backends — six
+**Gate.** The standard gate across all three configs — three
 runs.
 
 **Risks.** Knobs that silently do nothing. Each one needs a visible effect

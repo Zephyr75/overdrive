@@ -10,7 +10,6 @@ import (
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/Zephyr75/overdrive/ecs"
 	"github.com/Zephyr75/overdrive/input"
-	"github.com/Zephyr75/overdrive/opengl"
 	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
@@ -39,21 +38,6 @@ func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
-// Selects the graphics backend named by settings.Backend, which the config file sets
-//
-// It lives here rather than in renderer/ because the backend packages import
-// renderer, which would otherwise be an import cycle.
-func createBackend() renderer.Backend {
-	switch settings.Backend {
-	case "gl":
-		return opengl.New()
-	case "vulkan":
-		return vulkan.New()
-	default:
-		panic("unknown backend " + settings.Backend)
-	}
-}
-
 // Creates the backend, the window and its input callbacks, then initialises the backend on that window
 func NewApp(name string, width int, height int, debug bool, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App {
 
@@ -67,7 +51,10 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	}
 
 	// Create the backend before the window, so it can set its own hints
-	app.Backend = createBackend()
+	//
+	// Held as a renderer.Backend rather than a *vulkan.Backend: that is what
+	// keeps invariant 1, so nothing above renderer/ ever sees a vk.* type
+	app.Backend = vulkan.New()
 
 	glfw.Init()
 	app.Backend.ConfigureWindow()

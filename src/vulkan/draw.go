@@ -25,8 +25,8 @@ type pushAddresses struct {
 
 // The UI overlay's screen-covering quad as two triangles, clip-space
 // position(3) | uv(2). Wound counter-clockwise, matching the front face the
-// main pass declares. Same geometry the OpenGL backend uses, so both backends
-// composite the overlay identically.
+// main pass declares. Kept in step with core.quadVertices, which is what the
+// engine actually uploads.
 var quadVertices = []float32{
 	-1, 1, 0, 0, 1,
 	-1, -1, 0, 0, 0,

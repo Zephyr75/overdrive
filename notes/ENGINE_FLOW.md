@@ -1,16 +1,22 @@
-# ENGINE_FLOW.md — how a frame gets drawn, and what each backend does with it
+# ENGINE_FLOW.md — how a frame gets drawn
 
 This document is the reading guide to `src/`. It follows one frame from
 `main()` down to the GPU, then walks the `renderer.Backend` contract method by
-method, showing what the OpenGL backend and the Vulkan backend each do with it —
-where they are the same idea in different words, and where they genuinely differ.
+method, showing what the Vulkan backend does with each one and why.
 
 `ARCHITECTURE.md` is the map (where every package and symbol lives) and
-`FEATURES.md` is the feature list with the reasoning behind each one. This is the
-operational document: what actually happens, in order.
+`FEATURES.md` is the feature list with the reasoning behind each one.
+`BACKEND_DECISION.md` is where the interface is *going*. This is the operational
+document: what actually happens, in order.
+
+An OpenGL 4.1 backend existed until 2026-08-05. Where a decision here only makes
+sense as a legacy of it — the y-up clip space, the `[-w, w]` projections, the
+16-byte uniform cells — that is called out rather than left as an unexplained
+convention.
 
 Learning links: **[LOGL]** points at learnopengl.com, **[HTV]** at
-howtovulkan.com.
+howtovulkan.com, whose stack (dynamic rendering, buffer device address,
+descriptor indexing, synchronization2, VMA) is the one this backend uses.
 
 ---
 
@@ -20,10 +26,10 @@ howtovulkan.com.
 1. [The layers](#1-the-layers)
 2. [Startup, in order](#2-startup-in-order)
 3. [The frame loop](#3-the-frame-loop-coreapprun)
-4. [The `renderer.Backend` contract, backend by backend](#4-the-rendererbackend-contract-backend-by-backend)
-5. [Conventions that make the two outputs match](#5-conventions-that-make-the-two-outputs-match)
+4. [The `renderer.Backend` contract, method by method](#4-the-rendererbackend-contract-method-by-method)
+5. [Conventions that keep the image right side out](#5-conventions-that-keep-the-image-right-side-out)
 6. [Where to look when something is wrong](#6-where-to-look-when-something-is-wrong)
-7. [Who owns what, and what dies when (Vulkan)](#7-who-owns-what-and-what-dies-when-vulkan)
+7. [Who owns what, and what dies when](#7-who-owns-what-and-what-dies-when)
 
 ---
 
@@ -32,8 +38,8 @@ howtovulkan.com.
 `renderer.Backend`'s 25 methods are declared by **resource type** — textures,
 buffers, meshes, shaders, targets, draws. That is the wrong axis for remembering
 *where a Vulkan call sits in a frame*. This table is the other axis: how often
-each method runs, and what it becomes on each backend. §4 walks the same 27
-methods in interface order, with the reasoning; this is the index.
+each method runs. §4 walks the same methods in interface order, with the
+reasoning; this is the index.
 
 The obscure Vulkan names get easier once they are filed by frequency —
 `vkAcquireNextImageKHR` is "the per-frame one", `vkCmdPipelineBarrier2` is "the
@@ -41,60 +47,60 @@ per-pass one", `vkCmdPushConstants` is "the per-draw one".
 
 ### Once, at startup — 3 methods
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `ConfigureWindow` | `WindowHint`: 4.1 core, forward-compatible, `settings.MSAASamples` samples | `WindowHint(ClientAPI, NoAPI)` |
-| `Init` | `MakeContextCurrent`, `gl.Init`, enable depth/cull/blend, white pixel + black cube, shared UBO on binding 0 | `CreateInstance` → surface → `EnumeratePhysicalDevices` → queue family → `CreateDevice` → `VmaCreateAllocator` → swapchain → `CreateCommandPool` → per-frame data → samplers → descriptors → pipeline layout → default textures |
-| `Shutdown` | Nothing — objects die with the context | `DeviceWaitIdle`, then destroy everything in reverse creation order (see §7) |
+| Method | What it does |
+|---|---|
+| `ConfigureWindow` | `WindowHint(ClientAPI, NoAPI)` — there is no context to create |
+| `Init` | `CreateInstance` → surface → `EnumeratePhysicalDevices` → queue family → `CreateDevice` → `VmaCreateAllocator` → swapchain → `CreateCommandPool` → per-frame data → samplers → descriptors → pipeline layout → default textures |
+| `Shutdown` | `DeviceWaitIdle`, then destroy everything in reverse creation order (see §7) |
 
 ### Once per resource, at load time — 9 methods
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `CreateShader` | `CreateShader` ×2-3, `CompileShader`, `LinkProgram`, then pin sampler units + block binding | `CreateShaderModule` ×2-3. **No pipeline yet** — built lazily per (pass, layout) |
-| `LoadTexture` | `GenTextures`, `TexImage2D` | `VmaCreateImage` + staging buffer + `immediateSubmit(CmdCopyBufferToImage)` + `CreateImageView` + bindless descriptor write |
-| `LoadCubemap` | Six `TexImage2D` onto the cube target | One 6-layer `CubeCompatible` image, six faces staged contiguously, one copy |
-| `WhiteTexture` | Returns the built-in texture name | Returns `0` — handle 0 *is* bindless slot 0 |
-| `CreateBuffer` | `GenBuffers` + `BufferData` | `VmaCreateBuffer` host-visible + persistently mapped + `MemCopy` |
-| `CreateMesh` | `GenVertexArrays`, record the layout's attribute pointers, upload the EBO if indexed | Pair the vertex handle with an index buffer and record the layout. No VAO — the layout keys the pipeline |
-| `CreateRenderTarget` | FBO plus a depth texture (white border) or a colour texture with a depth renderbuffer | Image usable as attachment *and* sampled, plus **two** views for cubes: 2D-array to attach, cube to sample |
+| Method | What it does |
+|---|---|
+| `CreateShader` | `CreateShaderModule` ×2-3. **No pipeline yet** — built lazily per (pass, layout) |
+| `LoadTexture` | `VmaCreateImage` + staging buffer + `immediateSubmit(CmdCopyBufferToImage)` + `CreateImageView` + bindless descriptor write |
+| `LoadCubemap` | One 6-layer `CubeCompatible` image, six faces staged contiguously, one copy |
+| `WhiteTexture` | Returns `0` — handle 0 *is* bindless slot 0 |
+| `CreateBuffer` | `VmaCreateBuffer` host-visible + persistently mapped + `MemCopy` |
+| `CreateMesh` | Pair the vertex handle with an index buffer and record the layout. No VAO equivalent — the layout keys the pipeline |
+| `CreateRenderTarget` | Image usable as attachment *and* sampled, plus **two** views for cubes: 2D-array to attach, cube to sample |
 
 ### On demand, rarely — 6 methods
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `UpdateBuffer` | `BufferData` again; the driver ghosts old storage | `waitAllFrames()` **then** memcpy. No ghosting — this is a full GPU drain |
-| `DestroyTexture` | `DeleteTextures` | `waitAllFrames()`, destroy view + image + staging |
-| `DestroyBuffer` | `DeleteBuffers` | `waitAllFrames()`, `VmaDestroyBuffer` |
-| `DestroyMesh` | `DeleteVertexArrays` | `waitAllFrames()`, destroy the index buffer |
-| `DestroyRenderTarget` | `DeleteFramebuffers` | `waitAllFrames()`, destroy view + image |
-| `Supports` | `false` | `false` — the seam for ray tracing / compute |
+| Method | What it does |
+|---|---|
+| `UpdateBuffer` | `waitAllFrames()` **then** memcpy. This is a full GPU drain |
+| `DestroyTexture` | `waitAllFrames()`, destroy view + image + staging |
+| `DestroyBuffer` | `waitAllFrames()`, `VmaDestroyBuffer` |
+| `DestroyMesh` | `waitAllFrames()`, destroy the index buffer |
+| `DestroyRenderTarget` | `waitAllFrames()`, destroy view + image |
+| `Supports` | `false` — the seam for ray tracing and compute (§4.10) |
 
 ### Once per frame — 4 methods
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `BeginFrame` | Nothing | `WaitForFences` (the CPU throttle) → `AcquireNextImageKHR` → `ResetFences` → rewind ring → `drainRetired` → `ResetCommandBuffer` + `BeginCommandBuffer` → `CmdBindDescriptorSets` → flush staged uploads |
-| `UpdateTexture2D` | `TexImage2D` immediately — legal mid-pass | Memcpy into a mapped staging buffer, **defer** the copy to the next `BeginFrame`. Costs the overlay one frame of latency |
-| `EndFrame` | `SwapBuffers` | Barrier to `PresentSrcKHR` → `EndCommandBuffer` → `QueueSubmit2` (wait acquire sem, signal image's render sem, signal fence) → `QueuePresentKHR` → advance frame slot |
+| Method | What it does |
+|---|---|
+| `BeginFrame` | `WaitForFences` (the CPU throttle) → `AcquireNextImageKHR` → `ResetFences` → rewind ring → `drainRetired` → `ResetCommandBuffer` + `BeginCommandBuffer` → `CmdBindDescriptorSets` → flush staged uploads |
+| `UpdateTexture2D` | Memcpy into a mapped staging buffer, **defer** the copy to the next `BeginFrame`. Costs the overlay one frame of latency |
+| `EndFrame` | Barrier to `PresentSrcKHR` → `EndCommandBuffer` → `QueueSubmit2` (wait acquire sem, signal image's render sem, signal fence) → `QueuePresentKHR` → advance frame slot |
 
 ### Once per pass, ×3 a frame — 5 methods
 
 Two shadow passes (depth-only, no colour clear) then the main backbuffer pass.
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `BindFrameUniforms` | `BufferSubData` 1280 B into the frame UBO, bind the shadow and skybox units | Memcpy the same 1280 B into the ring, cache its device address for the pass's draws |
-| `BeginPass` | `BindFramebuffer`, `Viewport`, `Clear` | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state |
-| `SetCullFace` | `gl.CullFace` | `CmdSetCullMode` — dynamic state, no extra pipeline |
-| `SetDepthFunc` | `gl.DepthFunc` | `CmdSetDepthCompareOp` — dynamic state |
-| `EndPass` | Rebind the backbuffer | `CmdEndRendering`, and for a shadow target `imageBarrier` depth-attachment → shader-read-only |
+| Method | What it does |
+|---|---|
+| `BindFrameUniforms` | Memcpy 1280 B into the ring, cache its device address for the pass's draws |
+| `BeginPass` | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state |
+| `SetCullFace` | `CmdSetCullMode` — dynamic state, no extra pipeline |
+| `SetDepthFunc` | `CmdSetDepthCompareOp` — dynamic state |
+| `EndPass` | `CmdEndRendering`, and for a shadow target `imageBarrier` depth-attachment → shader-read-only |
 
 ### Once per draw, ~15 a frame — 1 method
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `Draw` | `UseProgram` → `BufferSubData` 128 B into the draw UBO → bind 2 texture units → `BindVertexArray` → `DrawElements` or `DrawArrays` | `getPipeline(shader, pass, mesh layout)` (skipped if unchanged) → memcpy 128 B into the ring → `CmdPushConstants` (two 8-byte device addresses) → bind vertex (+ index) → `CmdDrawIndexed` or `CmdDraw` |
+| Method | What it does |
+|---|---|
+| `Draw` | `getPipeline(shader, pass, mesh layout)` (skipped if unchanged) → memcpy 128 B into the ring → `CmdPushConstants` (two 8-byte device addresses) → bind vertex (+ index) → `CmdDrawIndexed` or `CmdDraw` |
 
 The mesh carries its own vertex layout, count and indexed-ness, so one entry
 point serves face groups, the skybox cube and the UI overlay alike.
@@ -128,13 +134,14 @@ input/  physics/   — plain Go, zero graphics calls
   │
 renderer/          the abstraction: Backend interface, opaque handles, the two uniform structs
   │
-opengl/  vulkan/   the only packages that may import gl.* / vk.*
+vulkan/            the only package that may import vk.*
 ```
 
 The rule above the line: **nothing in `scene/`, `core/`, `ecs/`, `input/` or
 `physics/` imports a graphics API.** They own handles (`renderer.MeshHandle`,
-`renderer.TextureHandle`, …), which are opaque integers each backend interprets
-in its own table.
+`renderer.TextureHandle`, …), which are opaque integers the backend interprets
+in its own table. This is why `go test ./...` needs no GPU, and it is why the
+abstraction is kept with a single backend (`BACKEND_DECISION.md` §4).
 
 The rule inside a frame: **clears and viewports exist only inside
 `Backend.BeginPass`.** No free-floating clear calls anywhere else.
@@ -145,20 +152,20 @@ The rule inside a frame: **clears and viewports exist only inside
 
 | Step | Code | What happens |
 |---|---|---|
-| 0 | `settings.Load` | `main.go` decodes the file named by `-config` (`configs/opengl.toml` by default) over the defaults — the engine's only configuration input. Everything below reads the result, so it has to run before `core.NewApp`. |
-| 1 | `core.createBackend` | Constructs `opengl.New()` / `vulkan.New()` from `settings.Backend`. Lives in `core/` because the backend packages import `renderer`, so `renderer` cannot import them back. |
+| 0 | `settings.Load` | `main.go` decodes the file named by `-config` (`configs/vulkan.toml` by default) over the defaults — the engine's only configuration input. Everything below reads the result, so it has to run before `core.NewApp`. |
+| 1 | `vulkan.New()` | Called directly by `core.NewApp` and held as a `renderer.Backend`, which is what keeps invariant 1. |
 | 2 | `glfw.Init` | Window system up. |
-| 3 | `Backend.ConfigureWindow` | GL: hints a 4.1 core forward-compatible context, plus `settings.MSAASamples` samples — the default framebuffer's sample count can only be chosen here. VK: hints `ClientAPI = NoAPI` — there is no context to create. |
+| 3 | `Backend.ConfigureWindow` | Hints `ClientAPI = NoAPI` — GLFW must not create a GL context. |
 | 4 | `glfw.CreateWindow` | The window exists. |
 | 5 | input callbacks | Resize, scroll, mouse. A resize only records the new size — the viewport is a per-pass decision. |
-| 6 | `Backend.Init(window)` | GL: makes the context current, enables depth/cull/blend, creates the white pixel, the black dummy cube, and the shared std140 uniform buffer. VK: instance → surface → physical device → queue family → logical device → VMA allocator → swapchain → command pool → per-frame data → samplers → descriptors → pipeline layout → default textures. |
+| 6 | `Backend.Init(window)` | Instance → surface → physical device → queue family → logical device → VMA allocator → swapchain → command pool → per-frame data → samplers → descriptors → pipeline layout → default textures. |
 | 7 | `App.Run` → `CreateShader` ×5 | `forward`, `depth`, `depth_cube` (geometry stage), `ui`, `skybox`. |
 | 8 | `scene.NewScene` | Parses XML → OBJ/MTL → uploads vertex buffers, per-face-group meshes, material textures; picks the shadow casters; allocates their shadow targets; loads the skybox cubemap. |
 
 Shaders are authored once in Slang (`shaders/slang/`) and compiled by
-`build_shaders.sh` into `shaders/gl/*.glsl` (GLSL 4.10) and `shaders/vk/*.spv`
-(SPIR-V). Neither backend reads `.slang` at runtime. This is what makes "the
-same frame, two APIs" honest: the two backends run the *same shader source*.
+`build_shaders.sh` into `shaders/vk/*.spv`. The backend does not read `.slang` at
+runtime, so the script must run before the first build and after every shader
+edit.
 
 ---
 
@@ -187,11 +194,16 @@ Backend.EndFrame()          present
 glfw.PollEvents()
 ```
 
+The frame shape is **hardcoded here**, which is the constraint
+`BACKEND_DECISION.md` §6 identifies: a new pass — a probe capture, a tonemap, a
+volumetric composite — is an edit to `App.Run` rather than a new file. The `Pass`
+interface in §9 item 5 is what changes that.
+
 Uniforms travel as **two** values split by update frequency.
 `renderer.FrameUniforms` (1280 bytes) is filled by the frame loop and
 `Scene.FillFrameUniforms`, then published once per pass by `BindFrameUniforms`.
 `renderer.DrawUniforms` (128 bytes) carries the model matrix and the material,
-which `Mesh.draw` rewrites before each draw. Each backend snapshots both at call
+which `Mesh.draw` rewrites before each draw. The backend snapshots both at call
 time, so the caller may keep mutating them.
 
 Note the shadow bakes overwrite the light matrices in the frame block and rebind
@@ -204,59 +216,62 @@ is still lit in the forward pass — it just casts nothing.
 
 ---
 
-## 4. The `renderer.Backend` contract, backend by backend
+## 4. The `renderer.Backend` contract, method by method
 
 ### 4.1 Lifecycle
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `ConfigureWindow` | Context version 4.1 core, forward compatible, 4x samples | `ClientAPI = NoAPI` |
-| `Init` | `MakeContextCurrent`, `gl.Init`, enable depth/cull/blend, create built-in textures, create the shared UBO bound to binding 0 | The whole device stack (see §2 step 6). Enables `ScalarBlockLayout`, `BufferDeviceAddress`, descriptor indexing, `DynamicRendering`, `Synchronization2`, `GeometryShader` |
-| `Shutdown` | Nothing — GL objects die with the context | `DeviceWaitIdle`, then explicitly destroys every pipeline, module, image, view, buffer, sampler, fence, semaphore, pool, device, instance |
+| Method | What it does |
+|---|---|
+| `ConfigureWindow` | `ClientAPI = NoAPI` |
+| `Init` | The whole device stack (see §2 step 6). Enables `ScalarBlockLayout`, `BufferDeviceAddress`, descriptor indexing, `DynamicRendering`, `Synchronization2`, `GeometryShader` |
+| `Shutdown` | `DeviceWaitIdle`, then explicitly destroys every pipeline, module, image, view, buffer, sampler, fence, semaphore, pool, device, instance |
 
-**Same idea:** bring the API up on the window.
-**Different:** GL's driver owns object lifetime and thread state; Vulkan makes
-every object, and its destruction order, the application's problem.
+Every object, and its destruction order, is the application's problem. §7 is the
+map of that.
+
+`GeometryShader` is enabled because `depth_cube.slang` routes triangles to the
+six faces of a point light's shadow cube in one layered pass. It is a deliberate
+choice, not an accident — see `BACKEND_DECISION.md` §10.
 
 ### 4.2 Frame and passes
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `BeginFrame` | Nothing | Waits on this frame slot's fence (the CPU throttle for 2 frames in flight), acquires a swapchain image, resets the ring offset, drains retired resources, resets and begins the command buffer, binds the one descriptor set, flushes staged texture uploads |
-| `BeginPass` | `BindFramebuffer`, `Viewport`, `Clear(depth [+ color])` | Barriers the target into attachment layout, `CmdBeginRendering` with load ops (`Clear` / `DontCare`), `CmdSetViewport`, `CmdSetScissor`, re-issues cull mode + depth compare |
-| `EndPass` | Rebinds the backbuffer | `CmdEndRendering`, and for a shadow target barriers depth-attachment → shader-read-only |
-| `EndFrame` | `SwapBuffers` | Barriers the swapchain image to present layout, ends and submits the command buffer (wait on acquire semaphore, signal the image's render semaphore, signal the fence), presents, advances the frame slot |
+| Method | What it does |
+|---|---|
+| `BeginFrame` | Waits on this frame slot's fence (the CPU throttle for 2 frames in flight), acquires a swapchain image, resets the ring offset, drains retired resources, resets and begins the command buffer, binds the one descriptor set, flushes staged texture uploads |
+| `BeginPass` | Barriers the target into attachment layout, `CmdBeginRendering` with load ops (`Clear` / `DontCare`), `CmdSetViewport`, `CmdSetScissor`, re-issues cull mode + depth compare |
+| `EndPass` | `CmdEndRendering`, and for a shadow target barriers depth-attachment → shader-read-only |
+| `EndFrame` | Barriers the swapchain image to present layout, ends and submits the command buffer (wait on acquire semaphore, signal the image's render semaphore, signal the fence), presents, advances the frame slot |
 
-**Same idea:** a pass = "bind a target, set a viewport, clear, draw, finish".
-**Different, and this is the biggest structural gap:**
+A pass is "bind a target, set a viewport, clear, draw, finish". Four things about
+how Vulkan spells that are worth knowing before touching it:
 
-* **Clears** are a standalone command in GL and a *load op* on an attachment in
-  Vulkan — the clear is declared when rendering begins, not issued.
-* **Layout transitions.** A GL texture is always "ready"; a Vulkan image is in a
-  layout and must be barriered between "rendered into" and "sampled from". That
-  is why `EndPass` has a Vulkan-only shadow-map transition. [HTV: barriers]
-* **Synchronisation.** `SwapBuffers` hides acquire/submit/present, a fence, and
-  two semaphores. Vulkan spells all five out. Note the two index spaces: the
-  acquire semaphore and fence are *per in-flight frame*, the render semaphore is
-  *per swapchain image* — present waits on the image's own semaphore.
-* **Render pass objects** do not exist here: the Vulkan backend uses dynamic
-  rendering, so attachments are named at `CmdBeginRendering` and their formats
-  are baked into the pipeline.
-* **Resize.** GL just gets a new viewport next frame. Vulkan gets
-  `ERROR_OUT_OF_DATE_KHR` from acquire or present and rebuilds the swapchain,
-  its views, its semaphores and the depth image.
+* **Clears are a *load op* on an attachment**, not a command. The clear is
+  declared when rendering begins. That is why `BeginPass` takes the clear colour
+  as a parameter rather than exposing a `Clear` method.
+* **Layout transitions.** An image is in a layout and must be barriered between
+  "rendered into" and "sampled from". That is why `EndPass` has a shadow-map
+  transition. [HTV: barriers]
+* **Synchronisation is explicit**: a fence, two semaphores, acquire, submit,
+  present. Note the two index spaces — the acquire semaphore and fence are *per
+  in-flight frame*, the render semaphore is *per swapchain image*, and present
+  waits on the image's own semaphore. §7 has the full rule.
+* **No render pass objects.** The backend uses dynamic rendering, so attachments
+  are named at `CmdBeginRendering` and their formats are baked into the pipeline.
+* **Resize** arrives as `ERROR_OUT_OF_DATE_KHR` from acquire or present. The
+  backend rebuilds the swapchain, its views, its semaphores and the depth image.
+  That error *is* how a resize reaches a Vulkan app.
 
 ### 4.3 Immediate state
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `SetCullFace(front)` | `gl.CullFace(FRONT/BACK)` | Records the value, `CmdSetCullMode` when a frame is active |
-| `SetDepthFunc(lequal)` | `gl.DepthFunc(LEQUAL/LESS)` | Records the value, `CmdSetDepthCompareOp` |
+| Method | What it does |
+|---|---|
+| `SetCullFace(front)` | Records the value, `CmdSetCullMode` when a frame is active |
+| `SetDepthFunc(lequal)` | Records the value, `CmdSetDepthCompareOp` |
 
-**Same, deliberately.** Both are Vulkan 1.3 *dynamic state* (promoted from
-`VK_EXT_extended_dynamic_state`), which is exactly why the interface can keep
-GL's immediate-call shape instead of exploding into one pipeline per
-cull/depth combination. The Vulkan side also re-issues both at pass start
+Both are Vulkan 1.3 *dynamic state* (promoted from
+`VK_EXT_extended_dynamic_state`), which is why the interface can keep an
+immediate-call shape here instead of exploding into one pipeline per
+cull/depth combination. The backend re-issues both at pass start
 (`applyDynamicState`), because the engine sets them between passes as often as
 inside them.
 
@@ -264,16 +279,19 @@ Two callers: the skybox flips depth to `LEQUAL` so the cube can sit on the far
 plane [LOGL: Cubemaps], and the sun's shadow pass culls front faces to avoid
 peter-panning [LOGL: Shadow Mapping].
 
+> These two are the interface's only pipeline state, which is exactly the gap
+> `BACKEND_DECISION.md` §6 names: there is no blend control and no depth-write
+> control, so a transparent material cannot be expressed. The `PipelineSpec`
+> work item replaces both methods.
+
 ### 4.4 Shaders and pipelines
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `CreateShader(name, hasGeometry)` | Compiles `shaders/gl/<name>.{vert,frag,geo}.glsl`, links one program, points every uniform block at binding 0 and pins each sampler to its fixed texture unit — all link-time work. Handle = the GL program name | Loads `shaders/vk/<name>.{vert,frag,geo}.spv` into shader modules. **No pipeline is built** |
+| Method | What it does |
+|---|---|
+| `CreateShader(name, hasGeometry)` | Loads `shaders/vk/<name>.{vert,frag,geo}.spv` into shader modules. **No pipeline is built** |
 
-**This is the deepest conceptual difference.** GL has one linked *program* that
-combines with whatever framebuffer and vertex array happens to be bound. Vulkan
-bakes state into a *pipeline*, so one shader needs one pipeline per combination
-it is actually drawn with:
+A shader is not one object. Vulkan bakes state into a *pipeline*, so one shader
+needs one pipeline per combination it is actually drawn with:
 
 ```
 pipelines[passKind][vertexLayout]
@@ -291,126 +309,117 @@ Built lazily on first use in `getPipeline`. What each axis decides:
 
 Everything else is dynamic: viewport, scissor, cull mode, depth compare.
 
-### 4.5 Uniforms — the two translations
+Note that the shader is selected **by name at startup** in `App.Run` and the
+pipeline axes are a closed enum. A material cannot bring its own shader, which
+is the other half of the `PipelineSpec` gap.
 
-Both backends receive the same two uniform structs and must get them to the
-shader. Nothing about this is shared code.
+### 4.5 Uniforms — scalar layout and buffer device address
 
-**OpenGL — two std140 uniform blocks.** `glBufferSubData` the struct straight
-into the UBOs bound to binding points 0 and 1, then bind the referenced textures
-to their fixed units. It is a plain memcpy, the same as Vulkan's, and that is not
-free — it is bought by the **16-byte cell rule** in `common.slang`. std140 pads a
-`vec3` to 16 bytes and gives a scalar array a 16-byte element stride, so every
-`float3` in the two blocks is declared with a scalar behind it, loose scalars
-come in fours, and `pointShadowLights` is an `int4` rather than an `int[4]`.
-Every declaration group then fills a whole 16-byte cell, at which point std140
-*is* scalar layout and no marshalling code exists on either side.
-`opengl/uniforms_test.go` re-derives std140 from the generated GLSL and fails if
-any member stops matching `unsafe.Offsetof` of its Go field.
-[LOGL: Advanced GLSL — uniform buffer objects]
+Go packs `float32`/`int32` structs with no padding, which *is* Vulkan's scalar
+block layout (Slang compiles with `-fvk-use-scalar-layout`). So both blocks
+memcpy straight into this frame's ring buffer (1 MiB, 64-byte aligned entries)
+and their **GPU addresses** go out as a 16-byte push constant. The shader
+dereferences those pointers — the uniform data needs no descriptor at all. 1280
+and 128 bytes, no padding, no marshalling code.
+[HTV: buffer device address]
 
-**Vulkan — scalar layout + buffer device address.** Go packs
-`float32`/`int32` structs with no padding, which *is* Vulkan's scalar block
-layout, so both blocks memcpy straight into this frame's ring buffer (1 MiB,
-64-byte aligned entries) and their **GPU addresses** go out as a 16-byte push
-constant. The shader dereferences those pointers — the uniform data needs no
-descriptor at all. 1280 and 128 bytes, no padding. [HTV: buffer device address]
+**The split.** `BindFrameUniforms` publishes the pass block once; each `Draw`
+sends only the transform and material. Before the split a single 1312-byte block
+went out on every draw, roughly 1.2 KB of which was identical across the pass.
 
-**Both split the same way.** `BindFrameUniforms` publishes the pass block once;
-each `Draw` sends only the transform and material. Before the split a single
-1312-byte block went out on every draw, roughly 1.2 KB of which was identical
-across the pass.
+| | How |
+|---|---|
+| Transport | per-frame ring buffer: one frame entry per pass, one draw entry per draw |
+| Layout | scalar, 1280 + 128 bytes |
+| Addressing | two 64-bit device addresses in one push constant |
+| Textures | handles rewritten into **bindless slot indices** in the copy |
+| Cost per draw | one 128-byte memcpy + one 16-byte push constant |
 
-| | OpenGL | Vulkan |
-|---|---|---|
-| Transport | two shared UBOs: frame rewritten per pass, draw per draw | per-frame ring buffer: one frame entry per pass, one draw entry per draw |
-| Layout | std140, 1280 + 128 bytes | scalar, the same 1280 + 128 bytes |
-| Addressing | binding points 0 and 1 | two 64-bit device addresses in one push constant |
-| Textures | handles ignored — the shader samples named samplers on fixed units | handles rewritten into **bindless slot indices** in the copy |
-| Cost per draw | one 128-byte `BufferSubData` + 2 texture binds | one 128-byte memcpy + one 16-byte push constant |
+**The one rule that survives:** keep the field *order* in
+`renderer/uniforms.go` and `shaders/slang/common.slang` identical. Scalar layout
+and Go packing agree by construction as long as that holds; the `init()` size
+panic in `renderer/uniforms.go` is the tripwire for editing one and not the
+other.
 
-The two layout rows being identical is deliberate, not luck — see the cell rule
-under "OpenGL" above. It is what lets both backends memcpy, and it is the
-difference between one shared struct definition and two that drift.
+Both structs are also still laid out in 16-byte cells — every `float3` followed
+by a scalar, `pointShadowLights` an `int4` rather than an `int[4]`. That was
+std140's rule, mandatory while OpenGL was a backend. **It constrains nothing
+now**, and `BACKEND_DECISION.md` §5.3 is the cleanup that removes it. Until then
+the padding fields (`LightData.Reserved0..2`) are free space, not requirements.
 
 ### 4.6 Textures
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `LoadTexture` | `GenTextures` + `TexImage2D`, linear, repeat | Creates the image, fills it via a staging buffer inside an `immediateSubmit`, creates the view, writes a descriptor into bindless binding 0 |
-| `LoadCubemap` | Six `TexImage2D` calls onto the cube target | Stages all six faces as one contiguous block into a 6-layer `CubeCompatible` image, one copy command, bindless binding 1 |
-| `WhiteTexture` | The real texture name of the built-in white pixel | `0` — handle 0 *is* the white pixel, and bindless slot 0 |
-| `UpdateTexture2D` | `TexImage2D` immediately | **Stages** the pixels into a persistently mapped buffer and defers the copy to the next `BeginFrame` |
-| `DestroyTexture` | `DeleteTextures`, the driver defers the free | Drains the frames in flight, then destroys view + image + staging |
+| Method | What it does |
+|---|---|
+| `LoadTexture` | Creates the image, fills it via a staging buffer inside an `immediateSubmit`, creates the view, writes a descriptor into bindless binding 0 |
+| `LoadCubemap` | Stages all six faces as one contiguous block into a 6-layer `CubeCompatible` image, one copy command, bindless binding 1 |
+| `WhiteTexture` | `0` — handle 0 *is* the white pixel, and bindless slot 0 |
+| `UpdateTexture2D` | **Stages** the pixels into a persistently mapped buffer and defers the copy to the next `BeginFrame` |
+| `DestroyTexture` | Drains the frames in flight, then destroys view + image + staging |
 
-**Same idea:** "here are RGBA8 pixels, give me something samplable".
+Four things worth knowing:
 
-**Different:**
-
-* **How the shader reaches a texture.** GL pins each sampler to a fixed texture
-  unit at link time (`shadowMap`=0, `ourTexture`=1, `normalMap`=2,
-  `shadowCubeMap[0..3]`=3..6, `skybox`=7) and the backend binds textures to
-  those units per draw. Vulkan uses one descriptor set with two **bindless**
-  arrays (256 2D, 64 cube, `PartiallyBound | UpdateAfterBind`) and the shader
+* **How the shader reaches a texture.** One descriptor set with two **bindless**
+  arrays (256 2D, 64 cube, `PartiallyBound | UpdateAfterBind`). The shader
   indexes them with the slot number that arrived in the uniform block.
   [HTV: descriptor indexing]
-* **The shadow maps are the exception on both sides.** Vulkan gives them
-  dedicated descriptors (bindings 2 and 3) rather than bindless slots, because
-  the PCF kernels tap them 9× / 20× per fragment and some drivers re-fetch a
-  dynamically-indexed descriptor per tap.
-* **The UI overlay.** GL reuploads the CPU-rasterised widget image immediately —
-  legal mid-pass. Vulkan cannot record a copy inside a render pass, so the
+* **The shadow maps are the exception.** They get dedicated descriptors
+  (bindings 2 and 3) rather than bindless slots, because the PCF kernels tap them
+  9× / 20× per fragment and some drivers re-fetch a dynamically-indexed
+  descriptor per tap. Going bindless there cost ~1.7× the frame time.
+* **The UI overlay.** A copy cannot be recorded inside a render pass, so the
   pixels are staged and copied at the top of the next frame: one frame of
   latency, no queue stall. Resizing the canvas *retires* the old image instead
   of destroying it, because the command buffer being recorded still references
   it (`retire` / `drainRetired`, aged `framesInFlight + 1` frames).
-* **A "no texture" fallback exists on both sides**, differently spelled: GL
-  substitutes the white pixel / black cube at bind time, Vulkan falls back to
-  slot 0 when translating a handle.
+* **A "no texture" fallback**: handle translation falls back to slot 0, the
+  built-in white pixel.
 
 ### 4.7 Buffers and meshes
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `CreateBuffer` | `GenBuffers` + `BufferData`, `STATIC_DRAW` or `DYNAMIC_DRAW` | Host-visible, persistently mapped VMA allocation + memcpy. `dynamic` is ignored — an update is a memcpy either way |
-| `UpdateBuffer` | `BufferData` again. The driver ghosts the old storage if a draw still reads it | Drains the frames in flight, then memcpys. There is no ghosting |
-| `CreateMesh` | Builds a **VAO**: binds the vertex buffer, records the layout's attribute pointers, uploads this group's index buffer when there is one | Pairs the vertex buffer handle with an index buffer and stores the layout. There is no VAO — the layout keys the pipeline instead |
-| `DestroyMesh` / `DestroyBuffer` | `DeleteVertexArrays` / `DeleteBuffers` | Drains frames in flight first, then `VmaDestroyBuffer` |
+| Method | What it does |
+|---|---|
+| `CreateBuffer` | Host-visible, persistently mapped VMA allocation + memcpy. `dynamic` is ignored — an update is a memcpy either way |
+| `UpdateBuffer` | Drains the frames in flight, then memcpys. There is no driver-side ghosting to hide behind |
+| `CreateMesh` | Pairs the vertex buffer handle with an index buffer and stores the layout. The layout keys the pipeline |
+| `DestroyMesh` / `DestroyBuffer` | Drains frames in flight first, then `VmaDestroyBuffer` |
 
-**Same idea:** a mesh is one shared vertex buffer plus one index list per
-material face group (so a 3-material OBJ is 1 vertex buffer + 3 mesh handles).
+A mesh is one shared vertex buffer plus one index list per material face group,
+so a 3-material OBJ is 1 vertex buffer + 3 mesh handles.
 
-**Different:** the VAO/pipeline split above, and *who waits*. GL's driver
-tracks whether the GPU still needs a buffer. In Vulkan the backend does it
-explicitly, which is what `waitAllFrames` is for — note it skips the frame
-currently being recorded, whose fence was reset in `BeginFrame` and can only be
-signalled by `EndFrame`.
+*Who waits* is the thing to remember: the backend tracks whether the GPU still
+needs a buffer, explicitly, which is what `waitAllFrames` is for — note it skips
+the frame currently being recorded, whose fence was reset in `BeginFrame` and can
+only be signalled by `EndFrame`.
 
 ### 4.8 Offscreen render targets
 
-One `CreateRenderTarget(RenderTargetSpec)` covers both. The spec says what the
-target *is* — size, `TargetDepth` or `TargetColor`, cube or not — rather than
+One `CreateRenderTarget(RenderTargetSpec)` covers every kind. The spec says what
+the target *is* — size, `TargetDepth` or `TargetColor`, cube or not — rather than
 what it is for, which is what lets an HDR buffer or a G-buffer be expressed
 without widening the interface.
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `CreateRenderTarget`, depth | FBO + `DEPTH_COMPONENT` texture, `NEAREST`, clamp-to-border with a **white** border so outside the light frustum reads "fully lit", `DrawBuffer(NONE)` | Depth image usable as both attachment and sampled, plus a `ClampToBorder` / `OpaqueWhite` sampler |
-| `CreateRenderTarget`, cube | FBO + cubemap texture attached with `FramebufferTexture` (**layered**), the geometry shader routing triangles to faces | 6-layer `CubeCompatible` image, plus **two views of it**: a 2D-array view to attach and a cube view to sample |
-| `CreateRenderTarget`, colour | FBO + colour texture + a depth **renderbuffer**, which nothing samples | Colour image + view, rendered with `passOffscreenColor` (flipped viewport, CCW, no depth attachment) |
-| `DestroyRenderTarget` | `DeleteFramebuffers`, plus the depth renderbuffer if it owned one | Drains frames, destroys the attachment view and the image |
+| Spec | What it builds |
+|---|---|
+| depth | Depth image usable as both attachment and sampled, plus a `ClampToBorder` / `OpaqueWhite` sampler so outside the light frustum reads "fully lit" |
+| cube | 6-layer `CubeCompatible` image, plus **two views of it**: a 2D-array view to attach and a cube view to sample |
+| colour | Colour image + view, rendered with `passOffscreenColor` (flipped viewport, CCW, no depth attachment) |
+| `DestroyRenderTarget` | Drains frames, destroys the attachment view and the image |
 
-**Same idea, same technique** — one layered draw for all six cube faces, driven
-by a geometry stage. [LOGL: Point Shadows]
+All six cube faces are drawn in one layered pass, driven by a geometry stage.
+[LOGL: Point Shadows]
 
-**Different:** Vulkan needs the two-views trick (you cannot attach a cube view
-or sample an array view), and needs the image's layout tracked across passes.
+The two-views trick is required: a cube view cannot be attached and an array view
+cannot be sampled as a cube. The image's layout is tracked across passes.
+
+> `TargetColor` exists but nothing uses it yet — it is the seam an HDR target
+> lands on, once the half-float format is bound (`BACKEND_DECISION.md` §7).
 
 ### 4.9 Draws
 
-| Method | OpenGL | Vulkan |
-|---|---|---|
-| `Draw` | `UseProgram`, upload the draw block + bind its two textures, `BindVertexArray`, then `DrawElements` or `DrawArrays` on the mesh's recorded count | Resolve handles, bind the pipeline for (shader, current pass, **mesh's** layout) if it changed, memcpy the draw block into the ring, push both addresses, bind vertex (+ index) buffers, `CmdDrawIndexed` or `CmdDraw` |
+| Method | What it does |
+|---|---|
+| `Draw` | Resolve handles, bind the pipeline for (shader, current pass, **mesh's** layout) if it changed, memcpy the draw block into the ring, push both addresses, bind vertex (+ index) buffers, `CmdDrawIndexed` or `CmdDraw` |
 
 **One entry point for every drawable.** A face group, the skybox cube and the UI
 overlay differ only in what was recorded when the mesh was created — vertex
@@ -419,59 +428,61 @@ layout, count, indexed or not — so adding a drawable kind means adding a way t
 `core.createOverlayQuad` and drawn like anything else; its pipeline still tests
 depth without writing it, which is keyed off the fullscreen vertex layout.
 
-The interesting asymmetry is that Vulkan tracks `boundPipeline` to skip
-redundant binds, whereas GL's `UseProgram` per draw is cheap enough to leave
-alone.
+`boundPipeline` is tracked so redundant binds are skipped.
 
 ### 4.10 Capabilities
 
-`Supports` returns `false` on both today. It is the seam where ray tracing and
-compute get added on the Vulkan side without widening the common interface —
-the GL backend will simply keep reporting them unsupported.
+`Supports` returns `false` today and has never been wired. With one backend it
+means what it says — *does this physical device have the extension* — rather
+than the cross-backend performance hint an earlier design intended. The first
+real answer will be `FeatureRayTracing` against `VK_KHR_ray_query` availability,
+which is a genuine runtime fork: a GTX 1080 runs the same engine with a compute
+BVH instead. See `BACKEND_DECISION.md` §5.2 and §8.
 
 ---
 
-## 5. Conventions that make the two outputs match
+## 5. Conventions that keep the image right side out
 
 These are the subtle ones — the things that would silently render a mirrored,
-inside-out, or inverted-depth image if they drifted.
+inside-out, or inverted-depth image if they drifted. Several are inherited from
+the OpenGL era; they are kept because the maths in `scene/` and the shaders is
+written against them, not because anything forces them.
 
-**Clip space handedness.** OpenGL's NDC is y-up; Vulkan's is y-down. The Vulkan
-backend fixes this in the main pass with a **negative-height viewport**
-(`Y = height`, `Height = -height`), so no geometry, matrix, or shader has to
-know. [HTV: viewport]
+**Clip space handedness.** Vulkan's NDC is y-down. The main pass fixes this with
+a **negative-height viewport** (`Y = height`, `Height = -height`), giving the
+y-up clip space the projection matrices in `scene/` assume, so no geometry,
+matrix or shader has to know. [HTV: viewport]
 
 **Winding follows from that.** Flipping the viewport also flips triangle
-winding, which cancels out — so the main pass keeps GL's counter-clockwise front
-faces. The shadow passes deliberately use a *positive* viewport, so the shadow
-map's memory layout matches GL's and the sampling math in the shaders is
-unchanged; the price is inverted winding, which those pipelines declare as
-`FrontFace = Clockwise`.
+winding, which cancels out — so the main pass keeps counter-clockwise front
+faces. The shadow passes deliberately use a *positive* viewport, since a shadow
+map is sampled rather than presented and the depth comparison in the shaders
+expects that memory layout; the price is inverted winding, which those pipelines
+declare as `FrontFace = Clockwise`.
+
+**Depth range.** The projections built in `scene/` are the OpenGL convention,
+giving clip z in `[-w, w]`, while Vulkan clips to `[0, w]`. Every vertex stage
+therefore calls `TO_VK_DEPTH` from `common.slang`. Changing the projections
+instead would remove the macro — a cleanup, not a bug.
 
 **MSAA is a backbuffer-only property.** `settings.MSAASamples` (1 = off) is read
-once at `Init`. GL passes it to `glfw.WindowHint(glfw.Samples, …)`, since the
-default framebuffer's sample count is fixed when the window is created. Vulkan
-allocates a multisampled colour image plus a matching multisampled depth image,
-draws the main pass into them, and resolves into the swapchain image with
-`ResolveModeAverage` on the colour attachment. Offscreen targets stay
-single-sampled on both backends — a later pass has to *sample* them, and a
+once at `Init`. The backend allocates a multisampled colour image plus a matching
+multisampled depth image, draws the main pass into them, and resolves into the
+swapchain image with `ResolveModeAverage` on the colour attachment. Offscreen
+targets stay single-sampled — a later pass has to *sample* them, and a
 multisampled texture is not something these shaders can read — so
 `vulkan/shader.go` `passSamples` gives the multisampled count to `passMain`
 only. A pipeline whose sample count disagrees with its pass's attachments is
 invalid, so this is the one place that decision lives.
 
-**Shadow border colour.** GL sets `TEXTURE_BORDER_COLOR` to opaque white;
-Vulkan sets `BorderColor = OpaqueWhiteFloat` on the 2D shadow sampler. Same
-result: outside the sun's frustum is unshadowed.
+**Shadow border colour.** `BorderColor = OpaqueWhiteFloat` on the 2D shadow
+sampler, so outside the sun's frustum reads unshadowed.
 
 **The uniform struct is the contract.** `renderer/uniforms.go` has an `init`
 that panics if `LightData` stops being 80 bytes, `FrameUniforms` 1280 or
-`DrawUniforms` 128 — a size that is not a multiple of 16 means a cell was left
-unfilled and the two layouts have already diverged. `opengl/uniforms_test.go` is
-the guard on the GL side: it re-derives std140 from the generated GLSL and checks
-every member against `unsafe.Offsetof` of the matching Go field, in both
-directions, so a field added to `common.slang` and forgotten in Go fails too.
-Between them, a change to `common.slang` cannot silently break one backend.
+`DrawUniforms` 128. That is the tripwire for editing the Go structs without
+editing `common.slang`, or the other way round. Field *order* is what has to
+match; the sizes are how a mismatch is caught.
 
 ---
 
@@ -479,24 +490,24 @@ Between them, a change to `common.slang` cannot silently break one backend.
 
 | Symptom | Look at |
 |---|---|
-| One backend renders mirrored / culled inside-out | `vulkan/backend.go` `BeginPass` viewport, `vulkan/shader.go` `frontFace` |
-| GL renders garbage after a shader edit | `opengl/uniforms.go` offsets — run `go test ./opengl/` |
-| Vulkan validation complains about layouts | `imageBarrier` call sites in `BeginPass` / `EndPass` / `recordImageUpload` |
-| A resource is destroyed while in use | `waitAllFrames`, `retire`, `drainRetired` in the Vulkan backend |
+| The image is mirrored, or culled inside-out | `vulkan/backend.go` `BeginPass` viewport, `vulkan/shader.go` `frontFace` (§5) |
+| Garbage uniforms after editing `common.slang` | Field order vs `renderer/uniforms.go`; the `init()` panic catches size drift only |
+| Validation complains about image layouts | `imageBarrier` call sites in `BeginPass` / `EndPass` / `recordImageUpload` |
+| A resource is destroyed while in use | `waitAllFrames`, `retire`, `drainRetired` (§7) |
 | Shadows missing on one light | `Scene.pickShadowCasters` — only the first sun and first point light get maps |
-| UI overlay lags by a frame on Vulkan | Expected: `UpdateTexture2D` stages, `BeginFrame` copies |
-| Neither backend starts | `./build_shaders.sh` — the generated shaders are git-ignored |
+| UI overlay lags by a frame | Expected: `UpdateTexture2D` stages, `BeginFrame` copies |
+| Nothing starts | `./build_shaders.sh` — the generated shaders are git-ignored |
+| Pipeline creation fails after a pass change | Sample count or attachment formats disagreeing with the pass (§5, MSAA) |
 
-Run with `-config configs/opengl.toml` or `-config configs/vulkan.toml`, and set
-`OVERDRIVE_VK_VALIDATION=1` while developing the Vulkan path.
+Set `OVERDRIVE_VK_VALIDATION=1` while developing. It is the main reason a wrong
+image gets diagnosed rather than guessed at.
 
 ---
 
-## 7. Who owns what, and what dies when (Vulkan)
+## 7. Who owns what, and what dies when
 
-OpenGL needs no such section: objects belong to the context and die with it,
-which is why `GLBackend.Shutdown` is empty. Vulkan makes every object and its
-destruction order the application's problem, so this is the map.
+Vulkan makes every object and its destruction order the application's problem,
+so this is the map.
 
 ### The ownership tree
 

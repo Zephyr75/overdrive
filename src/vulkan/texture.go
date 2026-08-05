@@ -199,8 +199,8 @@ func (b *VKBackend) slotCube(h renderer.TextureHandle) int32 {
 func (b *VKBackend) UpdateTexture2D(h renderer.TextureHandle, w, hgt int, pixels []byte) renderer.TextureHandle {
 	needed := uint64(len(pixels))
 
-	// Treat handle 0 as "allocate one", matching the OpenGL backend's contract.
-	// It must not be looked up, handle 0 being the built-in white pixel
+	// Treat handle 0 as "allocate one", which is the interface's contract. It
+	// must not be looked up, handle 0 being the built-in white pixel
 	var e *texEntry
 	if h != 0 {
 		e = b.texture(h)

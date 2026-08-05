@@ -9,10 +9,10 @@ import (
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// The compiled SPIR-V modules plus the pipelines built from them. Unlike
-// OpenGL there is no single "program" object, because a pipeline bakes in the
-// pass's attachment formats and the mesh's vertex layout, so one shader needs
-// one pipeline per combination it is actually drawn with.
+// The compiled SPIR-V modules plus the pipelines built from them. A shader is
+// not one object: a pipeline bakes in the pass's attachment formats and the
+// mesh's vertex layout, so one shader needs one pipeline per combination it is
+// actually drawn with.
 type shaderEntry struct {
 	vert, frag, geo vk.ShaderModule
 	pipelines       [passCount][layoutCount]vk.Pipeline
@@ -84,10 +84,10 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout renderer.V
 		ViewportState:      &vk.PipelineViewportStateCreateInfo{ViewportCount: 1, ScissorCount: 1},
 		RasterizationState: &vk.PipelineRasterizationStateCreateInfo{
 			PolygonMode: vk.PolygonModeFill,
-			// Vulkan's y-down framebuffer flips winding relative to OpenGL. The
-			// main pass's negative-height viewport flips it back, so GL's CCW
-			// front face survives there. Shadow passes use a positive viewport
-			// and therefore need CW
+			// The main pass's negative-height viewport turns Vulkan's y-down
+			// clip space y-up, which also flips winding, so CCW front faces
+			// are correct there. Shadow passes use a positive viewport and
+			// therefore need CW
 			FrontFace: frontFace(pass),
 			LineWidth: 1,
 		},

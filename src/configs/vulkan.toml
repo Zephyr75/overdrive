@@ -1,12 +1,10 @@
-# Vulkan 1.3, 4x MSAA
+# Vulkan 1.3, 4x MSAA — the default settings file
 #
-#   go run . -config configs/vulkan.toml
+#   go run .                               # this file
+#   go run . -config configs/vulkan.toml   # the same, named
 #
-# Paired with configs/opengl.toml (the default): the two differ in the backend
-# line alone, so running one after the other compares the backends on identical
-# settings.
-#
-# Every key is optional; an absent one keeps the default in settings/settings.go.
+# Copy it to try other settings; every key is optional, and an absent one keeps
+# the default in settings/settings.go.
 # This file is the engine's only configuration input — nothing in the
 # environment overrides it.
 
