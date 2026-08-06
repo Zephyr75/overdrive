@@ -62,8 +62,8 @@ func (s *Skybox) setup(b renderer.Backend) {
 
 	// The cube owns its own buffer and carries no indices, unlike scene meshes
 	// which share one buffer across their face groups
-	s.mesh = b.CreateMesh(b.CreateBuffer(vertices, false), nil, renderer.LayoutPosition)
-	tex, err := b.LoadCubemap([6]string{
+	s.mesh = b.CreateMesh(b.CreateBuffer(vertices), nil, renderer.LayoutPosition)
+	faces, w, h, err := loadCubeFaces([6]string{
 		paths.Texture("skybox/right.png"),
 		paths.Texture("skybox/left.png"),
 		paths.Texture("skybox/top.png"),
@@ -73,8 +73,9 @@ func (s *Skybox) setup(b renderer.Backend) {
 	})
 	if err != nil {
 		println("Error loading skybox:", err.Error())
+		return
 	}
-	s.Texture = tex
+	s.Texture = b.CreateCubemap(faces, w, h)
 }
 
 // Draws the skybox first in the main pass, with a depth test that lets it fill the far plane
@@ -90,7 +91,9 @@ func (s *Scene) RenderSkybox(shader renderer.ShaderHandle, f *renderer.FrameUnif
 	s.backend.BindFrameUniforms(&sky)
 
 	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
-	s.backend.SetDepthFunc(true) // depth <= 1.0 passes, so the far plane is drawable
-	s.backend.Draw(shader, s.Skybox.mesh, &u)
-	s.backend.SetDepthFunc(false)
+	// Ties pass, so the cube can sit exactly on the far plane
+	s.backend.SetDepthCompare(renderer.CompareLessEqual)
+	s.backend.BindShader(shader)
+	s.backend.Draw(s.Skybox.mesh, &u)
+	s.backend.SetDepthCompare(renderer.CompareLess)
 }

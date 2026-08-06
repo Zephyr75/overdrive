@@ -172,12 +172,12 @@ flowchart TD
     P --> LI["LightXml.toLight<br/>coordinate conversion"]
 
     ME --> FV["fillVertices<br/>flatten faces to interleaved vertices"]
-    FV --> SU["Mesh.setup<br/>CreateBuffer + one CreateMesh per face group<br/>LoadTexture per material"]
+    FV --> SU["Mesh.setup<br/>CreateBuffer + one CreateMesh per face group<br/>decode + CreateTexture per material"]
 
     LI --> PS["Scene.pickShadowCasters<br/>first sun + first point light"]
     PS --> LS["Light.setup<br/>CreateRenderTarget for casters only"]
 
-    P --> SK["Skybox.setup<br/>CreateBuffer + CreateMesh + LoadCubemap"]
+    P --> SK["Skybox.setup<br/>CreateBuffer + CreateMesh + CreateCubemap"]
 
     style X fill:#553c9a,color:#e2e8f0
     style SU fill:#276749,color:#e2e8f0
@@ -331,9 +331,10 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `ShadowWidth` / `ShadowHeight` | var | 1024², fixed |
 | `Backend` | var | `"vulkan"`, the only accepted value. Kept so a config naming another backend is rejected rather than ignored |
 | `AntiAliasing` / `MSAASamples` | var | `AAMSAA` ×4 by default; both read once at `Backend.Init` |
+| `Anisotropy` / `AnisotropyEnabled` | var, func | Anisotropic filtering on material textures, 8 by default, 1 meaning off. Read once in `createSamplers`, which clamps it to the device limit |
 | `AAMode` | type | `AANone` or `AAMSAA` |
 | `MSAAEnabled` | func | Mode is MSAA *and* the count actually multisamples |
-| `Config` | type | The TOML file's shape: `[window]`, `[shadows]`, `[renderer]`, `[antialiasing]` |
+| `Config` | type | The TOML file's shape: `[window]`, `[shadows]`, `[renderer]`, `[antialiasing]`, `[textures]` |
 | `Load` | func | Decodes a settings file over the defaults and validates it — the engine's only configuration input. Rejects unknown keys and values, changing nothing when it does |
 | `AspectRatio` / `ShadowAspectRatio` | func | For the camera and cube-shadow projections |
 | `ParseVec3` | func | `"x,y,z"` → `mgl32.Vec3` |

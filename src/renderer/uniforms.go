@@ -49,10 +49,7 @@ type LightData struct {
 //
 // The Tex* fields hold plain TextureHandles, where 0 means "white pixel".
 
-// FrameUniforms is camera, lights and shadow maps: constant across a pass
-//
-// Per *pass* rather than strictly per frame — each shadow bake overwrites the
-// light matrices, and the sun's pass leaves its matrix behind for the main pass.
+// Camera, lights and shadow maps: Update once per pass
 type FrameUniforms struct {
 	View, Projection  mgl32.Mat4
 	LightSpaceMatrix  mgl32.Mat4
@@ -69,7 +66,7 @@ type FrameUniforms struct {
 	PointShadowLights [MaxShadowCubes]int32
 }
 
-// DrawUniforms is the transform and material of one face group
+// Transform and material of one face group: Update once per draw
 type DrawUniforms struct {
 	Model        mgl32.Mat4
 	MatAmbient   [3]float32
@@ -84,10 +81,9 @@ type DrawUniforms struct {
 	UseNormalMap int32
 }
 
-func init() {
-	// Go packs float32/int32 structs with no padding, which is exactly Vulkan's
-	// scalar layout. These sizes are the tripwire for editing this file without
-	// editing common.slang, or the other way round
+func init() { // TODO: where is it called
+	// Go packs float32/int32 structs with no padding, which matches Vulkan's layout
+	// These tests check that uniforms.go and common.slang layout always match
 	if unsafe.Sizeof(LightData{}) != 68 {
 		panic("renderer.LightData no longer matches common.slang")
 	}

@@ -42,8 +42,8 @@ var quadVertices = []float32{
 // The mesh carries its own vertex layout and count, so this is the only draw
 // entry point: a face group, the skybox cube and the overlay quad differ in
 // what was recorded at creation, not in how they are issued.
-func (b *VKBackend) Draw(s renderer.ShaderHandle, m renderer.MeshHandle, u *renderer.DrawUniforms) {
-	sh, me, cb := b.prepareDraw(s, m)
+func (b *VKBackend) Draw(m renderer.MeshHandle, u *renderer.DrawUniforms) {
+	sh, me, cb := b.prepareDraw(b.boundShader, m)
 	if sh == nil {
 		return
 	}
@@ -58,6 +58,12 @@ func (b *VKBackend) Draw(s renderer.ShaderHandle, m renderer.MeshHandle, u *rend
 	}
 	vk.CmdDraw(cb, me.count, 1, 0, 0)
 }
+
+// Selects the shader set the following draws use
+//
+// Recorded rather than acted on: which pipeline it becomes also depends on the
+// current pass and the mesh's vertex layout, both known only at Draw.
+func (b *VKBackend) BindShader(s renderer.ShaderHandle) { b.boundShader = s }
 
 // Resolves the shader and mesh handles and returns this frame's command buffer, or nils when the draw must be skipped
 func (b *VKBackend) prepareDraw(s renderer.ShaderHandle, m renderer.MeshHandle) (*shaderEntry, *meshEntry, vk.CommandBuffer) {

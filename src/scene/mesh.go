@@ -247,7 +247,7 @@ func (m *Mesh) setup(b renderer.Backend) {
 
 	// Share one vertex buffer across the face groups, each group owning only
 	// its index list
-	m.vertexBuf = b.CreateBuffer(m.vertexData, true)
+	m.vertexBuf = b.CreateBuffer(m.vertexData)
 	m.gpu = make([]renderer.MeshHandle, len(m.indexGroups))
 	for i, face := range m.indexGroups {
 		m.gpu[i] = b.CreateMesh(m.vertexBuf, face, renderer.LayoutMesh)
@@ -257,18 +257,18 @@ func (m *Mesh) setup(b renderer.Backend) {
 	for i := range m.Materials {
 		mat := &m.Materials[i]
 		if mat.TexturePath != "" {
-			tex, err := b.LoadTexture(mat.TexturePath)
-			if err != nil {
+			if pix, w, h, err := loadRGBA(mat.TexturePath); err != nil {
 				fmt.Println("Error loading texture:", err)
+			} else {
+				mat.Texture = b.CreateTexture(pix, w, h)
 			}
-			mat.Texture = tex
 		}
 		if mat.NormalMapPath != "" {
-			tex, err := b.LoadTexture(mat.NormalMapPath)
-			if err != nil {
+			if pix, w, h, err := loadRGBA(mat.NormalMapPath); err != nil {
 				fmt.Println("Error loading normal map:", err)
+			} else {
+				mat.NormalMap = b.CreateTexture(pix, w, h)
 			}
-			mat.NormalMap = tex
 		}
 	}
 }
@@ -285,7 +285,7 @@ func (m *Mesh) updateVertices() {
 // Draws every face group of the mesh, writing that group's material fields into u before each draw
 //
 // The caller owns u.Model; only the material fields belong to the face group.
-func (m *Mesh) draw(shader renderer.ShaderHandle, u *renderer.DrawUniforms) {
+func (m *Mesh) draw(u *renderer.DrawUniforms) {
 	for i := range m.indexGroups {
 		mat := m.Materials[i]
 
@@ -306,6 +306,6 @@ func (m *Mesh) draw(shader renderer.ShaderHandle, u *renderer.DrawUniforms) {
 			u.UseNormalMap = 1
 		}
 
-		m.backend.Draw(shader, m.gpu[i], u)
+		m.backend.Draw(m.gpu[i], u)
 	}
 }

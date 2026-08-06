@@ -24,10 +24,14 @@ Small, concrete items. Anything that needs a paragraph of reasoning lives in
 The ordered plan is `tmp/BACKEND_DECISION.md` §9. These are its first items.
 
 - [x] Delete the OpenGL backend — 2026-08-05
-- [ ] Drop the dead 16-byte cell rule from `renderer/uniforms.go` and `common.slang` — `tmp/BACKEND_DECISION.md` §5.3
+- [x] Drop the dead 16-byte cell rule from `renderer/uniforms.go` and `common.slang` — `tmp/BACKEND_DECISION.md` §5.3
+- [x] Drop the GL-shaped interface members: `CreateBuffer`'s `dynamic`, `WhiteTexture`, `CreateShader`'s `hasGeometry` — §5.4
+- [x] Replace the GL-shaped semantics: cull/depth enums, `CreateTexture` taking pixels, `BindShader` + `Draw`, `BeginPass` without w/h — §5.6
+- [ ] **Vulkan-native clip space** — build projections y-flipped with `[0,1]` depth, then delete `TO_VK_DEPTH`, the negative-height viewport and the shadow-pass `FrontFace = Clockwise` case — §5.5
+- [ ] Reverse-Z, once the above and `CompareOpGreater` land — §9 item 9
 - [ ] Shader hot-reload — the biggest single velocity win, and independent of everything else
 - [ ] `go-vulkan`: formats, barrier rework, compute, storage images, blit — `go-vulkan/BINDINGS_GAP.md` §7 batches 1-6
-- [ ] `PipelineSpec`, replacing `CreateShader` + `SetCullFace` / `SetDepthFunc`
+- [ ] `PipelineSpec`, replacing `CreateShader` + `SetCullMode` / `SetDepthCompare`
 - [ ] `Pass` interface and a pass list, replacing the hardcoded frame in `core/app.go`
 - [ ] Compute in `Backend` — `Dispatch`, `CreateStorageBuffer`, `CreateStorageImage`
 
@@ -41,7 +45,13 @@ The ordered plan is `tmp/BACKEND_DECISION.md` §9. These are its first items.
 - [ ] Ambient occlusion (SSAO)
 - [ ] Blending / transparency — blocked on `PipelineSpec`, since there is no blend state in the interface
 - [ ] Instancing
-- [ ] Mipmaps — needs `CmdBlitImage`, `go-vulkan/BINDINGS_GAP.md` §5.2
+- [x] Anisotropic filtering — `[textures] anisotropy` in the config file (1/2/4/8/16), clamped to the device limit in `createSamplers`. **Does almost nothing until mipmaps land** — see the next item
+- [ ] **Mipmaps**, which is what makes anisotropy and `SamplerMipmapModeLinear` pay off. In order:
+  - [ ] `CmdBlitImage` + `ImageBlit` bindings in `go-vulkan` — `BINDINGS_GAP.md` §5.2. `ImageUsageTransferSrc` and `ImageLayoutTransferSrcOptimal` are already bound
+  - [ ] `FormatFeatureSampledImageFilterLinear` binding, to probe the format before blitting — the spec requires linear-filter support for a linear blit, and R8G8B8A8_UNORM is not guaranteed to have it
+  - [ ] Generalise `imageBarrier` — it hardcodes `LevelCount: 1` (`vulkan/backend.go:990`), so it cannot transition a mip chain. Needs a base level + count
+  - [ ] `uploadTexture`: `MipLevels = floor(log2(max(w,h))) + 1`, add `ImageUsageTransferSrc`, then blit level i-1 → i down the chain, ending with the whole chain in `SHADER_READ_ONLY`. Must handle the 6-layer cubemap path too
+  - [ ] Image view `LevelCount` and sampler `MaxLod` follow the chain length; both are pinned at 1 today
 - [ ] Shadow cascades — currently fixed at 1024², no CSM
 - [ ] Geometry shader for fur
 - [ ] Ray-traced shadows — `FEATURES.md` §3, `tmp/BACKEND_DECISION.md` §8

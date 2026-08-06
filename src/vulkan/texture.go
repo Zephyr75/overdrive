@@ -1,69 +1,28 @@
 package vulkan
 
 import (
-	"fmt"
-	"image"
-	"image/draw"
-	_ "image/jpeg"
-	_ "image/png"
-	"os"
-
 	"go-vulkan/vk"
 
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// --- loading -----------------------------------------------------------------
+// --- uploading ---------------------------------------------------------------
 
-// Decodes an image file and uploads it as a sampled 2D texture
-func (b *VKBackend) LoadTexture(path string) (renderer.TextureHandle, error) {
-	rgba, err := loadRGBA(path)
-	if err != nil {
-		return 0, err
-	}
-	size := rgba.Rect.Size()
-	return b.uploadTexture(rgba.Pix, size.X, size.Y, 1, false, b.samplerRepeat), nil
+// Uploads tightly packed RGBA8 pixels as a sampled 2D texture
+func (b *VKBackend) CreateTexture(pixels []byte, w, h int) renderer.TextureHandle {
+	return b.uploadTexture(pixels, w, h, 1, false, b.samplerRepeat)
 }
 
-// Decodes six face images and uploads them as one 6-layer cube image
-func (b *VKBackend) LoadCubemap(faces [6]string) (renderer.TextureHandle, error) {
-	// Stage all six faces as one contiguous block, so a single copy command
-	// fills the whole image
-	var pixels []byte
-	var w, h int
-	for i, path := range faces {
-		rgba, err := loadRGBA(path)
-		if err != nil {
-			return 0, fmt.Errorf("cubemap face %s: %w", path, err)
-		}
-		size := rgba.Rect.Size()
-		if i == 0 {
-			w, h = size.X, size.Y
-		} else if size.X != w || size.Y != h {
-			return 0, fmt.Errorf("cubemap face %s: %dx%d, expected %dx%d", path, size.X, size.Y, w, h)
-		}
-		pixels = append(pixels, rgba.Pix...)
+// Uploads six same-sized RGBA8 faces as one 6-layer cube image
+//
+// The faces are concatenated so a single copy command fills the whole image;
+// the caller guarantees they are the same size, having decoded them.
+func (b *VKBackend) CreateCubemap(faces [6][]byte, w, h int) renderer.TextureHandle {
+	pixels := make([]byte, 0, len(faces[0])*6)
+	for _, f := range faces {
+		pixels = append(pixels, f...)
 	}
-	return b.uploadTexture(pixels, w, h, 6, true, b.samplerCubeLinear), nil
-}
-
-// Returns the built-in white pixel, which is handle 0 and bindless slot 0
-func (b *VKBackend) WhiteTexture() renderer.TextureHandle { return 0 }
-
-// Decodes an image file into a tightly packed RGBA8 buffer
-func loadRGBA(path string) (*image.RGBA, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	img, _, err := image.Decode(f)
-	if err != nil {
-		return nil, err
-	}
-	rgba := image.NewRGBA(img.Bounds())
-	draw.Draw(rgba, rgba.Bounds(), img, image.Point{}, draw.Src)
-	return rgba, nil
+	return b.uploadTexture(pixels, w, h, 6, true, b.samplerCubeLinear)
 }
 
 // Creates a sampled image, fills it through a staging buffer, and registers it in the bindless array of its kind
@@ -398,6 +357,7 @@ func (b *VKBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer
 	tex := b.registerTexture(spec.Cube, img, vk.VmaAllocation{}, sampleView, sampler, false)
 
 	b.targets = append(b.targets, targetEntry{
+		width: spec.Width, height: spec.Height,
 		format: spec.Format, cube: spec.Cube, image: img, alloc: alloc,
 		attachmentView: attachmentView, tex: tex,
 		layout: vk.ImageLayoutUndefined, valid: true,

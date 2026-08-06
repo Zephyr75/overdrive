@@ -62,7 +62,7 @@ struct LightData {
 // as long as the order matches. Nothing else is required: no 16-byte cells, no
 // vec3-plus-scalar pairing, no vectors standing in for scalar arrays.
 
-// Camera, lights and shadow maps: constant across every draw of a pass
+// Camera, lights and shadow maps: Update once per pass
 struct FrameUniforms {
     float4x4 view;
     float4x4 projection;
@@ -87,7 +87,7 @@ struct FrameUniforms {
     int pointShadowLights[MAX_SHADOW_CUBES];
 };
 
-// Transform and material of one face group: the only things a draw changes
+// Transform and material of one face group: Update once per draw
 struct DrawUniforms {
     float4x4 model;
     // Metallic-roughness PBR scalars, matDiffuse is the base-colour tint

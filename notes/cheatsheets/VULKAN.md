@@ -499,3 +499,13 @@ Past that: pipeline caching, render graphs, GPU-driven rendering, mesh shaders, 
 - **RenderDoc** frame debugger
 - **vkconfig** validation layer GUI
 - **Arseny Kapoulkine, "Writing an Efficient Vulkan Renderer"** when performance time comes
+
+## Misc
+
+ An image is just a piece of memory with some metadata about layout, format etc. A Framebuffer is a container for multiple images with additional metadata for each image, like usage, identifier(index) and type(color, depth, etc.). These images used in a framebuffer are called attachments, because they are attached to, and owned by, a framebuffer.
+
+Attachments that get rendered to are called Render Targets, Attachments which are used as input are called Input Attachments.
+
+Attachments which hold information about Multisampling are called Resolve Attachments.
+
+Attachments with RGB/Depth/Stencil information are called Color/Depth/Stencil Attachments respectively. 

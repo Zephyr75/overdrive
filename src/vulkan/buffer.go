@@ -33,8 +33,8 @@ func (b *VKBackend) createBuffer(data []float32, usage vk.BufferUsageFlags) rend
 	return renderer.BufferHandle(len(b.buffers) - 1)
 }
 
-// Creates a vertex buffer, ignoring dynamic because the allocation is host-visible either way
-func (b *VKBackend) CreateBuffer(data []float32, dynamic bool) renderer.BufferHandle {
+// Creates a vertex buffer, always host-visible so an update is a memcpy
+func (b *VKBackend) CreateBuffer(data []float32) renderer.BufferHandle {
 	return b.createBuffer(data, vk.BufferUsageVertexBuffer)
 }
 

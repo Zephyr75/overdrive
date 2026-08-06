@@ -1,11 +1,6 @@
 // Package vulkan implements renderer.Backend on Vulkan 1.3, using the
-// hand-written bindings in the sibling go-vulkan repo. Every vk.* call in the
+// hand-written bindings in the go-vulkan repo. Every vk.* call in the
 // engine lives in this package.
-//
-// Structure and conventions mirror the debugged C++ backend (cpp_deprecated/vulkan/) and
-// the techniques in notes/VULKAN.md: dynamic rendering (no render-pass
-// objects), buffer device address for uniforms, bindless descriptor indexing
-// for material textures, synchronization2 barriers, and 2 frames in flight.
 package vulkan
 
 import (
@@ -19,6 +14,7 @@ import (
 	"go-vulkan/vk"
 
 	"github.com/Zephyr75/overdrive/renderer"
+	"github.com/Zephyr75/overdrive/settings"
 )
 
 const (
@@ -110,6 +106,7 @@ type meshEntry struct {
 type targetEntry struct {
 	format         renderer.TargetFormat
 	cube           bool
+	width, height  int
 	image          vk.Image
 	alloc          vk.VmaAllocation
 	attachmentView vk.ImageView           // 2D, or 2D_ARRAY(6) for cubes
@@ -253,8 +250,10 @@ type VKBackend struct {
 	currentPass   passKind
 	currentTarget renderer.RenderTargetHandle // 0 = backbuffer pass
 	boundPipeline vk.Pipeline
-	cullFront     bool
-	depthLequal   bool
+	cullMode      renderer.CullMode
+	depthCompare  renderer.CompareOp
+	// The shader set BindShader selected, used by every following Draw
+	boundShader renderer.ShaderHandle
 }
 
 // Builds an empty Vulkan backend, before any Vulkan object exists
@@ -287,17 +286,9 @@ func fatal(err error, what string) {
 
 // --- lifecycle ---------------------------------------------------------------
 
-// Asks GLFW for a window with no client API, Vulkan reaching it through the surface created in Init
-func (b *VKBackend) ConfigureWindow() {
-	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
-}
-
 // Brings up the whole device stack: instance, surface, device, allocator, swapchain, frames, descriptors and default textures
 func (b *VKBackend) Init(window *glfw.Window) error {
 	b.window = window
-	if !glfw.VulkanSupported() {
-		return fmt.Errorf("GLFW reports no Vulkan loader")
-	}
 
 	if err := b.createInstance(); err != nil {
 		return err
@@ -341,17 +332,17 @@ func (b *VKBackend) createInstance() error {
 	// Keep validation opt-in, as the layers are a separate package on most
 	// distributions and instance creation fails outright when one is missing
 	var layers []string
-	if os.Getenv("OVERDRIVE_VK_VALIDATION") != "" {
+	if os.Getenv("OVERDRIVE_VK_VALIDATION") != "" { // TODO: add to config
 		layers = append(layers, "VK_LAYER_KHRONOS_validation")
 	}
 
 	inst, err := vk.CreateInstance(vk.InstanceCreateInfo{
-		AppName:    "Overdrive",
+		AppName:    "Overdrive", // TODO: use parameter
 		APIVersion: vk.ApiVersion13,
 		Extensions: b.window.GetRequiredInstanceExtensions(),
 		Layers:     layers,
 	})
-	if err != nil {
+	if err != nil { // TODO: replace with chk
 		return err
 	}
 	b.instance = inst
@@ -368,25 +359,12 @@ func (b *VKBackend) createSurfaceAndDevice() error {
 		return fmt.Errorf("no Vulkan physical devices")
 	}
 	b.physicalDevice = devices[0]
-
-	// Create the surface before the device, so present support can be verified
-	// on the queue family we are about to request
-	surfRaw, err := b.window.CreateWindowSurface((*byte)(unsafe.Pointer(b.instance)), nil)
-	if err != nil {
-		return err
-	}
-	b.surface = vk.SurfaceKHR(*(*uintptr)(unsafe.Pointer(surfRaw)))
+	name := vk.GetPhysicalDeviceProperties2(b.physicalDevice).DeviceName
+	fmt.Printf("Vulkan device: %s\n", name)
 
 	found := false
 	for i, qf := range vk.GetPhysicalDeviceQueueFamilyProperties(b.physicalDevice) {
-		if qf.QueueFlags&vk.QueueGraphics == 0 {
-			continue
-		}
-		ok, err := vk.GetPhysicalDeviceSurfaceSupportKHR(b.physicalDevice, uint32(i), b.surface)
-		if err != nil {
-			return err
-		}
-		if ok {
+		if qf.QueueFlags&vk.QueueGraphics != 0 {
 			b.queueFamily = uint32(i)
 			found = true
 			break
@@ -396,36 +374,31 @@ func (b *VKBackend) createSurfaceAndDevice() error {
 		return fmt.Errorf("no queue family supports both graphics and present")
 	}
 
-	name := vk.GetPhysicalDeviceProperties2(b.physicalDevice).DeviceName
-	fmt.Printf("Vulkan device: %s\n", name)
-
-	// Enable the features the engine's shaders and backend rely on.
-	// ScalarBlockLayout matches the -fvk-use-scalar-layout SPIR-V,
-	// GeometryShader is the point shadow pass, and the descriptor-indexing
-	// group is what makes the bindless texture arrays legal
-	//
-	// ScalarBlockLayout is load-bearing, not a convenience: LightData is 68
-	// bytes, so the lights[] array stride is not 16-aligned and the standard
-	// layout rules reject it. Confirm with
-	// `spirv-val --scalar-block-layout shaders/vk/*.spv` — plain spirv-val fails
+	// Enable the features the engine's shaders and backend rely on:
+	// DescriptorIndexing group is what makes the bindless texture arrays legal,
+	// BufferDeviceAddress is the pointer to the uniform buffer,
+	// Synchronization2 handles the *2 barriers/submit,
+	// DynamicRendering avoids Render Passes objects,
+	// GeometryShader is the point shadow pass,
+	// ScalarBlockLayout matches the -fvk-use-scalar-layout SPIR-V
 	dev, err := vk.CreateDevice(b.physicalDevice, vk.DeviceCreateInfo{
 		QueueCreateInfos: []vk.DeviceQueueCreateInfo{
 			{QueueFamilyIndex: b.queueFamily, Priorities: []float32{1}},
 		},
 		Extensions: []string{"VK_KHR_swapchain"},
 		Features: vk.Features{
-			SamplerAnisotropy:                            true,
+			DescriptorIndexing:                        true,
+			ShaderSampledImageArrayNonUniformIndexing: true,
+			RuntimeDescriptorArray:                    true,
+			BufferDeviceAddress:                       true,
+			SamplerAnisotropy:                         true,
+			Synchronization2:                          true,
+			DynamicRendering:                          true,
+			// Added on top of reference
 			GeometryShader:                               true,
 			ScalarBlockLayout:                            true,
-			BufferDeviceAddress:                          true,
-			DescriptorIndexing:                           true,
-			RuntimeDescriptorArray:                       true,
 			DescriptorBindingPartiallyBound:              true,
-			DescriptorBindingVariableDescriptorCount:     true,
-			ShaderSampledImageArrayNonUniformIndexing:    true,
 			DescriptorBindingSampledImageUpdateAfterBind: true,
-			DynamicRendering:                             true,
-			Synchronization2:                             true,
 		},
 	})
 	if err != nil {
@@ -433,6 +406,19 @@ func (b *VKBackend) createSurfaceAndDevice() error {
 	}
 	b.device = dev
 	b.queue = vk.GetDeviceQueue(dev, b.queueFamily, 0)
+
+	surfRaw, err := b.window.CreateWindowSurface((*byte)(unsafe.Pointer(b.instance)), nil)
+	if err != nil {
+		return err
+	}
+	b.surface = vk.SurfaceKHR(*(*uintptr)(unsafe.Pointer(surfRaw)))
+	ok, err := vk.GetPhysicalDeviceSurfaceSupportKHR(b.physicalDevice, b.queueFamily, b.surface)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("selected queue family cannot present to the surface")
+	}
 	return nil
 }
 
@@ -474,15 +460,40 @@ func (b *VKBackend) createSamplers() {
 	var err error
 	base := vk.SamplerCreateInfo{
 		MagFilter: vk.FilterLinear, MinFilter: vk.FilterLinear,
-		MipmapMode:   vk.SamplerMipmapModeNearest,
+		// Linear rather than nearest between mip levels. Inert while MaxLod is 1
+		// and nothing generates mips, but the right default for when they do
+		MipmapMode:   vk.SamplerMipmapModeLinear,
 		AddressModeU: vk.SamplerAddressModeRepeat,
 		AddressModeV: vk.SamplerAddressModeRepeat,
 		AddressModeW: vk.SamplerAddressModeRepeat,
 		MaxLod:       1,
 	}
-	b.samplerRepeat, err = vk.CreateSampler(b.device, base)
+
+	// Anisotropy goes on the material sampler alone. The samplers below
+	// deliberately do without — a skybox is never viewed at a grazing angle, and
+	// the shadow samplers filter NEAREST and compare depths, where anisotropy
+	// means nothing.
+	//
+	// This mostly does not pay off yet: every texture is uploaded with a single
+	// mip level, and anisotropy's real job is picking a sharper mip than
+	// isotropic LOD selection would. With one level there is no LOD to pick, so
+	// only the extra sampling along the major axis survives, which trims some
+	// shimmer. It becomes worth having when mipmaps land (BINDINGS_GAP.md §5.2,
+	// CmdBlitImage) — set here now so that change is one place, not two.
+	material := base
+	if settings.AnisotropyEnabled() {
+		material.AnisotropyEnable = true
+		material.MaxAnisotropy = float32(settings.Anisotropy)
+		// Lower a request the device cannot meet rather than failing: the config
+		// file is written once, the GPU it runs on is not
+		if limit := vk.GetPhysicalDeviceProperties2(b.physicalDevice).MaxSamplerAnisotropy; limit < material.MaxAnisotropy {
+			material.MaxAnisotropy = limit
+		}
+	}
+	b.samplerRepeat, err = vk.CreateSampler(b.device, material)
 	fatal(err, "create repeat sampler")
 
+	// Derived from base, not material, so none of these inherit the anisotropy
 	clamp := base
 	clamp.AddressModeU = vk.SamplerAddressModeClampToEdge
 	clamp.AddressModeV = vk.SamplerAddressModeClampToEdge
@@ -497,7 +508,7 @@ func (b *VKBackend) createSamplers() {
 	fatal(err, "create cube shadow sampler")
 
 	// Give the sun's map an opaque-white border, so outside its light frustum
-	// reads "fully lit" (the GL backend's TEXTURE_BORDER_COLOR)
+	// reads "fully lit"
 	shadow2D := cubeShadow
 	shadow2D.AddressModeU = vk.SamplerAddressModeClampToBorder
 	shadow2D.AddressModeV = vk.SamplerAddressModeClampToBorder
@@ -735,7 +746,15 @@ func (b *VKBackend) EndFrame() {
 }
 
 // Transitions the target into attachment layout and begins dynamic rendering on it, with the viewport, scissor and dynamic state this pass needs
-func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, w, h int, clear *[4]float32) {
+func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]float32) {
+	// The target knows its own extent, so a pass cannot be given one that
+	// disagrees with its attachments
+	w, h := int(b.swapExtent.Width), int(b.swapExtent.Height)
+	if target != 0 {
+		if t := &b.targets[target]; t.valid {
+			w, h = t.width, t.height
+		}
+	}
 	if !b.frameActive {
 		return
 	}
@@ -902,41 +921,49 @@ func (b *VKBackend) EndPass() {
 // immediate calls instead of forcing a separate pipeline per combination.
 
 // Records the cull mode, remembering it for the next pass that starts
-func (b *VKBackend) SetCullFace(front bool) {
-	b.cullFront = front
+func (b *VKBackend) SetCullMode(m renderer.CullMode) {
+	b.cullMode = m
 	if b.frameActive {
-		vk.CmdSetCullMode(b.frames[b.frameIndex].cb, cullMode(front))
+		vk.CmdSetCullMode(b.frames[b.frameIndex].cb, cullMode(m))
 	}
 }
 
 // Records the depth compare op, remembering it for the next pass that starts
-func (b *VKBackend) SetDepthFunc(lequal bool) {
-	b.depthLequal = lequal
+func (b *VKBackend) SetDepthCompare(op renderer.CompareOp) {
+	b.depthCompare = op
 	if b.frameActive {
-		vk.CmdSetDepthCompareOp(b.frames[b.frameIndex].cb, compareOp(lequal))
+		vk.CmdSetDepthCompareOp(b.frames[b.frameIndex].cb, compareOp(op))
 	}
 }
 
 // Re-issues the immediate state at pass start, the engine setting it between passes as often as inside them
 func (b *VKBackend) applyDynamicState(cb vk.CommandBuffer) {
-	vk.CmdSetCullMode(cb, cullMode(b.cullFront))
-	vk.CmdSetDepthCompareOp(cb, compareOp(b.depthLequal))
+	vk.CmdSetCullMode(cb, cullMode(b.cullMode))
+	vk.CmdSetDepthCompareOp(cb, compareOp(b.depthCompare))
 }
 
-// Translates the engine's front/back flag into a Vulkan cull mode
-func cullMode(front bool) vk.CullModeFlags {
-	if front {
+// Translates the engine's cull mode into Vulkan's
+func cullMode(m renderer.CullMode) vk.CullModeFlags {
+	switch m {
+	case renderer.CullFront:
 		return vk.CullModeFront
+	case renderer.CullNone:
+		return vk.CullModeNone
+	default:
+		return vk.CullModeBack
 	}
-	return vk.CullModeBack
 }
 
-// Translates the engine's lequal flag into a Vulkan compare op
-func compareOp(lequal bool) vk.CompareOp {
-	if lequal {
+// Translates the engine's depth compare op into Vulkan's
+func compareOp(op renderer.CompareOp) vk.CompareOp {
+	switch op {
+	case renderer.CompareLessEqual:
 		return vk.CompareOpLessOrEqual
+	case renderer.CompareAlways:
+		return vk.CompareOpAlways
+	default:
+		return vk.CompareOpLess
 	}
-	return vk.CompareOpLess
 }
 
 // --- capabilities ------------------------------------------------------------

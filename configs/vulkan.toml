@@ -14,3 +14,6 @@ backend = "vulkan"
 [antialiasing]
 mode = "msaa"
 samples = 4
+
+[textures]
+anisotropy = 8

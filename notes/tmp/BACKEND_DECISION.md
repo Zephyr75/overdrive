@@ -1,6 +1,6 @@
 # Backend decision — Vulkan only, abstraction kept
 
-**Status: decided. §5 fully executed 2026-08-05; §9 items 2 onward still open.**
+**Status: decided. §5.1–5.4 and §5.6 executed 2026-08-05; §5.5 and §9 items 3 onward still open.**
 
 Why OpenGL goes, why the `Backend` interface stays anyway, what the interface
 must grow to express the rendering ideas this engine exists for, and what that
@@ -22,7 +22,7 @@ tracing theory (`../cheatsheets/RAYTRACING.md`).
 2. [What changed since 2026-08-04](#2-what-changed-since-2026-08-04)
 3. [The backend is already modern](#3-the-backend-is-already-modern)
 4. [Why the abstraction survives one backend](#4-why-the-abstraction-survives-one-backend)
-5. [Removing OpenGL](#5-removing-opengl)
+5. [Removing OpenGL](#5-removing-opengl) — §5.5 is the legacy still outstanding
 6. [What the interface cannot express today](#6-what-the-interface-cannot-express-today)
 7. [`go-vulkan` is the blocker](#7-go-vulkan-is-the-blocker)
 8. [Ray tracing](#8-ray-tracing)
@@ -167,7 +167,7 @@ Old §6 redefined these as cross-backend performance hints. With one backend the
 recover their literal meaning: **does this physical device have the extension**.
 `FeatureRayTracing` becomes a real query against `VK_KHR_ray_query` availability
 (§8), which is a genuine runtime fork — a GTX 1080 has no RT cores. Wire it when
-§9 item 7 lands, not before.
+§9 item 15 lands, not before.
 
 ### 5.3 The 16-byte cell rule dies — **done, 2026-08-05**
 
@@ -207,6 +207,90 @@ layout rules reject. `spirv-val` fails on every module unless given
 `--scalar-block-layout`. Before this change the structs satisfied both rule sets;
 now only the scalar one.
 
+### 5.4 GL-shaped interface members — **done, 2026-08-05**
+
+Three `Backend` members existed only because the interface was drawn against
+OpenGL's model. All removed, no behaviour change:
+
+| removed | why it was there |
+|---|---|
+| `CreateBuffer`'s `dynamic bool` | GL's `STATIC_DRAW` / `DYNAMIC_DRAW` usage hint. The Vulkan allocation is host-visible either way, and `vulkan/buffer.go` said so in a comment while still taking the parameter |
+| `WhiteTexture() TextureHandle` | GL needed a real texture *name* for "no texture". Under bindless, handle 0 *is* slot 0 — the method returned the constant `0` and had **zero callers** |
+| `CreateShader`'s `hasGeometry bool` | A GL link-time "which stages to compile" flag. The backend now probes for `<name>.geo.spv`, so a shader set declares its own stages |
+
+The probe is strictly safer than the flag: a caller passing `false` for
+`depth_cube` silently lost point shadows, and that failure mode is now gone.
+Verified that `depth_cube` is the only set detected as having a geometry stage.
+
+### 5.6 GL-shaped semantics — **done, 2026-08-05**
+
+The members Tier A could not simply delete, because they needed a
+Vulkan-shaped replacement rather than removal:
+
+| before | after | why it was GL-shaped |
+|---|---|---|
+| `SetCullFace(front bool)` | `SetCullMode(CullMode)` — `CullBack`/`CullFront`/`CullNone` | A bool encodes 2 of 3 options. There was no way to ask for two-sided geometry |
+| `SetDepthFunc(lequal bool)` | `SetDepthCompare(CompareOp)` — `CompareLess`/`LessEqual`/`Always` | Same. Reverse-Z will add `CompareGreater` here (§5.5) rather than inventing a second bool |
+| `LoadTexture(path string)`, `LoadCubemap(faces [6]string)` | `CreateTexture(pixels, w, h)`, `CreateCubemap(faces [6][]byte, w, h)` | The backend opened files and ran `image.Decode`, because GL fed a decoded buffer straight into `TexImage2D`. Decoding now lives in `scene/image.go`, and `vulkan/texture.go` no longer imports `image`, `image/jpeg`, `image/png` or `os` |
+| `Draw(shader, mesh, u)` | `BindShader(shader)` + `Draw(mesh, u)` | Passing the shader per draw is `glUseProgram`'s model, and it makes sorting a run of draws by pipeline impossible at the call site |
+| `BeginPass(target, w, h, clear)` | `BeginPass(target, clear)` | `w, h` were `glViewport` arguments. A target knows its own extent, so a pass can no longer be handed one that disagrees with its attachments — the backbuffer now takes the swapchain's extent, which is also more correct during a resize |
+
+The bind/draw split is deliberately the shape `PipelineSpec` wants (§6), so
+those call sites do not move a second time when pipelines land.
+
+**Bindings removed as a consequence:** `CmdSetFrontFace` and
+`DynamicStateFrontFace` in `go-vulkan`. Front face is a property of a pass's
+winding convention, baked into the pipeline by `frontFace(pass)`, and was never
+set dynamically by anything — engine or demo.
+
+Nothing else in `go-vulkan` was orphaned. Two constants were *revived*:
+`CompareOpAlways` and `CullModeNone` are now reachable through the new enums.
+An audit of the remaining 36 unreferenced exports found almost all of them
+forward-looking — `ImageType3D` (volumetrics), `DescriptorTypeStorageBuffer`
+(compute), `PhysicalDeviceTypeDiscreteGPU` (device scoring),
+`VertexInputRateInstance` (instancing), `PresentModeMailboxKHR` (vsync modes) —
+so they stay.
+
+### 5.5 The GL clip-space convention survives — **not done**
+
+The largest remaining OpenGL legacy, and the one that still costs something
+every day. `scene/` builds its projections with `mgl32.Perspective` and
+`mgl32.Ortho` (`scene/scene.go:165`, `skybox.go:87`, `light.go:117,129`) — the
+GL convention: **y up, z in `[-w, w]`**. Vulkan wants y down and z in `[0, w]`.
+Four coupled workarounds bridge the gap:
+
+1. `TO_VK_DEPTH(pos)` called in every vertex stage (`common.slang:132`, used by
+   `forward`, `depth`, `depth_cube`) to remap z.
+2. A **negative-height viewport** in `BeginPass` to flip y.
+3. That flip inverts winding, so `frontFace()` returns CCW for the main pass.
+4. Shadow passes need a *positive* viewport, and therefore `FrontFace =
+   Clockwise` as a special case.
+
+`ENGINE_FLOW.md` §5 exists largely to document this, and §6's symptom table
+leads with the mirrored / inside-out bugs it causes.
+
+**The fix is one line at projection-build time**, the standard Vulkan idiom:
+
+```go
+proj := mgl32.Perspective(fov, aspect, near, far)
+proj[5] *= -1   // flip Y in the projection instead of the viewport
+```
+
+plus a `[0, 1]`-depth projection rather than `[-1, 1]`. Then `TO_VK_DEPTH` is
+deleted from three shaders, every viewport is positive, and `frontFace()`
+collapses to a constant. It removes more code than it adds.
+
+**And it unlocks reverse-Z.** With `[0, 1]` depth you can swap near and far,
+clear depth to `0` instead of `1` (`vulkan/backend.go:747`) and compare
+`GREATER` — which redistributes floating-point precision so distant geometry
+stops z-fighting. It is nearly free, and it is *impossible* under GL's
+`[-1, 1]` convention. Currently blocked on two enum constants: `go-vulkan` binds
+only `CompareOpLess`, `LessOrEqual` and `Always`
+(`go-vulkan/BINDINGS_GAP.md` §6, "Misc").
+
+Split accordingly: the clip-space fix needs no bindings work and can land on its
+own; reverse-Z follows once the compare ops exist.
+
 ## 6. What the interface cannot express today
 
 The 25-method `Backend` cannot state any of the target features. Not "would be
@@ -214,7 +298,7 @@ slow" — cannot be written. Seven gaps, and they are the real project:
 
 | gap | what it blocks | why blocked today |
 |---|---|---|
-| **Pipeline objects** | glass, water, any transparent or custom-shaded material | shader is chosen by name at startup (`core/app.go:96-105`); state is two immediate setters, `SetCullFace` and `SetDepthFunc`. No blend, no depth-write control, no per-material shader |
+| **Pipeline objects** | glass, water, any transparent or custom-shaded material | shader is chosen by name at startup and selected with `BindShader`; state is two immediate setters, `SetCullMode` and `SetDepthCompare`. No blend, no depth-write control, no per-material shader |
 | **Pass list** | reflection probes, post-processing, deferred, anything multi-pass | the frame is hardcoded in `core/app.go:130-175` — shadows, skybox, forward, UI. A new pass is an edit to `App.Run` |
 | **Compute** | volumetrics, probe prefilter, custom tracing, GPU-driven anything | absent from the interface *and* from the bindings (§7) |
 | **Per-material parameters** | water needs time and wave state, glass needs IOR and thickness | `DrawUniforms` is a fixed 128-byte struct of Phong-plus-PBR scalars. No room, no extension point |
@@ -224,7 +308,7 @@ slow" — cannot be written. Seven gaps, and they are the real project:
 
 Two of these carry a design note worth settling before the code:
 
-**Pipelines vs immediate state.** `SetCullFace` and `SetDepthFunc` are
+**Pipelines vs immediate state.** `SetCullMode` and `SetDepthCompare` are
 OpenGL-shaped, surviving on Vulkan only because both happen to be dynamic state.
 The replacement is a `PipelineSpec` — shader set, vertex layout, cull, depth
 compare, depth write, blend, attachment formats — baked at load and selected per
@@ -359,20 +443,23 @@ for the rendering techniques built on top.
 
 | # | item | days | why |
 |---|---|---|---|
-| 1 | ~~**Delete OpenGL**~~ (§5, including 5.1–5.3) | ✅ | Done 2026-08-05, layout cleanup included |
-| 2 | **Shader hot-reload** | 1 | Biggest single velocity win, and independent of everything else. Watch `shaders/slang/`, re-run `slangc`, rebuild pipelines, keep the frame running |
-| 3 | **`go-vulkan`: formats, barrier rework, compute, storage images, blit** (§7) | 2 | Batches 1–6 of `go-vulkan/BINDINGS_GAP.md` §7. Nothing from item 6 onward can start without it |
-| 4 | **`PipelineSpec`, replacing `CreateShader` + the two state setters** (§6) | 2 | Glass and water are pipelines, not shaders. Touches every draw site — do it while the interface is small |
-| 5 | **`Pass` interface + pass list in `App.Run`** | 1.5 | Turns "try an idea" from engine surgery into a new file |
-| 6 | **Compute in `Backend`** — `Dispatch`, `CreateStorageBuffer`, `CreateStorageImage` (2D and 3D) | 1 | Makes most remaining ideas expressible without touching `vulkan/` |
-| 7 | **Per-material parameter blob** (§6) | 1 | Water and glass need fields `DrawUniforms` has no room for |
-| 8 | **HDR target + tonemap pass** | 1 | First user of items 3, 5 and 6 together; proves the stack |
-| 9 | **Reflection probes** | 2 | Cube targets already exist (`RenderTargetSpec{Cube: true}`); needs the pass list and a prefilter compute pass |
-| 10 | **Volumetrics** | 2+ | 3D storage image, froxel fill in compute, raymarch composite |
-| 11 | **Software BVH + `traceRay`** | — | The §8.3 baseline |
-| 12 | **Ray queries** — `VK_KHR_acceleration_structure` + `VK_KHR_ray_query` bindings, BLAS/TLAS lifetimes | — | ~600–1000 lines. Additive, and item 6 is its host |
+| 1 | ~~**Delete OpenGL**~~ (§5.1–5.3) | ✅ | Done 2026-08-05, layout cleanup included |
+| 2 | ~~**GL-shaped interface members**~~ (§5.4) | ✅ | Done 2026-08-05. `dynamic`, `WhiteTexture`, `hasGeometry` |
+| 3 | **Vulkan-native clip space** (§5.5) | 0.5 | Deletes `TO_VK_DEPTH`, the negative viewport, and the shadow-pass winding special case — four workarounds for one convention. Needs no bindings. Do it before item 5, which would otherwise inherit them |
+| 4 | **Shader hot-reload** | 1 | Biggest single velocity win, and independent of everything else. Watch `shaders/slang/`, re-run `slangc`, rebuild pipelines, keep the frame running |
+| 5 | **`go-vulkan`: formats, barrier rework, compute, storage images, blit** (§7) | 2 | Batches 1–6 of `go-vulkan/BINDINGS_GAP.md` §7. Nothing from item 8 onward can start without it. Add `CompareOpGreater` here, which is all reverse-Z still needs |
+| 6 | **`PipelineSpec`, replacing `CreateShader` + the two state setters** (§6) | 2 | Glass and water are pipelines, not shaders. Touches every draw site — do it while the interface is small |
+| 7 | **`Pass` interface + pass list in `App.Run`** | 1.5 | Turns "try an idea" from engine surgery into a new file |
+| 8 | **Compute in `Backend`** — `Dispatch`, `CreateStorageBuffer`, `CreateStorageImage` (2D and 3D) | 1 | Makes most remaining ideas expressible without touching `vulkan/` |
+| 9 | **Reverse-Z** | 0.5 | Free precision once items 3 and 5 have landed: swap near/far, clear depth to 0, compare `GREATER` |
+| 10 | **Per-material parameter blob** (§6) | 1 | Water and glass need fields `DrawUniforms` has no room for |
+| 11 | **HDR target + tonemap pass** | 1 | First user of items 5, 7 and 8 together; proves the stack |
+| 12 | **Reflection probes** | 2 | Cube targets already exist (`RenderTargetSpec{Cube: true}`); needs the pass list and a prefilter compute pass |
+| 13 | **Volumetrics** | 2+ | 3D storage image, froxel fill in compute, raymarch composite |
+| 14 | **Software BVH + `traceRay`** | — | The §8.3 baseline |
+| 15 | **Ray queries** — `VK_KHR_acceleration_structure` + `VK_KHR_ray_query` bindings, BLAS/TLAS lifetimes | — | ~600–1000 lines. Additive, and item 8 is its host |
 
-**Items 1–6 are the substrate and should come before rendering features,
+**Items 1–8 are the substrate and should come before rendering features,
 including `LIGHTING_PLAN.md` beyond its Part A.** That is roughly **two weeks**;
 items 7–10 add another week and are where the target feature list starts
 appearing on screen.
@@ -382,7 +469,7 @@ Sketch of items 4, 5 and 6, to be designed properly when they are built:
 ```go
 // A pipeline is the shader set plus the fixed state it is valid under, baked
 // once at load. Glass is a pipeline; so is water; so is the existing forward
-// shading. Replaces CreateShader, SetCullFace and SetDepthFunc.
+// shading. Replaces CreateShader, SetCullMode and SetDepthCompare.
 type PipelineSpec struct {
 	Shader       string
 	Layout       VertexLayout

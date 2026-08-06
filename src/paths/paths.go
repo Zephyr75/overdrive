@@ -97,9 +97,6 @@ func Texture(name string) string { return resolve(texturesDir, name) }
 func Shader(name string) string { return resolve(shadersDir, name) }
 
 // Returns the path of a settings file
-//
-// A bare name resolves under configs/; anything carrying a separator is a path
-// the user typed and is used as given, so -config /tmp/try.toml works.
 func Config(name string) string {
 	if filepath.Base(name) != name {
 		return name

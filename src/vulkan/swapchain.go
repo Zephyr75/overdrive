@@ -15,9 +15,9 @@ func (b *VKBackend) createSwapchain() error {
 		return err
 	}
 	extent := caps.CurrentExtent
+	// A currentExtent of 0xFFFFFFFF means "surface size is defined by the
+	// swapchain", so fall back to the window's own size.
 	if extent.Width == 0xFFFFFFFF {
-		// Fall back to the window's size, which is what "surface size is
-		// defined by the swapchain" means
 		w, h := b.window.GetSize()
 		extent = vk.Extent2D{Width: uint32(w), Height: uint32(h)}
 	}
@@ -67,10 +67,10 @@ func (b *VKBackend) createSwapchain() error {
 		}
 	}
 
-	if err := b.createMSAABuffer(); err != nil {
+	if err := b.createMSAABuffer(); err != nil { // TODO: check if not abstractable
 		return err
 	}
-	return b.createDepthBuffer()
+	return b.createDepthBuffer() // TODO: check if we need the for loop line 264 in howtovulkan
 }
 
 // Resolves settings.MSAASamples against the device's limits, returning the sample count of the main pass

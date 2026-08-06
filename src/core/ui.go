@@ -39,7 +39,7 @@ var quadVertices = []float32{
 
 // Uploads the overlay's quad, once, as an ordinary mesh
 func createOverlayQuad(b renderer.Backend) renderer.MeshHandle {
-	return b.CreateMesh(b.CreateBuffer(quadVertices, false), nil, renderer.LayoutPositionUV)
+	return b.CreateMesh(b.CreateBuffer(quadVertices), nil, renderer.LayoutPositionUV)
 }
 
 // Rasterises the widget tree into an RGBA image, uploads it through the backend and draws it as a fullscreen quad, inside the main pass
@@ -99,5 +99,6 @@ func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.Shad
 	// The overlay is an ordinary mesh with an ordinary material, so it needs no
 	// special draw path — only a texture and an identity transform
 	u := renderer.DrawUniforms{Model: mgl32.Ident4(), TexDiffuse: uiTexture}
-	app.Backend.Draw(uiShader, quad, &u)
+	app.Backend.BindShader(uiShader)
+	app.Backend.Draw(quad, &u)
 }

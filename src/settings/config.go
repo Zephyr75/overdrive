@@ -6,12 +6,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Config is the on-disk form of the package's variables, one TOML file passed
-// to the binary with -config
-//
-// It exists so that resolution and anti-aliasing are runtime inputs: one build
-// runs at any resolution. Every field is optional — decoding starts from the
-// defaults above, so a file that names only what it changes is valid.
+// Runtime inputs to use for the current execution
 type Config struct {
 	Window struct {
 		Width  int
@@ -28,21 +23,20 @@ type Config struct {
 		Mode    string
 		Samples int
 	} `toml:"antialiasing"`
+	Textures struct {
+		Anisotropy int
+	}
 }
 
 // Loads a settings file over the defaults
-//
-// The file is the only source: no environment variable competes with it, so what
-// a run was configured with is always readable from the file it was given.
 func Load(path string) error {
-	cfg := current()
+	cfg := loadDefaults()
 
 	md, err := toml.DecodeFile(path, &cfg)
 	if err != nil {
 		return fmt.Errorf("settings %s: %w", path, err)
 	}
-	// A misspelt key would otherwise be silently ignored, which is the worst
-	// possible outcome for a file whose whole job is to change behaviour
+	// Explicitly declare misspelt keys
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
 		return fmt.Errorf("settings %s: unknown key %q", path, undecoded[0].String())
 	}
@@ -52,14 +46,15 @@ func Load(path string) error {
 	return nil
 }
 
-// Returns the current settings in Config form, which is what makes an absent key mean "keep the default"
-func current() Config {
+// Returns the loadDefaults settings in Config form, which is what makes an absent key mean "keep the default"
+func loadDefaults() Config {
 	var c Config
 	c.Window.Width, c.Window.Height = WindowWidth, WindowHeight
 	c.Shadows.Width, c.Shadows.Height = ShadowWidth, ShadowHeight
 	c.Renderer.Backend = Backend
 	c.AntiAliasing.Mode = string(AntiAliasing)
 	c.AntiAliasing.Samples = MSAASamples
+	c.Textures.Anisotropy = Anisotropy
 	return c
 }
 
@@ -86,19 +81,20 @@ func apply(c Config) error {
 		}
 	}
 
+	if err := checkAnisotropy(c.Textures.Anisotropy); err != nil {
+		return err
+	}
+
 	WindowWidth, WindowHeight = c.Window.Width, c.Window.Height
 	ShadowWidth, ShadowHeight = c.Shadows.Width, c.Shadows.Height
 	Backend = backend
 	AntiAliasing = mode
 	MSAASamples = c.AntiAliasing.Samples
+	Anisotropy = c.Textures.Anisotropy
 	return nil
 }
 
 // Accepts the backend names
-//
-// Vulkan is the only backend, so this only rejects. It is kept so that a config
-// still naming OpenGL fails with an explanation rather than running Vulkan
-// silently, and so a second backend has a place to be named later.
 func normaliseBackend(name string) (string, error) {
 	switch name {
 	case "", "vulkan", "vk":
@@ -118,11 +114,23 @@ func normaliseAAMode(mode string) (AAMode, error) {
 	return "", fmt.Errorf("unknown antialiasing mode %q, want \"msaa\" or \"none\"", mode)
 }
 
-// Rejects sample counts no backend can honour, 8 being the highest Vulkan will try before clamping to the device's limit
+// Rejects sample counts not supported by the backend
 func checkSamples(n int) error {
 	switch n {
 	case 1, 2, 4, 8:
 		return nil
 	}
 	return fmt.Errorf("antialiasing samples must be 1, 2, 4 or 8, got %d", n)
+}
+
+// Accepts the anisotropy levels, 1 meaning off
+//
+// The upper bound is not checked against the device here — settings load before
+// there is a device — so createSamplers clamps instead.
+func checkAnisotropy(n int) error {
+	switch n {
+	case 1, 2, 4, 8, 16:
+		return nil
+	}
+	return fmt.Errorf("texture anisotropy must be 1, 2, 4, 8 or 16, got %d", n)
 }

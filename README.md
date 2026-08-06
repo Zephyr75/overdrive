@@ -122,6 +122,9 @@ backend = "vulkan"
 [antialiasing]
 mode = "msaa"         # or "none"
 samples = 4           # 2, 4 or 8
+
+[textures]
+anisotropy = 8        # 1 (off), 2, 4, 8 or 16
 ```
 
 Every key is optional, an absent one keeping its default. An unknown key or

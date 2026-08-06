@@ -221,7 +221,8 @@ func (s *Scene) RenderScene(shader renderer.ShaderHandle, f *renderer.FrameUnifo
 	// Static mesh geometry is baked into the OBJ vertices, so the model matrix
 	// is identity and only the material fields vary between draws
 	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
+	s.backend.BindShader(shader)
 	for i := range s.Meshes {
-		s.Meshes[i].draw(shader, &u)
+		s.Meshes[i].draw(&u)
 	}
 }

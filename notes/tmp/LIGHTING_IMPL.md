@@ -7,7 +7,7 @@
 > single implementation, and the GL 4.1 limits that shaped `LIGHTING_PLAN.md`
 > are void. Read that file's banner first. Part A remains correct and
 > independently useful; Parts B onward should be re-sequenced after
-> `BACKEND_DECISION.md` §9 items 4-6 (pipeline objects, pass list, compute),
+> `BACKEND_DECISION.md` §9 items 6-8 (pipeline objects, pass list, compute),
 > which are the substrate they would now be built on.
 
 The step-by-step build order for `LIGHTING_PLAN.md`, split out so each file
@@ -397,7 +397,7 @@ because GL 4.1 had neither compute shaders nor SSBOs and keeping both backends o
 one path was a stated goal. Neither reason survives. Build on the CPU first
 anyway — it is simpler and it is not obviously the bottleneck — but a compute
 build is now a legitimate follow-up rather than an impossibility, and would make
-a good first user of `Dispatch` (`BACKEND_DECISION.md` §9 item 6).
+a good first user of `Dispatch` (`BACKEND_DECISION.md` §9 item 8).
 
 **Gate.** The standard gate, plus a stress scene with 200+ unshadowed lights
 holding frame rate, and the froxel grid visualised as a debug overlay at least

@@ -21,7 +21,7 @@
 > - **The `int4`-not-`int[4]` and 16-byte-cell requirements** in §4. Removed from
 >   the engine on 2026-08-05 (`BACKEND_DECISION.md` §5.3); `LightData` is now 68
 >   bytes, not 80, so this section's growth arithmetic starts from a lower base.
-> - **The ordering.** `BACKEND_DECISION.md` §9 items 1-6 (pipelines, pass list,
+> - **The ordering.** `BACKEND_DECISION.md` §9 items 1-8 (pipelines, pass list,
 >   compute) now come before this plan's Part B onward, since they are what a
 >   shadow atlas would be built on.
 >
@@ -503,7 +503,7 @@ reads its offset and count, and loops only over that cluster's lights.
 **CPU-built first, but no longer forced.** This was originally CPU-only because
 GL 4.1 had neither compute shaders nor SSBOs. With that gone, start on the CPU
 because it is simpler, then move the build to compute once `Dispatch` exists
-(`BACKEND_DECISION.md` §9 item 6) — a GPU cluster build is a good first user of
+(`BACKEND_DECISION.md` §9 item 8) — a GPU cluster build is a good first user of
 it. The transport was going to be a **texture buffer** (`Buffer<uint>` in Slang);
 a plain storage buffer, or a device address like the uniform blocks already use,
 is the simpler expression now.
@@ -573,7 +573,7 @@ CopyDepthRegion(src, dst RenderTargetHandle, srcX, srcY, dstX, dstY, w, h int)
 //
 // The cluster light-index list, too large for a uniform block
 //
-// Superseded: CreateStorageBuffer (BACKEND_DECISION.md §9 item 6) is the same
+// Superseded: CreateStorageBuffer (BACKEND_DECISION.md §9 item 8) is the same
 // thing without the texel-buffer indirection
 CreateTexelBuffer(sizeBytes int) (BufferHandle, TextureHandle)
 UpdateTexelBuffer(h BufferHandle, data []uint32)

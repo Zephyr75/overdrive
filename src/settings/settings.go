@@ -1,13 +1,7 @@
-// Package settings holds the engine's runtime configuration: the values every
-// other package reads, their defaults, and the TOML file that overrides them.
-//
-// They are plain package variables rather than a struct threaded through the
-// engine, because they are read from everywhere (camera aspect ratio, shadow
-// pass extent, anti-aliasing) and written exactly once, before the window
-// exists. Load must therefore run before core.NewApp; nothing re-reads them.
+// Package settings holds the engine's runtime configuration:
 package settings
 
-// AAMode is the anti-aliasing technique the backends set up at initialisation
+// Anti-aliasing technique: None or MSAA
 type AAMode string
 
 const (
@@ -21,22 +15,25 @@ var (
 	ShadowWidth  int = 1024
 	ShadowHeight int = 1024
 
-	// The graphics API. Vulkan is the only backend; the key survives so a
-	// config naming another one is rejected rather than silently ignored
+	// The graphics API: Vulkan is the only backend implemented so far
 	Backend string = "vulkan"
 
-	// Anti-aliasing on the backbuffer. Offscreen targets — shadow maps above
-	// all — stay single-sampled whatever this says, since a later pass has to
-	// sample them.
-	//
-	// Read once at Backend.Init, because the backend bakes the choice into the
-	// swapchain's colour and depth images plus every main-pass pipeline.
-	// Changing either value afterwards does nothing.
 	AntiAliasing AAMode = AAMSAA
-	// Samples per pixel when AntiAliasing is AAMSAA: 2, 4 or 8, Vulkan clamping
-	// the request to what the device reports
+	// Samples per pixel when AntiAliasing is AAMSAA: 2, 4 or 8
 	MSAASamples int = 4
+
+	// Anisotropic filtering on material textures: 1 (off), 2, 4, 8 or 16
+	//
+	// Clamped to the device's maxSamplerAnisotropy when the sampler is created,
+	// so a file asking for more than the GPU allows is quietly lowered rather
+	// than rejected.
+	Anisotropy int = 8
 )
+
+// Reports whether material textures are sampled anisotropically, 1 meaning plain isotropic filtering
+func AnisotropyEnabled() bool {
+	return Anisotropy > 1
+}
 
 // Reports whether the backbuffer is multisampled, which is MSAA asked for and a count that actually multisamples
 func MSAAEnabled() bool {

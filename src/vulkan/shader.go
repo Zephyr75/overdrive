@@ -20,7 +20,7 @@ type shaderEntry struct {
 }
 
 // Loads the SPIR-V modules of a shader set, no pipeline being built yet
-func (b *VKBackend) CreateShader(name string, hasGeometry bool) (renderer.ShaderHandle, error) {
+func (b *VKBackend) CreateShader(name string) (renderer.ShaderHandle, error) {
 	var e shaderEntry
 	var err error
 	if e.vert, err = b.loadModule(name, "vert"); err != nil {
@@ -29,7 +29,10 @@ func (b *VKBackend) CreateShader(name string, hasGeometry bool) (renderer.Shader
 	if e.frag, err = b.loadModule(name, "frag"); err != nil {
 		return 0, err
 	}
-	if hasGeometry {
+	// The geometry stage is optional and only depth_cube has one, so its
+	// presence on disk is the answer rather than a flag the caller passes —
+	// build_shaders.sh emits exactly the stages a set declares
+	if _, err := os.Stat(paths.Shader(name + ".geo.spv")); err == nil {
 		if e.geo, err = b.loadModule(name, "geo"); err != nil {
 			return 0, err
 		}
@@ -192,7 +195,7 @@ func colorBlendState(pass passKind) *vk.PipelineColorBlendStateCreateInfo {
 			SrcAlphaBlendFactor: vk.BlendFactorOne,
 			DstAlphaBlendFactor: vk.BlendFactorZero,
 			AlphaBlendOp:        vk.BlendOpAdd,
-			ColorWriteMask:      0xF,
+			ColorWriteMask:      vk.ColorComponentR | vk.ColorComponentG | vk.ColorComponentB | vk.ColorComponentA,
 		}},
 	}
 }

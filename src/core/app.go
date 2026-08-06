@@ -54,7 +54,10 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	app.Backend = vulkan.New()
 
 	glfw.Init()
-	app.Backend.ConfigureWindow()
+	if !glfw.VulkanSupported() {
+		utils.HandleError(fmt.Errorf("GLFW reports no Vulkan loader"))
+	}
+	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
 
 	window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, name, nil, nil)
 	if err != nil {
@@ -81,15 +84,15 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) {
 	b := app.Backend
 
-	forwardShader, err := b.CreateShader("forward", false)
+	forwardShader, err := b.CreateShader("forward")
 	utils.HandleError(err)
-	depthShader, err := b.CreateShader("depth", false)
+	depthShader, err := b.CreateShader("depth")
 	utils.HandleError(err)
-	depthCubeShader, err := b.CreateShader("depth_cube", true)
+	depthCubeShader, err := b.CreateShader("depth_cube")
 	utils.HandleError(err)
-	uiShader, err := b.CreateShader("ui", false)
+	uiShader, err := b.CreateShader("ui")
 	utils.HandleError(err)
-	skyboxShader, err := b.CreateShader("skybox", false)
+	skyboxShader, err := b.CreateShader("skybox")
 	utils.HandleError(err)
 
 	// The overlay's quad is built once, like any other mesh
@@ -146,8 +149,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		}
 
 		// Run the main pass, the only one that clears color
-		b.BeginPass(0, settings.WindowWidth, settings.WindowHeight,
-			&[4]float32{0.1, 0.1, 0.1, 1.0})
+		b.BeginPass(0, &[4]float32{0.1, 0.1, 0.1, 1.0})
 
 		if s != nil {
 			s.RenderSkybox(skyboxShader, &f)

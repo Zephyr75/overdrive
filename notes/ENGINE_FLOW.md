@@ -58,9 +58,8 @@ per-pass one", `vkCmdPushConstants` is "the per-draw one".
 | Method | What it does |
 |---|---|
 | `CreateShader` | `CreateShaderModule` ×2-3. **No pipeline yet** — built lazily per (pass, layout) |
-| `LoadTexture` | `VmaCreateImage` + staging buffer + `immediateSubmit(CmdCopyBufferToImage)` + `CreateImageView` + bindless descriptor write |
-| `LoadCubemap` | One 6-layer `CubeCompatible` image, six faces staged contiguously, one copy |
-| `WhiteTexture` | Returns `0` — handle 0 *is* bindless slot 0 |
+| `CreateTexture` | `VmaCreateImage` + staging buffer + `immediateSubmit(CmdCopyBufferToImage)` + `CreateImageView` + bindless descriptor write |
+| `CreateCubemap` | One 6-layer `CubeCompatible` image, six faces staged contiguously, one copy |
 | `CreateBuffer` | `VmaCreateBuffer` host-visible + persistently mapped + `MemCopy` |
 | `CreateMesh` | Pair the vertex handle with an index buffer and record the layout. No VAO equivalent — the layout keys the pipeline |
 | `CreateRenderTarget` | Image usable as attachment *and* sampled, plus **two** views for cubes: 2D-array to attach, cube to sample |
@@ -92,8 +91,8 @@ Two shadow passes (depth-only, no colour clear) then the main backbuffer pass.
 |---|---|
 | `BindFrameUniforms` | Memcpy 1184 B into the ring, cache its device address for the pass's draws |
 | `BeginPass` | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state |
-| `SetCullFace` | `CmdSetCullMode` — dynamic state, no extra pipeline |
-| `SetDepthFunc` | `CmdSetDepthCompareOp` — dynamic state |
+| `SetCullMode` | `CmdSetCullMode` — dynamic state, no extra pipeline |
+| `SetDepthCompare` | `CmdSetDepthCompareOp` — dynamic state |
 | `EndPass` | `CmdEndRendering`, and for a shadow target `imageBarrier` depth-attachment → shader-read-only |
 
 ### Once per draw, ~15 a frame — 1 method
@@ -185,7 +184,7 @@ Backend.BeginFrame()
           EndPass()
 
   BeginPass(0, w, h, &{0.1,0.1,0.1,1})               ← backbuffer, clears color
-      Scene.RenderSkybox     SetDepthFunc(LEQUAL) → draw cube → back to LESS
+      Scene.RenderSkybox     SetDepthCompare(LessEqual) → draw cube → back to Less
       Scene.RenderScene      every mesh, every face group, forward shader
       renderUI               rasterise widgets to RGBA → UpdateTexture2D → Draw(quad)
   EndPass()
@@ -197,7 +196,7 @@ glfw.PollEvents()
 The frame shape is **hardcoded here**, which is the constraint
 `tmp/BACKEND_DECISION.md` §6 identifies: a new pass — a probe capture, a tonemap, a
 volumetric composite — is an edit to `App.Run` rather than a new file. The `Pass`
-interface in §9 item 5 is what changes that.
+interface in §9 item 7 is what changes that.
 
 Uniforms travel as **two** values split by update frequency.
 `renderer.FrameUniforms` (1184 bytes) is filled by the frame loop and
@@ -265,13 +264,14 @@ how Vulkan spells that are worth knowing before touching it:
 
 | Method | What it does |
 |---|---|
-| `SetCullFace(front)` | Records the value, `CmdSetCullMode` when a frame is active |
-| `SetDepthFunc(lequal)` | Records the value, `CmdSetDepthCompareOp` |
+| `SetCullMode(m)` | Records the value, `CmdSetCullMode` when a frame is active |
+| `SetDepthCompare(op)` | Records the value, `CmdSetDepthCompareOp` |
 
 Both are Vulkan 1.3 *dynamic state* (promoted from
 `VK_EXT_extended_dynamic_state`), which is why the interface can keep an
 immediate-call shape here instead of exploding into one pipeline per
-cull/depth combination. The backend re-issues both at pass start
+cull/depth combination. Front face is deliberately *not* dynamic: it is a
+property of a pass's winding convention, so it is baked into the pipeline. The backend re-issues both at pass start
 (`applyDynamicState`), because the engine sets them between passes as often as
 inside them.
 
@@ -288,7 +288,7 @@ peter-panning [LOGL: Shadow Mapping].
 
 | Method | What it does |
 |---|---|
-| `CreateShader(name, hasGeometry)` | Loads `shaders/vk/<name>.{vert,frag,geo}.spv` into shader modules. **No pipeline is built** |
+| `CreateShader(name)` | Loads `shaders/vk/<name>.{vert,frag}.spv` into shader modules, plus `.geo.spv` when the set has one. **No pipeline is built** |
 
 A shader is not one object. Vulkan bakes state into a *pipeline*, so one shader
 needs one pipeline per combination it is actually drawn with:
@@ -366,9 +366,8 @@ Those offsets should equal `unsafe.Offsetof` of the matching Go field, in order.
 
 | Method | What it does |
 |---|---|
-| `LoadTexture` | Creates the image, fills it via a staging buffer inside an `immediateSubmit`, creates the view, writes a descriptor into bindless binding 0 |
-| `LoadCubemap` | Stages all six faces as one contiguous block into a 6-layer `CubeCompatible` image, one copy command, bindless binding 1 |
-| `WhiteTexture` | `0` — handle 0 *is* the white pixel, and bindless slot 0 |
+| `CreateTexture` | Creates the image, fills it via a staging buffer inside an `immediateSubmit`, creates the view, writes a descriptor into bindless binding 0 |
+| `CreateCubemap` | Stages all six faces as one contiguous block into a 6-layer `CubeCompatible` image, one copy command, bindless binding 1 |
 | `UpdateTexture2D` | **Stages** the pixels into a persistently mapped buffer and defers the copy to the next `BeginFrame` |
 | `DestroyTexture` | Drains the frames in flight, then destroys view + image + staging |
 

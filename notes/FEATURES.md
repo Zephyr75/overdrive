@@ -94,7 +94,7 @@ the scene scale changes. Alternatives if this needs revisiting:
 - **Front-face culling in the shadow pass.** The cleanest fix for *closed* meshes
   (the bias hides inside the geometry), but a single-sided ground plane has no
   back face, so it cannot cover the showcase ground alone. The sun's pass already
-  does this via `SetCullFace(true)`
+  does this via `SetCullMode(CullFront)`
 - **Slope-scaled depth bias** (`glPolygonOffset`) — cheap, but on its own it is
   what caused the original peter-panning
 - A production setup usually pairs **front-face culling (solids) + normal-offset
