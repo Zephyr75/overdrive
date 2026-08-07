@@ -453,6 +453,54 @@ real answer will be `FeatureRayTracing` against `VK_KHR_ray_query` availability,
 which is a genuine runtime fork: a GTX 1080 runs the same engine with a compute
 BVH instead. See `tmp/BACKEND_DECISION.md` §5.2 and §8.
 
+### 4.11 What reaches the GPU, and when
+
+Every `vkCmd*` call *records* into a command buffer; nothing executes until a
+submit. Two facts are worth holding separately.
+
+**The queue is touched in exactly three places.**
+
+| site | operation | why |
+|---|---|---|
+| `EndFrame` (`vulkan/backend.go`) | `QueueSubmit2` | **one submit carries the whole frame** — both shadow passes, skybox, every draw, the UI quad, every barrier |
+| `EndFrame` | `QueuePresentKHR` | hands the image to the compositor, waiting on that image's render semaphore |
+| `immediateSubmit` | `QueueSubmit2` + `QueueWaitIdle` | load-time texture uploads only. Blocks the CPU, which is acceptable only because nothing else is queued yet |
+
+The frame submit is where the three sync objects meet, each with a different
+job: it *waits* on `acquireSem[frameIndex]`, *signals* `renderSems[imageIndex]`
+for present, and *signals* `fence[frameIndex]` for the CPU throttle. §7's last
+subsection is why those two indices are not the same.
+
+**Recording, grouped by how often it happens.**
+
+| frequency | commands |
+|---|---|
+| per frame | `flushPendingUploads` (barrier, `CmdCopyBufferToImage`, barrier — the UI overlay), `CmdBindDescriptorSets` once for the whole frame, and `EndFrame`'s barrier to `PRESENT_SRC_KHR` |
+| per pass, ×3 | 1-3 barriers into attachment layout, `CmdBeginRendering`, `CmdSetViewport`, `CmdSetScissor`, `applyDynamicState` (cull + depth compare); then `CmdEndRendering` and, for an offscreen target, a barrier to `SHADER_READ_ONLY_OPTIMAL` |
+| occasionally | `CmdSetCullMode` (the sun's shadow pass flips to front-face culling), `CmdSetDepthCompareOp` (the skybox flips to `LESS_OR_EQUAL` and back) |
+| per draw, ~15 | `CmdBindPipeline` *(skipped when unchanged)*, `CmdPushConstants` (16 bytes), `CmdBindVertexBuffer`, `CmdBindIndexBuffer` when indexed, `CmdDrawIndexed` / `CmdDraw` |
+| load time | `recordImageUpload`'s barrier + copy + barrier, on a throwaway command buffer |
+
+Two things this makes obvious:
+
+* **Barriers dominate.** Nine of the ~21 recording sites are layout transitions,
+  all of them through `imageBarrier` — the work OpenGL did invisibly. What one
+  does, and why the access masks matter as much as the stage masks, is in
+  `cheatsheets/VULKAN.md` §8.
+* **The per-draw path is four or five commands**, one of which is usually
+  skipped. That is the payoff of the BDA design in §4.5: no descriptor bind and
+  no uniform buffer bind per draw, just a 16-byte push constant.
+
+> The UI overlay is the case that explains the machinery. `UpdateTexture2D` runs
+> *inside* the main pass, where a copy cannot be recorded, and `immediateSubmit`
+> would stall the queue every frame. So the pixels are staged and the copy is
+> recorded at the top of the *next* frame, riding the ordinary frame submit —
+> one frame of latency, no extra queue operation.
+
+`CmdPipelineBarrier2` and `QueueSubmit2` are both `VK_KHR_synchronization2`,
+enabled at device creation. The engine uses the pair consistently rather than
+mixing sync2 barriers with a 1.0 submit.
+
 ---
 
 ## 5. Conventions that keep the image right side out

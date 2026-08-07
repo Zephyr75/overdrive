@@ -255,17 +255,47 @@ Use: gate presentation. Submit waits on `presentSem` (image acquired) and signal
 
 ### Pipeline barriers : ordering within command buffers
 
-`vkCmdPipelineBarrier2(cb, &dependencyInfo)` recorded command, not an object. Also performs image layout transitions
+`vkCmdPipelineBarrier2(cb, &dependencyInfo)` recorded command, not an object
 
-Four critical fields per barrier:
-- `srcStageMask` which stages must finish first
-- `srcAccessMask` which writes must become **available** (drained from writer's cache)
-- `dstStageMask` which stages must wait
-- `dstAccessMask` which reads need writes **visible** (loaded into reader's cache)
+**One barrier does three jobs at once**, and this is the part worth internalising:
+
+1. **Execution dependency — ordering.** Everything in `srcStageMask` recorded *before* this point finishes before anything in `dstStageMask` recorded *after* it starts
+2. **Memory dependency — cache flushing.** GPU caches are *not* coherent between stages. `srcAccessMask` makes writes **available** (flushed out of the writer's cache); `dstAccessMask` makes them **visible** (pulled into the reader's cache)
+3. **Layout transition.** `oldLayout → newLayout`, the physical re-tiling
+
+Jobs 2 and 3 happen *because* you expressed job 1 — the transition is scheduled inside the execution dependency. Which is why a barrier with the right layouts but sloppy stage masks still renders garbage.
+
+> "The write finished" and "the reader can see it" are **different claims**. Ordering alone is not enough; you have to ask for both, which is what the two access masks are for
+
+A worked example — handing a finished shadow map to the pass that samples it:
+
+```
+oldLayout DEPTH_ATTACHMENT_OPTIMAL  →  newLayout SHADER_READ_ONLY_OPTIMAL
+src  LateFragmentTests / DepthStencilAttachmentWrite
+dst  FragmentShader    / ShaderSampledRead
+```
+
+Reads as: *the depth writes from the late-fragment-test stage must complete and be flushed; then re-tile the image for sampling; then the fragment shader may read it.*
 
 > Beginner shortcut: `ALL_COMMANDS_BIT` + `MEMORY_READ | MEMORY_WRITE` everywhere is correct but serializes the pipeline; tighten later
 
 > Run with **synchronization validation** (vkconfig preset) at least once per feature: catches bugs that happen to work on your GPU
+
+### Synchronization2 : what the `2` means
+
+`VK_KHR_synchronization2`, core in **1.3**. A redesign of the same concepts, not new capability — but every `*2` name you see comes from it:
+
+| | 1.0 | synchronization2 |
+|---|---|---|
+| mask width | 32-bit `VkPipelineStageFlags`, out of bits | **64-bit** `…Flags2` — which is how ray tracing / mesh shader / video stages could be added at all |
+| stage masks | **one pair for the whole call**, covering every barrier in it | **per barrier** |
+| "nothing" | `TOP_OF_PIPE` / `BOTTOM_OF_PIPE` + access `0`, easy to get backwards | explicit `STAGE_2_NONE` / `ACCESS_2_NONE` |
+| barrier arguments | three separate arrays (memory, buffer, image) | one `VkDependencyInfo` holding all three |
+| submit | `vkQueueSubmit` + a parallel array of wait stages | `vkQueueSubmit2`, stage mask attached to each semaphore |
+
+> The per-barrier stage masks are the practical win. Under 1.0, batching two barriers into one call forced the **union** of their stage masks, dragging a cheap barrier up into an expensive one's scope
+
+> Use it wholesale. Mixing `vkCmdPipelineBarrier2` with the old `vkQueueSubmit` works and is a common half-migration, but then `VkSemaphoreSubmitInfo`'s per-semaphore stage mask is not available to you
 
 ## Buffers
 
