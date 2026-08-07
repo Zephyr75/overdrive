@@ -124,6 +124,8 @@ VkDeviceCreateInfo ci { .sType = ..., .pNext = &f12, ... };
 
 GPU exposes **memory heaps** (physical pools: VRAM, system RAM) containing **memory types** (logical properties):
 
+> **Heap = where the memory physically is. Type = what you are allowed to do with it.** One heap exposes several types, so "VRAM" may appear twice — once device-local only, once device-local *and* host-visible
+
 - `DEVICE_LOCAL` in VRAM, fast for GPU, possibly CPU-inaccessible
 - `HOST_VISIBLE` CPU can map and memcpy into it
 - `HOST_COHERENT` CPU writes visible to GPU without explicit flush
@@ -167,6 +169,21 @@ vmaCreateBuffer(allocator, &bufferCI, &ci, &buffer, &allocation, &allocInfo);
 
 ## Images and layouts
 
+### Four objects, four different questions
+
+Reading a texture in Vulkan involves four things. OpenGL fused them into one `GLuint`, which is why the split feels like bureaucracy at first — but each answers a genuinely separate question:
+
+| object | answers | analogy |
+|---|---|---|
+| `VkImage` | *where are the pixels* | the storage |
+| `VkImageView` | *which* pixels, interpreted as *what type* | a window onto the storage |
+| `VkSampler` | *how* to read them | the filtering rulebook |
+| layout | how the pixels are *physically arranged right now* | no OpenGL equivalent |
+
+> The one to internalise: **image ≠ view**. You never bind an image; you bind a view of one. The image is memory, the view is an interpretation of it
+
+### Layouts
+
 Every `VkImage` has a **layout**: abstract state describing how the image is arranged in memory and what operations are legal. GPUs physically reorder texels (tiling, compression) per use case; layout transitions tell the driver to reshuffle
 
 - `UNDEFINED` contents garbage; valid transition source when previous data doesn't matter; always the state after creation
@@ -190,7 +207,27 @@ Acquire → UNDEFINED (discard old contents)
 
 > Forgotten layout transition = #1 cause of "works on my GPU, breaks on yours". Validation catches it
 
-`vkCreateImageView(device, &createInfo, nil, &view)` images are never used raw: views select format, mip range, layers
+### Image views
+
+`vkCreateImageView(device, &createInfo, nil, &view)` images are never used raw: a view selects
+
+- **view type** 2D, 2D_ARRAY, CUBE, 3D — how the layers are addressed
+- **format** can reinterpret the same bits (UNORM vs SRGB)
+- **subresource range** which mip levels, which array layers, which **aspect** (color / depth / stencil)
+
+> Two views of the *same image* is a normal, load-bearing pattern, not a hack. A cube render target needs exactly that: a **2D_ARRAY view to render into** (a geometry stage routes triangles to the six layers) and a **CUBE view to sample from**. You cannot attach a cube view, and cannot sample an array view with a direction vector — so you make both, over one allocation
+
+### Attachments, targets, framebuffers
+
+Vocabulary that trips people, partly because it predates dynamic rendering:
+
+- `attachment` an image view a pass renders into or reads. **Color / depth / stencil attachments** by what they hold; **resolve attachments** receive the MSAA resolve; **input attachments** are read by a later subpass
+- `render target` one attachable image. D3D's word; means a single surface you draw into, as opposed to one you sample
+- `framebuffer` the *set* of attachments bound for a pass — a container, not storage
+
+> **`VkFramebuffer` no longer exists under dynamic rendering.** It was an immutable object binding a `VkRenderPass` to specific image views; `VkRenderingInfo`, filled fresh at `vkCmdBeginRendering`, is what replaced it. So "framebuffer" in modern Vulkan is a *concept* (the attachment set) rather than an object you create
+
+> **"Backbuffer" is a double-buffering word and doesn't survive contact with a swapchain.** There is no fixed "back" image: you acquire whichever of N images is free, render, present. Say "the swapchain image for this frame"
 
 ## Synchronization
 
@@ -238,6 +275,8 @@ Usage flags: `VERTEX_BUFFER_BIT`, `INDEX_BUFFER_BIT`, `TRANSFER_SRC/DST_BIT`, `S
 
 **Staging upload** (for DEVICE_LOCAL data):
 
+> Staging exists because the fastest memory is usually the memory the CPU cannot write to. You allocate a second, host-visible buffer, memcpy into that, and ask the GPU to copy across — the copy runs at full bandwidth, and the staging buffer is freed straight after
+
 ```
 create staging buffer (HOST_VISIBLE) + destination buffer (DEVICE_LOCAL)
 memcpy data into staging's mapped pointer
@@ -261,6 +300,17 @@ VSOutput main(VSInput input, uniform ShaderData *shaderData) {
 
 > Gotcha: CPU and GPU struct layouts must match. Enable `scalarBlockLayout` (1.2 core) and write identical structs on both sides; otherwise std140-ish padding rules bite (especially vec3 and arrays)
 
+**Four things must all be true, and missing any one fails differently:**
+
+| requirement | where | symptom if missing |
+|---|---|---|
+| `bufferDeviceAddress` device feature | `VkPhysicalDeviceVulkan12Features` | `vkGetBufferDeviceAddress` is invalid — validation error |
+| `VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT` on the allocator | `vmaCreateAllocator` | VMA omits `VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT` from the allocation; the address is undefined |
+| `VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT` on the buffer | `VkBufferCreateInfo` | per-buffer opt-in; invalid for *that* buffer only |
+| `scalarBlockLayout` + `-fvk-use-scalar-layout` | device feature + shader compile flag | compiles and runs, renders garbage — the worst one |
+
+> The middle two are the ones that bite: the feature is documented everywhere, the *allocator* and *per-buffer* opt-ins are easy to miss because nothing complains until you dereference
+
 ## Descriptors
 
 Handles describing shader resources to a pipeline. Vanilla Vulkan trio:
@@ -268,7 +318,36 @@ Handles describing shader resources to a pipeline. Vanilla Vulkan trio:
 - **DescriptorPool** memory the sets are allocated from
 - **DescriptorSet** the instance (actual handles), bound before drawing
 
-> With BDA handling buffers, descriptors only remain necessary for **textures** (no "image device address" yet)
+> With BDA handling buffers, descriptors only remain necessary for **textures**. That is not an oversight waiting to be fixed: you can take the address of a buffer because it is plain memory, but a sampled image is an opaque, retiled, possibly-compressed object with no meaningful address. **BDA replaces buffer descriptors; it cannot replace image descriptors**
+
+### What a descriptor actually holds
+
+For `COMBINED_IMAGE_SAMPLER` — the type you will use most — one slot is a **triple**, and the parts come from three different places:
+
+```
+(image view, sampler, image layout)
+```
+
+| part | what it contributes | decided when |
+|---|---|---|
+| image view | which pixels, as what type | view creation — several views may overlay one image |
+| sampler | filter, address mode, anisotropy, LOD | sampler creation, independent of any image |
+| layout | the arrangement the image will be in *when read* | a **promise**, kept by barriers elsewhere |
+
+That third one is the subtle one. **The layout field in a descriptor write does not perform a transition** — it is a declaration that "whenever a shader reads through this descriptor, the image will already be in this layout". Writing `SHADER_READ_ONLY_OPTIMAL` and then sampling while the image is still `COLOR_ATTACHMENT_OPTIMAL` reads undefined data. Keeping that promise is the job of `vkCmdPipelineBarrier2` at the end of the pass that wrote the image.
+
+> Consequence worth knowing: because the sampler is baked into the *write*, not the layout, the same image can appear in two descriptors with two different samplers — one linear-repeat for normal use, one nearest-clamp for a special case — at no memory cost. The image is referenced, not copied
+
+`VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE` + `VK_DESCRIPTOR_TYPE_SAMPLER` are the split alternative: one sampler then serves many images, at the cost of two bindings and two indices per read. **Immutable samplers** are the third option — bake the sampler into the `VkDescriptorSetLayoutBinding` itself, so writes carry only the view. Only workable when a binding uses exactly one sampler.
+
+### Pool sizing
+
+`VkDescriptorPoolCreateInfo` wants two independent numbers, and mixing them up is a common first-time error:
+
+- `maxSets` how many **sets** can be allocated from this pool
+- `pPoolSizes` how many **descriptors of each type**, summed across all those sets
+
+> A bindless renderer typically has `maxSets = 1` and a pool size in the hundreds — one set, many descriptors in it. That looks wrong until you notice the two numbers count different things
 
 ### Descriptor indexing (bindless)
 
@@ -334,11 +413,15 @@ float4 fsmain(VSOutput in, uint iid : SV_VulkanInstanceID) {
 
 > Frozen state = driver can fully specialize shaders. Consequence: different blend mode = different pipeline; real renderers have hundreds (hence pipeline caches/libraries)
 
+> The intuition: a pipeline is **a compiled shader plus every piece of GPU state it was compiled to assume**. OpenGL's `glEnable(GL_BLEND)` could invalidate a driver's shader specialisation at any moment, so the driver re-checked and sometimes recompiled mid-frame — the notorious hitch. Vulkan makes you name the combinations up front, so nothing is decided during the frame
+
 **Dynamic without a new pipeline:** viewport, scissor (always); more with `VK_EXT_extended_dynamic_state3` / `VK_EXT_shader_object`
 
 `vkCreatePipelineLayout(...)` separate object because many pipelines share one resource interface
 
-`vkCmdPushConstants(cb, layout, stages, offset, size, data)` inline ≥128 bytes of per-draw data into the command buffer: cheapest parameter path, perfect for BDA pointers / instance indices / material IDs
+`vkCmdPushConstants(cb, layout, stages, offset, size, data)` inline a few bytes of per-draw data into the command buffer: cheapest parameter path, perfect for BDA pointers / instance indices / material IDs
+
+> **The budget is small and shared.** `maxPushConstantsSize` is only guaranteed to be **128 bytes** — that is the whole range, across all stages that declare it, not per stage. Plenty for two 64-bit BDA pointers; nowhere near enough for a matrix set, which is exactly why the pointers are what you push
 
 ## Command buffers
 
@@ -376,6 +459,22 @@ PNG decode + blit-generated mipmaps works but is slow and wastes VRAM. **KTX2 + 
 Upload = staging buffer + `vkCmdCopyBufferToImage` (one region per mip) + the two barriers (see image layouts)
 
 `vkCreateSampler(device, &createInfo, nil, &sampler)` filtering, addressing, anisotropy, LOD clamps: **separate object**, one sampler serves many images
+
+A sampler **references no image at all** — it is pure policy, which is why a handful of them covers a whole renderer:
+
+| field | decides |
+|---|---|
+| `magFilter` / `minFilter` | linear or nearest when a texel is bigger / smaller than a pixel |
+| `mipmapMode` | how to blend between mip levels |
+| `addressModeU/V/W` | behaviour outside `[0,1]`: repeat, clamp-to-edge, clamp-to-border |
+| `borderColor` | what clamp-to-border returns |
+| `anisotropyEnable` / `maxAnisotropy` | extra samples along an elongated footprint |
+| `minLod` / `maxLod` | which mip levels are reachable |
+| `compareEnable` / `compareOp` | hardware depth comparison, for shadow maps |
+
+> Anisotropy needs **mipmaps to matter**. Its real job is picking a sharper mip than isotropic LOD selection would; with a single mip level there is no LOD to pick and it only trims a little aliasing. Turning it on before generating mip chains buys almost nothing
+
+> `borderColor` is a good illustration of the separation: "outside the shadow map means fully lit" is a *sampling* decision, encoded in the sampler, with nothing to do with the image or its view
 
 > 3-channel (RGB) formats often unsupported: use RGBA. OpenGL silently padded; Vulkan just fails
 
@@ -473,6 +572,10 @@ Enable via `vkconfig` (SDK GUI) or env var; check spec violations, wrong layouts
 - Recreating the swapchain without `oldSwapchain`
 - Not enabling the 1.3 feature structs at device creation
 - Treating `imageIndex` and `frameIndex` as the same thing
+- BDA set up in one place only: the device feature *and* the VMA allocator flag *and* the buffer usage flag are all required
+- Assuming a descriptor's `imageLayout` performs the transition — it is a promise a barrier has to keep
+- Pushing more than 128 bytes of push constants and only finding out on someone else's GPU
+- Enabling anisotropy on textures that have no mip chain, then wondering why nothing looks different
 
 ## Learning order
 
@@ -499,13 +602,3 @@ Past that: pipeline caching, render graphs, GPU-driven rendering, mesh shaders, 
 - **RenderDoc** frame debugger
 - **vkconfig** validation layer GUI
 - **Arseny Kapoulkine, "Writing an Efficient Vulkan Renderer"** when performance time comes
-
-## Misc
-
- An image is just a piece of memory with some metadata about layout, format etc. A Framebuffer is a container for multiple images with additional metadata for each image, like usage, identifier(index) and type(color, depth, etc.). These images used in a framebuffer are called attachments, because they are attached to, and owned by, a framebuffer.
-
-Attachments that get rendered to are called Render Targets, Attachments which are used as input are called Input Attachments.
-
-Attachments which hold information about Multisampling are called Resolve Attachments.
-
-Attachments with RGB/Depth/Stencil information are called Color/Depth/Stencil Attachments respectively. 

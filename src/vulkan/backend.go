@@ -470,16 +470,9 @@ func (b *VKBackend) createSamplers() {
 	}
 
 	// Anisotropy goes on the material sampler alone. The samplers below
-	// deliberately do without — a skybox is never viewed at a grazing angle, and
+	// deliberately do without: a skybox is never viewed at a grazing angle, and
 	// the shadow samplers filter NEAREST and compare depths, where anisotropy
-	// means nothing.
-	//
-	// This mostly does not pay off yet: every texture is uploaded with a single
-	// mip level, and anisotropy's real job is picking a sharper mip than
-	// isotropic LOD selection would. With one level there is no LOD to pick, so
-	// only the extra sampling along the major axis survives, which trims some
-	// shimmer. It becomes worth having when mipmaps land (BINDINGS_GAP.md §5.2,
-	// CmdBlitImage) — set here now so that change is one place, not two.
+	// means nothing
 	material := base
 	if settings.AnisotropyEnabled() {
 		material.AnisotropyEnable = true
