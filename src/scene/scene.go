@@ -24,10 +24,8 @@ type Scene struct {
 	Skybox Skybox
 	Cam    Camera
 
-	// Indices into Lights of the lights that own a shadow map. Shadows are a
-	// bounded budget — one 2D map for a directional light, one cube map for a
-	// point light — so which lights get one is decided once, at load, rather
-	// than depending on the order they appear in the XML. -1 means nobody.
+	// Which lights own a shadow map: one 2D for a directional, one cube for a
+	// point. Decided once at load, not by XML order. -1 means nobody
 	shadowDirIndex   int32
 	shadowPointIndex int32
 
@@ -190,9 +188,8 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 
 	u.TexSkybox = s.Skybox.Texture
 
-	// Tell the shader which light each shadow map belongs to, and hand the
-	// backend the maps themselves. Without the indices the shader would apply
-	// the directional shadow to whichever light happens to sit at index 0
+	// Which light each shadow map belongs to. Without the indices the shader
+	// would apply the directional shadow to whatever sits at index 0
 	u.ShadowDirIndex = s.shadowDirIndex
 	for i := range u.PointShadowLights {
 		u.PointShadowLights[i] = -1

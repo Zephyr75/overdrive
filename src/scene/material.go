@@ -29,9 +29,8 @@ type Material struct {
 
 // Returns the defaults a material carries before its MTL entry is parsed
 //
-// Roughness and Ao must not start at zero, or a legacy material with no PBR
-// keys would read as a perfect mirror with no ambient light. Matches the C++
-// engine's dielectric/matte default.
+// Roughness and Ao must not start at zero, or a material with no PBR keys reads
+// as a perfect mirror with no ambient light.
 func newMaterial() Material {
 	return Material{Metallic: 0, Roughness: 1, Ao: 1}
 }

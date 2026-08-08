@@ -8,14 +8,9 @@ import (
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// The showcase is the only scene that exercises the full material path — PBR
-// scalars, colour maps and normal maps — so it is what catches a material
-// regression. Loading it here (no GPU, no backend) checks that the OBJ/MTL
-// parse actually produced those values instead of silently falling back to
-// defaults, and that every texture it names is present on disk.
-//
-// Moves to the module root once for the whole package, tests running in the
-// package dir while the loader resolves assets/ and textures/ from the root.
+// The showcase is the only scene exercising the full material path, so it is
+// what catches a material regression: that the OBJ/MTL parse produced real PBR
+// values rather than falling back to defaults, and that every texture exists.
 func TestMain(m *testing.M) {
 	if err := os.Chdir(".."); err != nil {
 		panic(err)

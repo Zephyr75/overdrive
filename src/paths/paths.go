@@ -1,11 +1,7 @@
-// Package paths resolves every runtime file the engine opens against the
-// project root, so the working directory stops mattering.
+// Package paths resolves every runtime file against the project root, so the
+// working directory stops mattering.
 //
-// Nothing else in the tree may hold a relative path literal. Before this
-// existed, `assets/…`, `textures/…` and `shaders/vk/…` were scattered through
-// scene/, vulkan/ and main.go, all of them assuming the process had been
-// started from one particular directory — which is why `go test ./scene/`
-// silently skipped rather than ran.
+// No package outside this one may hold a relative path literal.
 package paths
 
 import (
@@ -34,10 +30,8 @@ var (
 
 // Returns the project root: the directory holding assets/ and src/
 //
-// Found by walking up from the working directory, so `go run .` from src/ and
-// `go test ./scene/` from src/scene/ both resolve to the same place. Falls back
-// to the working directory when nothing matches, which turns a misplaced run
-// into a file-not-found naming an absolute path rather than a silent skip.
+// Walks up from the working directory, so `go run .` from src/ and
+// `go test ./scene/` resolve alike. Falls back to the working directory.
 func Root() string {
 	once.Do(func() {
 		if env := os.Getenv(rootEnv); env != "" {
@@ -66,10 +60,7 @@ func Root() string {
 	return root
 }
 
-// Reports whether dir looks like the project root
-//
-// Both markers are required: assets/ alone is a common enough directory name to
-// match something unrelated on the way up.
+// Reports whether dir looks like the project root, both markers being required to avoid a false match on the way up
 func isRoot(dir string) bool {
 	for _, marker := range [...]string{assetsDir, "src"} {
 		if _, err := os.Stat(filepath.Join(dir, marker)); err != nil {

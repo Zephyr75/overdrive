@@ -104,18 +104,14 @@ type Backend interface {
 	// Closes the frame and presents it
 	EndFrame()
 
-	// Begins a pass on target (0 = backbuffer): binds it, sets the viewport to
-	// the target's own size, always clears depth, clears color only when clear
-	// is non-nil
+	// Begins a pass on target (0 = backbuffer), sized from the target itself: always clears depth, clears color only when clear is non-nil
 	BeginPass(target RenderTargetHandle, clear *[4]float32)
 	// Ends the pass, after which nothing may be drawn until the next BeginPass
 	EndPass()
 
 	// Publishes the pass-scoped uniforms, from a snapshot of *f taken at call time
 	//
-	// Must be called after BeginPass and before the pass's first draw. Every
-	// draw in the pass then reads this same block, which is what keeps the
-	// ~1.2 KB of camera and light data off the per-draw path.
+	// Must run after BeginPass and before the pass's first draw.
 	BindFrameUniforms(f *FrameUniforms)
 
 	// Selects which face is culled, as pass-scoped state
@@ -123,17 +119,10 @@ type Backend interface {
 	// Selects the depth compare op, as pass-scoped state
 	SetDepthCompare(op CompareOp)
 
-	// Loads the shader set named e.g. "forward"
-	//
-	// Vertex and fragment stages are required; a geometry stage is picked up
-	// when the set has one, so the caller does not have to know which do.
+	// Loads the shader set named e.g. "forward", picking up a geometry stage when the set has one
 	CreateShader(name string) (ShaderHandle, error)
 
-	// Uploads tightly packed RGBA8 pixels as a sampled 2D texture
-	//
-	// Decoding is the caller's job: a backend that opened files could only ever
-	// accept what image.Decode accepts, which rules out mipmaps, compressed
-	// formats and HDR floats.
+	// Uploads tightly packed RGBA8 pixels as a sampled 2D texture, decoding being the caller's job
 	CreateTexture(pixels []byte, w, h int) TextureHandle
 	// Uploads six same-sized RGBA8 faces as one cubemap texture
 	CreateCubemap(faces [6][]byte, w, h int) TextureHandle
@@ -151,10 +140,8 @@ type Backend interface {
 
 	// Pairs a vertex buffer with a vertex layout and an optional index list, one handle per material face group
 	//
-	// A nil index list makes the mesh non-indexed, its vertex count derived from
-	// the buffer's size and the layout's stride. Several meshes may share one
-	// vertex buffer, which is how a multi-material OBJ becomes one buffer plus
-	// one mesh per face group.
+	// A nil index list makes the mesh non-indexed. Several meshes may share one
+	// vertex buffer, which is how a multi-material OBJ loads.
 	CreateMesh(vertexBuf BufferHandle, indices []uint32, layout VertexLayout) MeshHandle
 	// Destroys a mesh, leaving the vertex buffer it borrowed alone
 	DestroyMesh(m MeshHandle)
@@ -165,19 +152,12 @@ type Backend interface {
 	DestroyRenderTarget(f RenderTargetHandle)
 
 	// Selects the shader set every following Draw uses, until the next call
-	//
-	// Split from Draw so a run of draws sharing a shader states it once. It is
-	// also the shape PipelineSpec wants (BACKEND_DECISION.md §6), so the call
-	// sites do not move again when pipelines land.
 	BindShader(s ShaderHandle)
 
-	// Draws a mesh with the bound shader, from a snapshot of *u taken at call
-	// time, leaving u reusable
+	// Draws a mesh with the bound shader, from a snapshot of *u taken at call time
 	//
-	// One entry point for every drawable. Vertex layout, vertex or index count
-	// and indexed-ness are properties of the mesh, recorded when it was created,
-	// not of the call site — so a new kind of drawable needs a new way to build
-	// a mesh, not a new way to draw one.
+	// The only draw entry point: layout, count and indexed-ness belong to the
+	// mesh, so a new kind of drawable needs a new way to build one, not to draw one.
 	Draw(m MeshHandle, u *DrawUniforms)
 
 	// Reports whether an optional capability is available

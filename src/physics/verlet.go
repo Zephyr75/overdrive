@@ -8,10 +8,7 @@ import (
 type Collider interface {
 	// Resolves this collider against another, moving only itself
 	Collide(c Collider)
-	// Returns the Verlet state the integrator steps
-	//
-	// Named Body rather than Verlet because every implementer embeds the Verlet
-	// struct, and a method cannot share a name with a field.
+	// Returns the Verlet state the integrator steps, named Body because a method cannot share a name with the embedded field
 	Body() *Verlet
 }
 

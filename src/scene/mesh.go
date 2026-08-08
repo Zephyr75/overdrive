@@ -203,9 +203,8 @@ func (mXml MeshXml) toMesh() Mesh {
 
 // Resolves an MTL texture reference to a project-local path
 //
-// Blender bakes the absolute path of the machine that exported the scene, so
-// only the basename is kept and resolved against the engine's own textures
-// directory — otherwise a scene only loads on the machine it was authored on.
+// Blender bakes the exporting machine's absolute path, so only the basename
+// survives — otherwise a scene loads nowhere but where it was authored.
 func texturePath(ref string) string {
 	ref = strings.ReplaceAll(ref, "\\", "/")
 	return paths.Texture(path.Base(ref))
@@ -282,9 +281,7 @@ func (m *Mesh) updateVertices() {
 	m.needsUpdate = false
 }
 
-// Draws every face group of the mesh, writing that group's material fields into u before each draw
-//
-// The caller owns u.Model; only the material fields belong to the face group.
+// Draws every face group, writing its material fields into u first; the caller owns u.Model
 func (m *Mesh) draw(u *renderer.DrawUniforms) {
 	for i := range m.indexGroups {
 		mat := m.Materials[i]

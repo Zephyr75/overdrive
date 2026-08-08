@@ -22,10 +22,7 @@ var (
 	uiTexture    renderer.TextureHandle
 )
 
-// The overlay's geometry, in renderer.LayoutPositionUV
-//
-// Two triangles rather than a strip, so it goes out through the one Draw entry
-// point like any other mesh.
+// The overlay's geometry, in renderer.LayoutPositionUV: two triangles, so it draws like any other mesh
 var quadVertices = []float32{
 	// clip-space position(3) | uv(2)
 	-1, 1, 0, 0, 1,

@@ -123,10 +123,7 @@ func checkSamples(n int) error {
 	return fmt.Errorf("antialiasing samples must be 1, 2, 4 or 8, got %d", n)
 }
 
-// Accepts the anisotropy levels, 1 meaning off
-//
-// The upper bound is not checked against the device here — settings load before
-// there is a device — so createSamplers clamps instead.
+// Accepts the anisotropy levels, 1 meaning off; the device limit is clamped later in createSamplers
 func checkAnisotropy(n int) error {
 	switch n {
 	case 1, 2, 4, 8, 16:

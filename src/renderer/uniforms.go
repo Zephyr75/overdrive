@@ -32,22 +32,15 @@ type LightData struct {
 	Type              int32
 }
 
-// The uniform data is split by how often it changes, not by what it describes.
-// FrameUniforms goes out once per pass, DrawUniforms once per draw — before the
-// split one 1312-byte block went out on every draw, ~1200 bytes of which never
-// varied within a pass.
+// Split by how often the data changes: FrameUniforms once per pass, DrawUniforms
+// once per draw.
 //
-// Both mirror common.slang field for field, and the backend memcpys them —
-// there is no marshalling code. Slang compiles with -fvk-use-scalar-layout, and
-// scalar layout is exactly Go's packing for float32/int32 structs, so the two
-// agree by construction as long as the field *order* matches. Use only float32,
-// int32, arrays of those, and mgl32 matrices; anything with a wider alignment
-// would break the correspondence.
+// INVARIANT: keep the field order identical to common.slang, and use only
+// float32/int32, arrays of those, and mgl32 matrices. Scalar layout then matches
+// Go's packing exactly, so both sides memcpy with no marshalling. Order drifting
+// renders garbage silently; the init below only catches a size change.
 //
-// The init below guards the sizes, which is what catches editing one side and
-// not the other.
-//
-// The Tex* fields hold plain TextureHandles, where 0 means "white pixel".
+// Tex* fields hold plain TextureHandles, where 0 means "white pixel".
 
 // Camera, lights and shadow maps: Update once per pass
 type FrameUniforms struct {

@@ -28,21 +28,15 @@ const (
 	maxCubeTextures = 64
 
 	depthFormat = vk.FormatD32Sfloat
-	// Offscreen colour targets. This wants to be R16G16B16A16_SFLOAT — the
-	// motivating use (tone mapping, bloom) needs values above 1.0 — but the
-	// go-vulkan bindings expose no half-float format yet (notes/FEATURES.md §2).
-	// Changing this one constant is the whole HDR change on this side.
+	// Wants to be R16G16B16A16_SFLOAT for HDR, but no half-float format is bound
+	// yet. Changing this constant is the whole HDR change on this side
 	offscreenColorFormat = vk.FormatR8G8B8A8Unorm
 )
 
-// The push constant (the two uniform blocks' device addresses) is read by every
-// stage: the vertex stage for matrices, geometry for the cube shadow
-// matrices, fragment for materials and lights.
+// Every stage reads the push constant: vertex for matrices, geometry for the cube shadow matrices, fragment for materials and lights
 const pushStages = vk.ShaderStageVertex | vk.ShaderStageGeometry | vk.ShaderStageFragment
 
-// A pipeline is built per (shader, pass kind, vertex layout). The pass kind
-// decides winding, attachment formats and blending, the layout decides the
-// vertex input state.
+// A pipeline is built per (shader, pass kind, vertex layout): the pass decides winding, formats and blending, the layout decides vertex input
 type passKind int
 
 const (
@@ -87,11 +81,10 @@ type bufEntry struct {
 	valid  bool
 }
 
-// One drawable: a vertex buffer, an optional index buffer, and everything Draw
-// needs to know about it
+// One drawable: a vertex buffer, an optional index buffer, and everything Draw needs
 //
-// layout and count are recorded at creation because they are intrinsic to the
-// geometry. That is what lets one Draw serve meshes, the skybox and the overlay.
+// layout and count are recorded at creation, which is what lets one Draw serve
+// meshes, the skybox and the overlay alike.
 type meshEntry struct {
 	vbo         renderer.BufferHandle
 	indexBuffer vk.Buffer
@@ -190,9 +183,8 @@ type VKBackend struct {
 	depthAlloc  vk.VmaAllocation
 	depthView   vk.ImageView
 
-	// The multisampled colour image the main pass renders into, resolved into
-	// the swapchain image at the end of the pass. Zero when MSAA is off, which
-	// is what every "is MSAA on" test in this package checks
+	// The multisampled colour image the main pass renders into, resolved into the
+	// swapchain image at EndPass. Zero when MSAA is off, which is the "is MSAA on" test
 	msaaImage vk.Image
 	msaaAlloc vk.VmaAllocation
 	msaaView  vk.ImageView
@@ -374,13 +366,9 @@ func (b *VKBackend) createSurfaceAndDevice() error {
 		return fmt.Errorf("no queue family supports both graphics and present")
 	}
 
-	// Enable the features the engine's shaders and backend rely on:
-	// DescriptorIndexing group is what makes the bindless texture arrays legal,
-	// BufferDeviceAddress is the pointer to the uniform buffer,
-	// Synchronization2 handles the *2 barriers/submit,
-	// DynamicRendering avoids Render Passes objects,
-	// GeometryShader is the point shadow pass,
-	// ScalarBlockLayout matches the -fvk-use-scalar-layout SPIR-V
+	// DescriptorIndexing makes the bindless arrays legal, BufferDeviceAddress the
+	// uniform pointers, GeometryShader the point shadow pass, ScalarBlockLayout
+	// the -fvk-use-scalar-layout SPIR-V
 	dev, err := vk.CreateDevice(b.physicalDevice, vk.DeviceCreateInfo{
 		QueueCreateInfos: []vk.DeviceQueueCreateInfo{
 			{QueueFamilyIndex: b.queueFamily, Priorities: []float32{1}},
@@ -469,10 +457,8 @@ func (b *VKBackend) createSamplers() {
 		MaxLod:       1,
 	}
 
-	// Anisotropy goes on the material sampler alone. The samplers below
-	// deliberately do without: a skybox is never viewed at a grazing angle, and
-	// the shadow samplers filter NEAREST and compare depths, where anisotropy
-	// means nothing
+	// Material sampler only: a skybox is never viewed at a grazing angle, and the
+	// shadow samplers filter NEAREST, where anisotropy means nothing
 	material := base
 	if settings.AnisotropyEnabled() {
 		material.AnisotropyEnable = true
@@ -512,11 +498,10 @@ func (b *VKBackend) createSamplers() {
 
 // Creates the one descriptor set the engine binds: two bindless texture arrays plus dedicated shadow-map descriptors
 func (b *VKBackend) createDescriptors() {
-	// Bindings 0/1 are the bindless material texture arrays. Bindings 2/3 are
-	// dedicated single descriptors for the shadow maps, because the PCF kernels
-	// tap them 9x/20x per fragment and sampling through a dynamically-indexed
-	// bindless array makes some drivers re-fetch the descriptor per tap. The
-	// layout matches common.slang.
+	// 0/1 bindless material arrays, 2/3 dedicated shadow maps. Dedicated because
+	// PCF taps them 9x/20x per fragment and some drivers re-fetch a
+	// dynamically-indexed descriptor per tap — measured at ~1.7x frame time.
+	// Matches common.slang
 	const bindless = vk.DescriptorBindingPartiallyBound | vk.DescriptorBindingUpdateAfterBind
 	bindings := []vk.DescriptorSetLayoutBinding{
 		{Binding: 0, DescriptorType: vk.DescriptorTypeCombinedImageSampler,
@@ -571,9 +556,8 @@ func (b *VKBackend) createDefaultTextures() {
 	// Fill cube slot 0 with a black dummy, sampled when no cubemap was ever set
 	b.uploadTexture(make([]byte, 4*6), 1, 1, 6, true, b.samplerCubeLinear)
 
-	// Seed the dedicated shadow descriptors so they are valid before the first
-	// shadow map exists. Partially-bound would tolerate holes, but every draw
-	// that samples them would still read undefined data
+	// Seed the dedicated shadow descriptors: partially-bound tolerates holes, but a
+	// draw sampling one would still read undefined data
 	b.writeDedicatedTexture(2, 0, b.textures[0].view, b.samplerShadow2D)
 	for i := uint32(0); i < renderer.MaxShadowCubes; i++ {
 		b.writeDedicatedTexture(3, i, b.textures[1].view, b.samplerShadowCube)
@@ -717,9 +701,8 @@ func (b *VKBackend) EndFrame() {
 
 	fatal(vk.EndCommandBuffer(f.cb), "end command buffer")
 
-	// Wait on the frame's acquire semaphore but signal the image's render
-	// semaphore, as present waits on the image's own semaphore and the two
-	// index spaces are not interchangeable
+	// Wait on the frame's semaphore, signal the image's: present waits on the
+	// image's own, and the two index spaces are not interchangeable
 	fatal(vk.QueueSubmit2(b.queue, []vk.SubmitInfo2{{
 		WaitSemaphores:   []vk.SemaphoreSubmitInfo{{Semaphore: f.acquireSem, StageMask: vk.PipelineStage2ColorAttachmentOutput}},
 		CommandBuffers:   []vk.CommandBuffer{f.cb},
@@ -782,9 +765,8 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 			colorAtt.LoadOp = vk.AttachmentLoadOpClear
 			colorAtt.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
 		}
-		// Under MSAA the pass draws into the multisampled image and resolves it
-		// into the swapchain image on EndPass, so the samples themselves never
-		// need storing — which is what makes the image transient
+		// The pass draws into the multisampled image and resolves into the
+		// swapchain image, so the samples themselves never need storing
 		if b.msaaView != 0 {
 			colorAtt.ResolveImageView = colorAtt.ImageView
 			colorAtt.ResolveImageLayout = vk.ImageLayoutColorAttachmentOptimal
@@ -803,10 +785,8 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 		info.RenderArea = vk.Rect2D{Extent: b.swapExtent}
 		info.ColorAttachments = []vk.RenderingAttachmentInfo{colorAtt}
 
-		// Flip the viewport height, turning Vulkan's y-down clip space y-up,
-		// which is what the projection matrices in scene/ assume. That also
-		// cancels the winding flip, so the scene's CCW front faces stay correct
-		// without touching any geometry
+		// Flip the viewport height for the y-up clip space scene/'s projections
+		// assume. That also cancels the winding flip, keeping CCW front faces
 		viewport.Y = float32(b.swapExtent.Height)
 		viewport.Width = float32(b.swapExtent.Width)
 		viewport.Height = -float32(b.swapExtent.Height)
@@ -863,10 +843,8 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 		depthAtt.ImageView = t.attachmentView
 		depthAtt.StoreOp = vk.AttachmentStoreOpStore
 
-		// Keep the viewport positive here, unlike the main pass: the shadow map
-		// is sampled as a texture rather than presented, so it wants the y-down
-		// memory layout the depth comparison in the shaders expects. The cost is
-		// inverted winding, which the pipeline declares as CW front faces
+		// Positive here, unlike the main pass: a shadow map is sampled rather than
+		// presented, so it wants y-down. The cost is CW front faces
 		viewport.Width = float32(w)
 		viewport.Height = float32(h)
 	}
@@ -886,9 +864,8 @@ func (b *VKBackend) EndPass() {
 	cb := b.frames[b.frameIndex].cb
 	vk.CmdEndRendering(cb)
 
-	// Move an offscreen target to shader-read layout before a later pass
-	// samples it. The swapchain image instead keeps its attachment layout until
-	// EndFrame's present barrier
+	// Offscreen targets move to shader-read before a later pass samples them; the
+	// swapchain image keeps its attachment layout until EndFrame
 	if b.currentTarget != 0 {
 		t := &b.targets[b.currentTarget]
 		srcStage := vk.PipelineStage2LateFragmentTests
@@ -999,12 +976,10 @@ func (b *VKBackend) immediateSubmit(record func(cb vk.CommandBuffer)) {
 	fatal(vk.QueueWaitIdle(b.queue), "wait one-time")
 }
 
-// Drains the frames in flight, required before mutating or destroying a resource an already-submitted frame might still read
+// Drains the frames in flight, required before destroying a resource an already-submitted frame might read
 //
-// The frame currently being recorded is skipped. Its fence was reset in
-// BeginFrame and is only signalled by EndFrame's submit, so waiting on it from
-// inside the frame would deadlock. Skipping it is also correct — nothing it
-// records has reached the GPU yet.
+// Skips the frame being recorded: its fence was reset in BeginFrame and is only
+// signalled by EndFrame, so waiting on it from inside the frame would deadlock.
 func (b *VKBackend) waitAllFrames() {
 	fences := make([]vk.Fence, 0, framesInFlight)
 	for i := range b.frames {

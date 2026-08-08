@@ -13,10 +13,7 @@ func (b *VKBackend) CreateTexture(pixels []byte, w, h int) renderer.TextureHandl
 	return b.uploadTexture(pixels, w, h, 1, false, b.samplerRepeat)
 }
 
-// Uploads six same-sized RGBA8 faces as one 6-layer cube image
-//
-// The faces are concatenated so a single copy command fills the whole image;
-// the caller guarantees they are the same size, having decoded them.
+// Uploads six same-sized RGBA8 faces as one 6-layer cube image, concatenated so a single copy fills it
 func (b *VKBackend) CreateCubemap(faces [6][]byte, w, h int) renderer.TextureHandle {
 	pixels := make([]byte, 0, len(faces[0])*6)
 	for _, f := range faces {
@@ -72,8 +69,8 @@ func (b *VKBackend) uploadTexture(pixels []byte, w, h, layers int, cube bool, sa
 
 // Records a full-image buffer copy between its two layout transitions
 //
-// The old layout is always Undefined, as every caller overwrites the whole
-// image, so discarding the previous contents is free and correct.
+// Old layout is always Undefined: every caller overwrites the whole image, so
+// discarding the previous contents is free.
 func (b *VKBackend) recordImageUpload(cb vk.CommandBuffer, img vk.Image, staging vk.Buffer, w, h, layers int) {
 	b.imageBarrier(cb, img, vk.ImageAspectColor, uint32(layers),
 		vk.ImageLayoutUndefined, vk.ImageLayoutTransferDstOptimal,
@@ -151,10 +148,8 @@ func (b *VKBackend) slotCube(h renderer.TextureHandle) int32 {
 
 // Stages the UI's CPU-rasterised pixels for a copy at the next BeginFrame
 //
-// The engine calls this from inside the main pass, where a copy cannot be
-// recorded, so the copy is deferred instead. That costs the overlay one frame
-// of latency and avoids stalling the queue every frame, which an immediate
-// submit here would do.
+// Called from inside the main pass, where a copy cannot be recorded. Deferring
+// costs one frame of latency and avoids stalling the queue every frame.
 func (b *VKBackend) UpdateTexture2D(h renderer.TextureHandle, w, hgt int, pixels []byte) renderer.TextureHandle {
 	needed := uint64(len(pixels))
 
@@ -165,10 +160,8 @@ func (b *VKBackend) UpdateTexture2D(h renderer.TextureHandle, w, hgt int, pixels
 		e = b.texture(h)
 	}
 
-	// Build a new image and staging pair on the first call and whenever the
-	// widget canvas resizes. The old one is retired rather than destroyed,
-	// since this runs inside the main pass and the command buffer being
-	// recorded already references it (BeginFrame flushed a copy into it)
+	// First call, or the canvas resized. The old pair is retired rather than
+	// destroyed: the command buffer being recorded already references it
 	if e == nil || e.stagingSize != needed {
 		if e != nil {
 			b.retire(e)
@@ -236,9 +229,7 @@ func (b *VKBackend) flushPendingUploads(cb vk.CommandBuffer) {
 
 // Queues a texture's GPU objects for destruction once every frame that could reference them has completed
 //
-// Vulkan has no driver-side refcounting, so replacing a resource mid-frame
-// needs this. Destroying it immediately would invalidate the command buffer
-// currently being recorded.
+// Destroying immediately would invalidate the command buffer being recorded.
 func (b *VKBackend) retire(e *texEntry) {
 	b.retired = append(b.retired, retiredTexture{
 		frame: b.frameCounter,
@@ -249,10 +240,8 @@ func (b *VKBackend) retire(e *texEntry) {
 
 // Destroys everything retired long enough ago to be unreferenced
 //
-// An item retired during frame F is referenced by F's command buffer at the
-// latest, and that buffer has certainly completed once framesInFlight further
-// frames have begun, because BeginFrame waits on the fence of the slot it
-// reuses.
+// An item retired in frame F is referenced by F's command buffer at the latest,
+// which has certainly completed once framesInFlight further frames have begun.
 func (b *VKBackend) drainRetired() {
 	kept := b.retired[:0]
 	for _, r := range b.retired {
@@ -298,9 +287,8 @@ func (b *VKBackend) DestroyTexture(h renderer.TextureHandle) {
 
 // Builds an image that is both rendered into and sampled, plus the two views that needs
 //
-// One view is attached — a plain 2D view, or a 6-layer 2D-array view a geometry
-// stage routes faces into — and the other is sampled, as 2D or cube. Depth and
-// colour differ only in format, usage, aspect and which sampler they get.
+// One view is attached (2D, or a 6-layer array a geometry stage routes faces
+// into), the other sampled (2D or cube). You cannot attach a cube view.
 func (b *VKBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer.RenderTargetHandle, renderer.TextureHandle) {
 	layers := uint32(1)
 	flags := vk.ImageCreateFlags(0)

@@ -73,9 +73,6 @@ func (l LightXml) toLight() Light {
 }
 
 // Allocates this light's shadow map, but only when the scene picked it as a caster
-//
-// Shadow maps and their depth passes are the expensive part, so non-casters
-// cost nothing beyond the forward-pass lighting term.
 func (l *Light) setup(b renderer.Backend, castsShadow bool) {
 	l.backend = b
 	l.castsShadow = castsShadow
@@ -95,12 +92,10 @@ func (l *Light) setup(b renderer.Backend, castsShadow bool) {
 	}
 }
 
-// Bakes this light's shadow map, drawing every mesh into its depth target with the matching depth shader
+// Bakes this light's shadow map, drawing every mesh into its depth target
 //
-// It renders the scene from the light's point of view, it does not render the
-// light itself. The matrices it needs are left behind in f — the sun's
-// light-space matrix for the main pass, the six face matrices for the geometry
-// stage — so there is nothing to return.
+// Renders the scene from the light's point of view, not the light itself. The
+// matrices are left behind in f rather than returned.
 func (l *Light) RenderShadowMap(nearPlane, farPlane float32,
 	depthShader, depthCubeShader renderer.ShaderHandle,
 	s *Scene, f *renderer.FrameUniforms) {

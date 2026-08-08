@@ -10,9 +10,7 @@ import (
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// Byte sizes of the two snapshotted uniform blocks. Neither Go struct has
-// compiler padding, which is exactly Vulkan's scalar block layout, so both
-// memcpy straight into the ring (renderer/uniforms.go guards that).
+// Byte sizes of the two snapshotted blocks. Go's packing is Vulkan's scalar layout, so both memcpy straight into the ring
 const (
 	frameUniformSize = uint64(unsafe.Sizeof(renderer.FrameUniforms{}))
 	drawUniformSize  = uint64(unsafe.Sizeof(renderer.DrawUniforms{}))
@@ -23,25 +21,7 @@ type pushAddresses struct {
 	frame, draw uint64
 }
 
-// The UI overlay's screen-covering quad as two triangles, clip-space
-// position(3) | uv(2). Wound counter-clockwise, matching the front face the
-// main pass declares. Kept in step with core.quadVertices, which is what the
-// engine actually uploads.
-var quadVertices = []float32{
-	-1, 1, 0, 0, 1,
-	-1, -1, 0, 0, 0,
-	1, 1, 0, 1, 1,
-
-	1, 1, 0, 1, 1,
-	-1, -1, 0, 0, 0,
-	1, -1, 0, 1, 0,
-}
-
 // Binds the pipeline for the current pass, pushes both uniform addresses and draws one mesh
-//
-// The mesh carries its own vertex layout and count, so this is the only draw
-// entry point: a face group, the skybox cube and the overlay quad differ in
-// what was recorded at creation, not in how they are issued.
 func (b *VKBackend) Draw(m renderer.MeshHandle, u *renderer.DrawUniforms) {
 	sh, me, cb := b.prepareDraw(b.boundShader, m)
 	if sh == nil {
@@ -61,8 +41,8 @@ func (b *VKBackend) Draw(m renderer.MeshHandle, u *renderer.DrawUniforms) {
 
 // Selects the shader set the following draws use
 //
-// Recorded rather than acted on: which pipeline it becomes also depends on the
-// current pass and the mesh's vertex layout, both known only at Draw.
+// Recorded rather than acted on: the pipeline also depends on the pass and the
+// mesh's layout, both known only at Draw.
 func (b *VKBackend) BindShader(s renderer.ShaderHandle) { b.boundShader = s }
 
 // Resolves the shader and mesh handles and returns this frame's command buffer, or nils when the draw must be skipped
@@ -88,27 +68,19 @@ func (b *VKBackend) bindPipeline(cb vk.CommandBuffer, sh *shaderEntry, layout re
 }
 
 // Snapshots the pass-scoped block into the ring once, caching its address for every draw of the pass
-//
-// This is the point of the frame/draw split: ~1.2 KB of camera and light data
-// is written three times a frame instead of fifteen.
 func (b *VKBackend) BindFrameUniforms(u *renderer.FrameUniforms) {
 	if !b.frameActive {
 		return
 	}
 	block := *u
-	// Translate the skybox handle into its bindless slot. The two shadow-map
-	// fields are left alone, as those maps have dedicated bindings and the
-	// shader ignores their slot values
+	// Skybox handle to bindless slot. The shadow-map fields are left alone: those have dedicated bindings
 	block.TexSkybox = renderer.TextureHandle(b.slotCube(u.TexSkybox))
 	b.bindShadowMaps(u)
 
 	b.frameUniformAddr = writeRing(b, block)
 }
 
-// Snapshots *u into the ring and pushes both block addresses, which is how the shaders reach them
-//
-// The push constant is a pair of pointers, so neither block needs a descriptor,
-// and the caller may reuse u immediately afterwards.
+// Snapshots *u into the ring and pushes both block addresses, leaving u reusable
 func (b *VKBackend) bindDrawUniforms(cb vk.CommandBuffer, u *renderer.DrawUniforms) {
 	block := *u
 	// Translate the texture fields in this copy, the shader indexing the
@@ -149,9 +121,7 @@ func (b *VKBackend) bindShadowMaps(u *renderer.FrameUniforms) {
 			b.writeDedicatedTexture(2, 0, e.view, b.samplerShadow2D)
 		}
 	}
-	// Give the scene layer's single point-shadow caster cube slot 0.
-	// Uniforms.PointShadowLights maps the remaining slots once more casters
-	// are wired up
+	// The single point-shadow caster gets cube slot 0; PointShadowLights maps the rest once more casters exist
 	if u.TexShadowCubeMap != 0 && u.TexShadowCubeMap != b.shadowCubeHandle[0] {
 		if e := b.texture(u.TexShadowCubeMap); e != nil && e.cube {
 			b.shadowCubeHandle[0] = u.TexShadowCubeMap

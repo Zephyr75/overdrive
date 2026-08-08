@@ -73,11 +73,10 @@ func (b *VKBackend) createSwapchain() error {
 	return b.createDepthBuffer() // TODO: check if we need the for loop line 264 in howtovulkan
 }
 
-// Resolves settings.MSAASamples against the device's limits, returning the sample count of the main pass
+// Resolves settings.MSAASamples against the device's limits, returning the main pass's sample count
 //
-// Colour and depth must agree, since the main pass attaches one of each, so the
-// two limits are intersected. The spec guarantees 1 and 4 in both, which is why
-// stepping down can never loop past a supported count.
+// Colour and depth limits are intersected, the pass attaching one of each. The
+// spec guarantees 1 and 4 in both, so stepping down always terminates.
 func (b *VKBackend) pickSampleCount() vk.SampleCountFlags {
 	if !settings.MSAAEnabled() {
 		return vk.SampleCount1Bit
@@ -100,8 +99,7 @@ func (b *VKBackend) pickSampleCount() vk.SampleCountFlags {
 
 // Creates the multisampled colour image the main pass renders into, or nothing when MSAA is off
 //
-// It is transient: nothing ever samples it, the pass resolving it straight into
-// the swapchain image, so a tiler can keep it in on-chip memory.
+// Transient: nothing samples it, so a tiler can keep it on-chip.
 func (b *VKBackend) createMSAABuffer() error {
 	if b.samples == vk.SampleCount1Bit {
 		return nil

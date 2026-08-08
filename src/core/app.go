@@ -137,9 +137,8 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		if s != nil {
 			s.FillFrameUniforms(&f)
 
-			// Bake one shadow pass per casting light. Non-casters own no depth
-			// target and are lit unshadowed in the main pass, and the sun's
-			// pass leaves its light-space matrix in f for the main pass
+			// One pass per casting light. Non-casters are lit unshadowed, and the
+			// sun's pass leaves its light-space matrix in f for the main pass
 			dirCaster, pointCaster := s.ShadowCasters()
 			for _, i := range [2]int32{dirCaster, pointCaster} {
 				if i >= 0 {

@@ -22,11 +22,8 @@ var (
 	// Samples per pixel when AntiAliasing is AAMSAA: 2, 4 or 8
 	MSAASamples int = 4
 
-	// Anisotropic filtering on material textures: 1 (off), 2, 4, 8 or 16
-	//
-	// Clamped to the device's maxSamplerAnisotropy when the sampler is created,
-	// so a file asking for more than the GPU allows is quietly lowered rather
-	// than rejected.
+	// Anisotropic filtering on material textures: 1 (off), 2, 4, 8 or 16.
+	// Lowered to the device limit at sampler creation rather than rejected
 	Anisotropy int = 8
 )
 

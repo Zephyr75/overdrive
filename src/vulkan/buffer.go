@@ -43,10 +43,8 @@ func (b *VKBackend) UpdateBuffer(h renderer.BufferHandle, data []float32) {
 	if uint64(len(data)*4) > e.size {
 		return // a grown mesh would need a new allocation, which the engine never does
 	}
-	// Drain the frames in flight, there being no driver-side ghosting like
-	// glBufferData gets and the GPU possibly still reading this buffer. Mesh
-	// vertex rewrites are rare (MoveBy/MoveTo), per-frame motion belonging in
-	// the Model matrix instead
+	// No driver-side ghosting, and the GPU may still be reading. Rare by design:
+	// per-frame motion belongs in the Model matrix, not a vertex rewrite
 	b.waitAllFrames()
 	vk.MemCopy(e.mapped, data)
 }
@@ -72,9 +70,8 @@ func (b *VKBackend) buffer(h renderer.BufferHandle) *bufEntry {
 
 // Pairs a shared vertex buffer with a layout and this face group's index buffer
 //
-// There is no VAO equivalent in Vulkan — the vertex layout is baked into the
-// pipeline instead — so a mesh is that pair plus the layout to key the pipeline
-// on, bound per draw.
+// No VAO equivalent: the layout is baked into the pipeline, so the mesh carries
+// it as the pipeline key.
 func (b *VKBackend) CreateMesh(vertexBuf renderer.BufferHandle, indices []uint32, layout renderer.VertexLayout) renderer.MeshHandle {
 	indexed := len(indices) > 0
 	count := uint32(len(indices))

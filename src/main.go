@@ -20,10 +20,7 @@ import (
 
 /////////////
 
-// An immovable body, its collider driving nothing of its own
-//
-// The collider is a named field rather than embedded, so the ecs.Entity method
-// Collider() has a name to occupy.
+// An immovable body, its collider a named field rather than embedded so the Collider() method has a name to occupy
 type StaticCollider struct {
 	collider physics.Collider
 }
@@ -63,9 +60,7 @@ func (s *Sphere2) Type() string               { return "Sphere2" }
 func (s *Sphere2) Collider() physics.Collider { return s.Sphere }
 
 func main() {
-	// Settings are a runtime input, so one build runs at any resolution, with
-	// or without anti-aliasing. They must be loaded before NewApp, which is
-	// where the window and the backend read them
+	// Must load before NewApp, which is where the window and backend read them
 	configName := flag.String("config", "vulkan.toml", "settings file: a bare name resolves under configs/, a path is used as given")
 	flag.Parse()
 	// A bad settings file is the user's mistake, not a crash, so it gets a line

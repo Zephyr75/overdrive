@@ -10,10 +10,10 @@ import (
 	"github.com/Zephyr75/overdrive/renderer"
 )
 
-// The compiled SPIR-V modules plus the pipelines built from them. A shader is
-// not one object: a pipeline bakes in the pass's attachment formats and the
-// mesh's vertex layout, so one shader needs one pipeline per combination it is
-// actually drawn with.
+// The SPIR-V modules plus the pipelines built from them
+//
+// A pipeline bakes in the pass's attachment formats and the mesh's vertex
+// layout, so one shader needs one per combination it is drawn with.
 type shaderEntry struct {
 	vert, frag, geo vk.ShaderModule
 	pipelines       [passCount][layoutCount]vk.Pipeline
@@ -29,9 +29,8 @@ func (b *VKBackend) CreateShader(name string) (renderer.ShaderHandle, error) {
 	if e.frag, err = b.loadModule(name, "frag"); err != nil {
 		return 0, err
 	}
-	// The geometry stage is optional and only depth_cube has one, so its
-	// presence on disk is the answer rather than a flag the caller passes —
-	// build_shaders.sh emits exactly the stages a set declares
+	// Optional, and only depth_cube has one. build_shaders.sh emits exactly the
+	// stages a set declares, so presence on disk is the answer
 	if _, err := os.Stat(paths.Shader(name + ".geo.spv")); err == nil {
 		if e.geo, err = b.loadModule(name, "geo"); err != nil {
 			return 0, err
@@ -88,10 +87,8 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout renderer.V
 		ViewportState:      &vk.PipelineViewportStateCreateInfo{ViewportCount: 1, ScissorCount: 1},
 		RasterizationState: &vk.PipelineRasterizationStateCreateInfo{
 			PolygonMode: vk.PolygonModeFill,
-			// The main pass's negative-height viewport turns Vulkan's y-down
-			// clip space y-up, which also flips winding, so CCW front faces
-			// are correct there. Shadow passes use a positive viewport and
-			// therefore need CW
+			// The main pass flips the viewport, which flips winding, so CCW is
+			// correct there. Shadow passes keep a positive viewport and need CW
 			FrontFace: frontFace(pass),
 			LineWidth: 1,
 		},
@@ -142,9 +139,7 @@ func vertexInputState(pass passKind, layout renderer.VertexLayout) *vk.PipelineV
 	attrs := []vk.VertexInputAttribute{
 		{Location: 0, Binding: 0, Format: vk.FormatR32G32B32Sfloat, Offset: 0},
 	}
-	// Add normals and UVs for the passes with a colour attachment, the
-	// depth-only shaders taking position alone and declaring unread attributes
-	// being rejected
+	// Colour passes only: depth-only shaders take position alone, and declaring an attribute they never read is rejected
 	if layout == renderer.LayoutMesh && (pass == passMain || pass == passOffscreenColor) {
 		attrs = append(attrs,
 			vk.VertexInputAttribute{Location: 1, Binding: 0, Format: vk.FormatR32G32B32Sfloat, Offset: 3 * 4},
@@ -159,9 +154,8 @@ func vertexInputState(pass passKind, layout renderer.VertexLayout) *vk.PipelineV
 
 // Picks the winding a pass treats as front-facing
 //
-// The passes that flip the viewport (main and offscreen colour) keep GL's CCW,
-// because the flip cancels Vulkan's winding inversion. The shadow passes use a
-// positive viewport to match GL's shadow-map memory layout, and pay for it here.
+// The passes that flip the viewport keep CCW, the flip cancelling Vulkan's
+// winding inversion. Shadow passes keep a positive viewport and pay for it here.
 func frontFace(pass passKind) vk.FrontFace {
 	if pass == passMain || pass == passOffscreenColor {
 		return vk.FrontFaceCounterClockwise
@@ -169,11 +163,10 @@ func frontFace(pass passKind) vk.FrontFace {
 	return vk.FrontFaceClockwise
 }
 
-// Reports the sample count a pass's pipelines must rasterise at, which has to equal that of the pass's attachments
+// Reports the sample count a pass rasterises at, which must equal that of its attachments
 //
-// Only the backbuffer is multisampled: shadow maps and offscreen colour targets
-// are sampled by later passes, and a multisample texture is not something the
-// shaders can read.
+// Only the backbuffer is multisampled — everything else is sampled by a later
+// pass, and these shaders cannot read a multisampled texture.
 func (b *VKBackend) passSamples(pass passKind) vk.SampleCountFlags {
 	if pass == passMain {
 		return b.samples
@@ -200,10 +193,7 @@ func colorBlendState(pass passKind) *vk.PipelineColorBlendStateCreateInfo {
 	}
 }
 
-// Declares the attachment formats of a pass, which under dynamic rendering is what a pipeline is compatible with
-//
-// Shadow passes are depth-only; an offscreen colour pass is colour-only, since
-// post-processing reads a finished image and needs no depth test.
+// Declares a pass's attachment formats, which is what a pipeline is compatible with under dynamic rendering
 func renderingInfo(pass passKind, swapFormat vk.Format) *vk.PipelineRenderingCreateInfo {
 	switch pass {
 	case passMain:
