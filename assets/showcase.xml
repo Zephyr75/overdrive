@@ -56,7 +56,6 @@
 		<direction>0.0,0.0,-1.0</direction>
 		<color>1.0,0.85,0.6</color>
 		<diffuse>1.0</diffuse>
-		<specular>1.0</specular>
 		<intensity>200.0</intensity>
 	</light>
 
@@ -67,7 +66,6 @@
 		<direction>0.0,0.0,-1.0</direction>
 		<color>1.0,0.1,0.1</color>
 		<diffuse>1.0</diffuse>
-		<specular>1.0</specular>
 		<intensity>20000.0</intensity>
 	</light>
 
@@ -78,7 +76,6 @@
 		<direction>0.0,0.0,-1.0</direction>
 		<color>0.1,1.0,0.1</color>
 		<diffuse>1.0</diffuse>
-		<specular>1.0</specular>
 		<intensity>30000.0</intensity>
 	</light>
 
@@ -89,7 +86,6 @@
 		<direction>0.0,0.0,-1.0</direction>
 		<color>0.2,0.3,1.0</color>
 		<diffuse>1.0</diffuse>
-		<specular>1.0</specular>
 		<intensity>20000.0</intensity>
 	</light>
 
@@ -102,7 +98,6 @@
 		<direction>-0.35,0.45,-1.0</direction>
 		<color>1.0,0.98,0.92</color>
 		<diffuse>1.0</diffuse>
-		<specular>1.0</specular>
 		<intensity>4.5</intensity>
 	</light>
 </scene>

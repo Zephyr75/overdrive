@@ -1,6 +1,8 @@
 package scene
 
 import (
+	"math"
+
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/Zephyr75/overdrive/renderer"
@@ -15,19 +17,24 @@ type LightXml struct {
 	Dir       string  `xml:"direction"`
 	Color     string  `xml:"color"`
 	Diffuse   float32 `xml:"diffuse"`
-	Specular  float32 `xml:"specular"`
 	Intensity float32 `xml:"intensity"`
+	// Blender's spot terms, kept in its units so the export round-trips: Cone is
+	// the full cone angle in degrees, ConeBlend the 0..1 soft-edge fraction
+	Cone      float32 `xml:"cone"`
+	ConeBlend float32 `xml:"coneBlend"`
 }
 
 type Light struct {
 	Name      string
-	Type      int // renderer.LightSun or renderer.LightPoint
+	Type      int // renderer.LightSun, LightPoint or LightSpot
 	Pos       mgl32.Vec3
 	Dir       mgl32.Vec3
 	Color     mgl32.Vec3
 	Diffuse   float32
-	Specular  float32
 	Intensity float32
+	// Cone cosines, not angles: the shader compares them against a dot product
+	Cutoff      float32
+	OuterCutoff float32
 
 	backend      renderer.Backend
 	shadowTarget renderer.RenderTargetHandle
@@ -52,23 +59,35 @@ func (l LightXml) toLight() Light {
 	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 	dir = mgl32.Vec3{-dir[0], -dir[2], dir[1]}
 	intensity := l.Intensity
+	// Cone cosines, only meaningful for a spot. 1 and 1 make the smoothstep
+	// degenerate rather than lighting nothing, so a malformed spot is visible
+	cutoff, outerCutoff := float32(1.0), float32(1.0)
 	switch l.Type {
 	case "sun":
 		t = renderer.LightSun
 	case "point":
 		t = renderer.LightPoint
 		intensity /= 1000
+	case "spot":
+		t = renderer.LightSpot
+		intensity /= 1000
+		// Blender gives the full cone angle; the shader compares a half-angle
+		// cosine against dot(-lightDir, direction)
+		outer := mgl32.DegToRad(l.Cone) * 0.5
+		outerCutoff = float32(math.Cos(float64(outer)))
+		cutoff = float32(math.Cos(float64(outer * (1.0 - l.ConeBlend))))
 	}
 
 	return Light{
-		Name:      name,
-		Type:      t,
-		Pos:       pos,
-		Dir:       dir,
-		Color:     color,
-		Diffuse:   l.Diffuse,
-		Specular:  l.Specular,
-		Intensity: intensity,
+		Name:        name,
+		Type:        t,
+		Pos:         pos,
+		Dir:         dir,
+		Color:       color,
+		Diffuse:     l.Diffuse,
+		Intensity:   intensity,
+		Cutoff:      cutoff,
+		OuterCutoff: outerCutoff,
 	}
 }
 

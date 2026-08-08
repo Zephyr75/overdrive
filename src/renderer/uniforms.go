@@ -16,20 +16,24 @@ const (
 const (
 	LightSun   = 0
 	LightPoint = 1
+	LightSpot  = 2
 )
 
-// LightData mirrors the LightData struct in common.slang (68 bytes)
+// LightData mirrors the LightData struct in common.slang (72 bytes)
 type LightData struct {
 	Color     [3]float32
 	Intensity float32
-	Position  [3]float32
-	Diffuse   float32
-	Direction [3]float32
-	Specular  float32
+	Position  [3]float32 // point and spot lights
+	Diffuse   float32    // second radiance multiplier beside Intensity
+	Direction [3]float32 // sun and spot lights, points away from the light
+	Constant  float32    // keeps the falloff denominator off zero
 
-	Constant, Linear  float32
-	Quadratic, Cutoff float32
-	Type              int32
+	Cutoff      float32 // spot only, inner cone cosine
+	OuterCutoff float32 // spot only, outer cone cosine, where the falloff ends
+	Radius      float32 // attenuation cutoff, for the shading early-out
+	ShadowIndex int32   // into ShadowRecord[], -1 when unshadowed
+	ShadowCount int32   // records from ShadowIndex on: 1 sun/spot, 6 point
+	Type        int32
 }
 
 // Split by how often the data changes: FrameUniforms once per pass, DrawUniforms
@@ -77,10 +81,10 @@ type DrawUniforms struct {
 func init() { // TODO: where is it called
 	// Go packs float32/int32 structs with no padding, which matches Vulkan's layout
 	// These tests check that uniforms.go and common.slang layout always match
-	if unsafe.Sizeof(LightData{}) != 68 {
+	if unsafe.Sizeof(LightData{}) != 72 {
 		panic("renderer.LightData no longer matches common.slang")
 	}
-	if unsafe.Sizeof(FrameUniforms{}) != 1184 {
+	if unsafe.Sizeof(FrameUniforms{}) != 1216 {
 		panic("renderer.FrameUniforms no longer matches common.slang")
 	}
 	if unsafe.Sizeof(DrawUniforms{}) != 128 {

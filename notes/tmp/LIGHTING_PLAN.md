@@ -280,7 +280,7 @@ score = radius / distance_to_camera        // ≈ screen-space footprint
 tier  = high if score > 0.50               // e.g. 1024
         mid  if score > 0.20               //      512
         low  if score > 0.08               //      256
-        none otherwise                     // unshadowed, ShadowFirst = -1
+        none otherwise                     // unshadowed, ShadowIndex = -1
 ```
 
 Lights sort by score and allocate greedily; what does not fit falls to the
@@ -404,22 +404,35 @@ no padding and Slang's `-fvk-use-scalar-layout` matches it field for field. No
 16-byte cells, no padding members — that rule died with the OpenGL backend
 (`BACKEND_DECISION.md` §5.3).
 
-### 5.1 `LightData` — 68 → 84 bytes
+### 5.1 `LightData` — 68 → 72 bytes *(landed)*
 
-Four new fields, appended so nothing existing moves:
+Four fields in, three dead ones out. `Specular`, `Linear` and `Quadratic` were
+filled by `scene/scene.go` and read by no shader — a Phong leftover and two
+terms of an attenuation model `forward.slang` never implemented:
 
 ```go
-OuterCutoff float32 // outer cone cosine; Cutoff above is the inner one
+Cutoff      float32 // spot only, inner cone cosine
+OuterCutoff float32 // spot only, outer cone cosine, where the falloff ends
 Radius      float32 // attenuation cutoff, for the early-out and cluster bounds
-ShadowFirst int32   // index of this light's first ShadowRecord, -1 = unshadowed
+ShadowIndex int32   // index of this light's first ShadowRecord, -1 = unshadowed
 ShadowCount int32   // 1 for sun and spot, 6 for point
 ```
 
-`Radius` is derived once at load from the attenuation terms: the distance at
-which `intensity / (c + l·d + q·d²)` falls below 1/255. Both the shading
-early-out and the cluster intersection test need it. `Cutoff` exists already but
-is hardcoded to cos 45° in `scene/scene.go`; spot lights make it and
-`OuterCutoff` real per-light values.
+The last three are unread until Parts A and C, and are in early on purpose: this
+is the riskiest edit in the tree, so it happens once. `FrameUniforms` is 1216 at
+`MaxLights = 8`, 1792 at 16.
+
+`Radius` is derived once at load: the distance at which the light's contribution
+falls below 1/255. Both the shading early-out and the cluster intersection test
+need it. Derive it from the falloff `forward.slang` really implements —
+`1 / (kConstant + d²)` — not from the constant/linear/quadratic model the field
+names imply; `Linear` and `Quadratic` are filled in `scene/scene.go` and read by
+nothing.
+
+`Cutoff` was in the same state, hardcoded to cos 45° and unread. It and
+`OuterCutoff` are now real per-light values, converted in `LightXml.toLight`
+from the Blender terms the XML carries — `<cone>` in degrees and `<coneBlend>`
+as a 0..1 fraction — so the scene file stays legible and the export round-trips.
 
 `MaxLights` goes 8 → 16. After Part G the cluster light list carries the rest,
 so 16 becomes the per-*cluster* cap rather than the scene cap.

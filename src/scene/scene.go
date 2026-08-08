@@ -172,17 +172,17 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 	for i := 0; i < count; i++ {
 		l := &s.Lights[i]
 		u.Lights[i] = renderer.LightData{
-			Type:      int32(l.Type),
-			Constant:  1.0,
-			Linear:    0.09,
-			Quadratic: 0.032,
-			Cutoff:    cos45,
-			Color:     l.Color,
-			Intensity: l.Intensity,
-			Diffuse:   l.Diffuse,
-			Specular:  l.Specular,
-			Position:  l.Pos,
-			Direction: l.Dir,
+			Type:        int32(l.Type),
+			Constant:    1.0,
+			Color:       l.Color,
+			Intensity:   l.Intensity,
+			Diffuse:     l.Diffuse,
+			Position:    l.Pos,
+			Direction:   l.Dir,
+			Cutoff:      l.Cutoff,
+			OuterCutoff: l.OuterCutoff,
+			// No allocator yet, so no light owns a shadow record
+			ShadowIndex: -1,
 		}
 	}
 
@@ -202,9 +202,6 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 		u.TexShadowCubeMap = s.Lights[s.shadowPointIndex].depthCubeMap
 	}
 }
-
-// cos(45°), the spot cutoff the old per-draw uniform code hardcoded
-const cos45 = float32(0.7071067811865476)
 
 // Draws every mesh of the scene with the forward shader, inside the main pass
 func (s *Scene) RenderScene(shader renderer.ShaderHandle, f *renderer.FrameUniforms) {

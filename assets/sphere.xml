@@ -51,7 +51,6 @@
 		<direction>0.0,0.0,-1.0</direction>
 		<color>1.0,1.0,1.0</color>
 		<diffuse>1.0</diffuse>
-		<specular>1.0</specular>
 		<intensity>10.0</intensity>
 	</light>
 	<light name="Sun">
@@ -60,7 +59,6 @@
 		<direction>-0.33994194865226746,0.003750533564016223,-0.9404389262199402</direction>
 		<color>1.0,1.0,1.0</color>
 		<diffuse>1.0</diffuse>
-		<specular>1.0</specular>
 		<intensity>1.0</intensity>
 	</light>
 </scene>

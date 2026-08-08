@@ -83,40 +83,42 @@ everything later parts need, so the layout is disturbed exactly once.
 
 **Steps.**
 
-1. Append four fields to `LightData`, **68 → 84 bytes**. Nothing existing moves,
-   and scalar layout means no padding members:
+1. ~~Grow `LightData` and add the spot fields.~~ **Done.** Three dead members
+   (`Specular`, `Linear`, `Quadratic`) came out and four went in, so the struct
+   is **68 → 72 bytes** and `FrameUniforms` **1184 → 1216** at `MaxLights = 8`.
+   `Radius`, `ShadowIndex` and `ShadowCount` are present but unread — grouped in
+   so the layout is disturbed once rather than once per part.
+2. `MaxLights` 8 → 16 in `renderer/uniforms.go`, `MAX_LIGHTS` in
+   `common.slang`. `FrameUniforms` then goes 1216 → **1792** (the light array
+   8 × 72 = 576 becomes 16 × 72 = 1152).
+3. ~~Add `LightSpot`, the scene and XML plumbing, delete `cos45`.~~ **Done.**
+   The XML carries Blender's own spot terms rather than the cosines —
+   `<cone>` (full angle, degrees) and `<coneBlend>` (0..1 soft-edge fraction) —
+   and `LightXml.toLight` converts them, so the export round-trips and the
+   scene file stays readable.
+5. Derive `Radius` once in `toLight`, from the falloff `forward.slang` actually
+   implements — `1 / (kConstant + d²)`, not the constant/linear/quadratic model
+   the struct's field names suggest. `Linear` and `Quadratic` are dead
+   (`forward.slang:215`), so the cutoff distance is just:
 
-   ```go
-   Constant, Linear  float32
-   Quadratic, Cutoff float32   // Cutoff is the inner cone cosine
-   Type              int32
-   OuterCutoff       float32   // outer cone cosine, for the spot falloff
-   Radius            float32   // attenuation cutoff, §5.1
-   ShadowFirst       int32     // first ShadowRecord, -1 = unshadowed (Part C)
-   ShadowCount       int32     // 1 sun/spot, 6 point (Part C)
+   ```
+   Radius = sqrt(max(0, 255*Diffuse*Intensity - Constant))
    ```
 
-   Mirror it in `common.slang`.
-2. `MaxLights` 8 → 16 in `renderer/uniforms.go`, `MAX_LIGHTS` in
-   `common.slang`.
-3. Update the two `init()` guards: `LightData` 68 → **84**, `FrameUniforms`
-   1184 → **1984**. The arithmetic: the light array goes 8 × 68 = 544 to
-   16 × 84 = 1344, so +800.
-4. Add `LightSpot = 2` beside `LightSun` / `LightPoint`. Add `Cutoff` and
-   `OuterCutoff` to `scene.Light`; add `<cutoff>` and `<outerCutoff>` to
-   `LightXml`; parse `"spot"` in `LightXml.toLight` (`scene/light.go:55`).
-   Delete the hardcoded `cos45` in `scene/scene.go` — the cutoff stops being a
-   constant.
-5. Derive `Radius` once in `toLight`: the distance at which
-   `intensity / (constant + linear·d + quadratic·d²)` falls below `1/255`. Solve
-   the quadratic; clamp to something sane when `quadratic` is 0.
+   No quadratic to solve and no `quadratic == 0` clamp. If the classic three-term
+   falloff is wanted instead, that is a separate change: it makes `Linear` and
+   `Quadratic` live and alters how every existing scene looks.
 6. `forward.slang`: add `calcSpotLight` — `calcPointLight` times a smoothstep
    between `outerCutoff` and `cutoff` on `dot(-L, direction)`. Switch on
    `light.type` in `fsMain`.
 7. `forward.slang`: the attenuation early-out (§6), before both the BRDF and any
    shadow lookup, skipped for `LIGHT_SUN`.
-8. `plugin/xml_export.py`: export Blender `SPOT` lamps, mapping `spot_size` and
-   `spot_blend` to the two cosines. Add a spot light to `assets/showcase.xml`.
+8. ~~`xml_export.py`: export Blender `SPOT` lamps.~~ **Done** — it writes
+   `spot_size` and `spot_blend` straight through. Still to do: add a spot light
+   to `assets/showcase.xml` so the cone is visible.
+
+> `xml_export.py` and `assets/` are at the **repository root**, not under
+> `src/`. `CLAUDE.md` says `src/plugin/` and `src/assets/`; both are stale.
 
 **Gate.** Standard gate, plus: the showcase renders a visible cone, and
 `MaxLights` 16 does not regress FPS — the early-out should make it *faster* than
@@ -211,7 +213,7 @@ only at the end.
 6. `forward.slang`: one `shadowLookup(record, fragPos, normal)` replacing
    `shadowCalculation` and `shadowCalculationCube`. Cube face selection is the
    major axis of `fragPos - light.position`, indexing
-   `records[light.shadowFirst + face]`. Keep the 4-tap early-bail, and **clamp
+   `records[light.shadowIndex + face]`. Keep the 4-tap early-bail, and **clamp
    every tap to the record's rect inset by one texel** (§4.2).
 
    Keep storing **linear radial distance to the light**, as the current cube
@@ -250,7 +252,7 @@ against a wall corner deliberately.
    than 20%. Without it a light on a boundary reallocates every frame and forces
    a full re-bake every frame — the exact opposite of Part E's goal.
 4. Sort by score, allocate greedily, demote what does not fit to
-   `ShadowFirst = -1`. Running out of budget must cost shadow quality and never
+   `ShadowIndex = -1`. Running out of budget must cost shadow quality and never
    frame time.
 5. Delete `Scene.pickShadowCasters`, `Scene.casts` and `Scene.ShadowCasters` —
    the fixed 1-dir + 1-point budget they encode is what this part replaces.

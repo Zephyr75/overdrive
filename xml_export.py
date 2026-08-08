@@ -202,7 +202,6 @@ class OverdriveWriter:
         dir = vec
 
         color = light.data.color
-        specular = getattr(light.data, 'specular_factor', 1.0)
         diffuse = getattr(light.data, 'diffuse_factor', 1.0)
         intensity = light.data.energy
 
@@ -226,9 +225,19 @@ class OverdriveWriter:
         diffuse_element.appendChild(self.doc.createTextNode(str(diffuse)))
         light_element.appendChild(diffuse_element)
 
-        specular_element = self.create_xml_element("specular", {})
-        specular_element.appendChild(self.doc.createTextNode(str(specular)))
-        light_element.appendChild(specular_element)
+        # Spot cone, exported in Blender's own units so the scene round-trips:
+        # the full angle in degrees and the 0..1 soft-edge fraction. toLight
+        # turns them into the two cosines the shader compares against
+        if light.data.type == 'SPOT':
+            cone_element = self.create_xml_element("cone", {})
+            cone_element.appendChild(self.doc.createTextNode(
+                str(math.degrees(light.data.spot_size))))
+            light_element.appendChild(cone_element)
+
+            blend_element = self.create_xml_element("coneBlend", {})
+            blend_element.appendChild(self.doc.createTextNode(
+                str(light.data.spot_blend)))
+            light_element.appendChild(blend_element)
 
         intensity_element = self.create_xml_element("intensity", {})
         intensity_element.appendChild(self.doc.createTextNode(str(intensity)))

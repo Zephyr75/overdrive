@@ -29,14 +29,24 @@ float3x3 inverse3(float3x3 m) {
     return r;
 }
 
-// 68 bytes, mirrored field for field by renderer.LightData
+// 72 bytes, mirrored field for field by renderer.LightData
+//
+// The last four members are read by nothing yet; they are the layout the
+// lighting plan needs, grouped so the struct is disturbed once
 struct LightData {
     float3 color;     float intensity;
+    // position is read by point and spot lights, direction by sun and spot
     float3 position;  float diffuse;
-    float3 direction; float specular;
-    float kConstant;  float kLinear;
-    float kQuadratic; float cutoff;
-    int type; // 0 = directional, 1 = point
+    // Falloff is a fixed inverse square, so kConstant only keeps the
+    // denominator off zero at distance zero
+    float3 direction; float kConstant;
+    // Spot cone cosines, inner then outer
+    float cutoff;      float outerCutoff;
+    // shadowIndex points into the record array, shadowCount says how many
+    // consecutive records this light owns; -1 when it casts nothing
+    float radius;      int shadowIndex;
+    int shadowCount;
+    int type; // 0 = directional, 1 = point, 2 = spot
 };
 
 // Keep in sync with MaxLights in renderer/uniforms.go
