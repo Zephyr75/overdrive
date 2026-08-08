@@ -124,9 +124,6 @@ func (b *VKBackend) bindDrawUniforms(cb vk.CommandBuffer, u *renderer.DrawUnifor
 }
 
 // Copies one block into this frame's ring and returns its device address
-//
-// Generic rather than a method, because a method cannot take a type parameter
-// and vk.MemCopy is itself generic over the element type.
 func writeRing[T any](b *VKBackend, block T) uint64 {
 	f := &b.frames[b.frameIndex]
 	size := uint64(unsafe.Sizeof(block))
@@ -145,12 +142,6 @@ func writeRing[T any](b *VKBackend, block T) uint64 {
 }
 
 // Mirrors the scene's current shadow maps into the dedicated bindings 2 and 3, rewriting them only when a handle changes
-//
-// Handle 0 means "this draw carries no shadow map" — the UI overlay's quad
-// fills only TexDiffuse — and must leave the bindings alone. Treating it as the
-// white pixel (which is what texture(0) resolves to) would rewrite binding 2
-// every frame, and the forward pass of the frame still in flight is dynamically
-// sampling it.
 func (b *VKBackend) bindShadowMaps(u *renderer.FrameUniforms) {
 	if u.TexShadowMap != 0 && u.TexShadowMap != b.shadow2DHandle {
 		if e := b.texture(u.TexShadowMap); e != nil && !e.cube {

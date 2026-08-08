@@ -6,6 +6,7 @@ what it does not cover and where that lives instead.
 
 ```
 notes/
+├── OVERVIEW.md         the whole engine in one read — start here
 ├── ENGINE_FLOW.md      one frame, then the Backend contract method by method
 ├── ARCHITECTURE.md     the code map: layout, packages, symbols, scene format
 ├── FEATURES.md         what is implemented and why, roadmap, performance history
@@ -28,6 +29,7 @@ notes/
 
 | I want to… | Read |
 |---|---|
+| get the whole picture, or come back after a while away | `OVERVIEW.md` |
 | understand how a frame is drawn, or touch the backend | `ENGINE_FLOW.md` — start at §0 |
 | find where something lives in `src/` | `ARCHITECTURE.md` §5 |
 | know whether a feature exists, or why it was built that way | `FEATURES.md` Part 1 |
@@ -45,6 +47,10 @@ notes/
 
 The engine documents describe **what the code does today**. When they disagree
 with `src/`, the code wins and the document is the bug.
+
+Nothing is duplicated between files, with one deliberate exception:
+`OVERVIEW.md` restates enough of the others to be readable start to finish. When
+it disagrees with them, they win.
 
 `tmp/` is the exception: those describe what the code should *become*, so they
 disagree with `src/` on purpose. Each carries its own status line.
