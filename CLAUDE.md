@@ -12,6 +12,35 @@ Blender XML export plugin.
 An OpenGL 4.1 backend existed until 2026-08-05 and was deleted; `notes/tmp/BACKEND_DECISION.md`
 records why, and is the roadmap for what the abstraction grows into next.
 
+## Working mode
+
+**Explain before you change code.** The owner is writing most of the code by hand
+in order to understand it, so the explanation is usually the deliverable and the
+diff is not.
+
+When asked for a change:
+
+1. Say what you would do — which files and functions, what the approach is, and
+   *why that approach* rather than an obvious alternative.
+2. Flag anything that would break, anything non-obvious, and any ordering the
+   change depends on.
+3. Then stop, unless the change is trivial or mechanical (a rename, a typo, a
+   comment, applying something already agreed in this conversation).
+
+Assume they may implement it themselves from the explanation. Write the
+explanation so that is possible: name the exact call sites, not "the backend".
+
+This does not apply to reading, searching, running builds or tests, or answering
+questions — do those freely. It applies to edits.
+
+Two habits that fit this mode:
+
+- **Verify rather than assert.** Read the code before describing it; run the
+  thing before claiming it works. Several conclusions in this repo's history were
+  wrong on first inspection and only caught by checking.
+- **Report what you actually found**, including when it contradicts something
+  said earlier in the conversation.
+
 ## Build & run
 
 The Go module root is **`src/`** (module `github.com/Zephyr75/overdrive`), so `go` commands run from there. The working directory does not otherwise matter: every runtime file is resolved by the `paths` package against a discovered project root, so nothing in the tree may hold a relative path literal.
@@ -78,6 +107,7 @@ Conventions that would silently produce a mirrored or inside-out image: the main
 
 ## Documentation map
 
+- `notes/OVERVIEW.md` — **the whole engine in one read.** Layers, startup order, one frame, how uniforms and textures reach a shader, and the record-vs-submit model. Start here if the context is cold; it is deliberately the one file that restates the others.
 - `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method. §0 indexes all 25 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §5 is the rendering conventions, §6 a symptom→file table, §7 the Vulkan object-ownership tree and the five lifetime classes.
 - `notes/ARCHITECTURE.md` — the code map: repository layout, the dependency rule (with the diagram), scene loading, physics/ECS, a package-by-package symbol reference, the XML/OBJ scene format and the Blender add-on, and §8 the list of dead files.
 - `notes/FEATURES.md` — what is implemented and *why it is built that way* (shadow bias, early-bail PCF, bindless vs dedicated descriptors), Part 2 the roadmap and known gaps, plus the performance history.
