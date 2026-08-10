@@ -8,7 +8,7 @@ import (
 
 // Must match MAX_LIGHTS / MAX_SHADOW_CUBES in shaders/slang/common.slang
 const (
-	MaxLights      = 8
+	MaxLights      = 64
 	MaxShadowCubes = 4
 )
 
@@ -84,7 +84,7 @@ func init() { // TODO: where is it called
 	if unsafe.Sizeof(LightData{}) != 72 {
 		panic("renderer.LightData no longer matches common.slang")
 	}
-	if unsafe.Sizeof(FrameUniforms{}) != 1216 {
+	if unsafe.Sizeof(FrameUniforms{}) != 5248 {
 		panic("renderer.FrameUniforms no longer matches common.slang")
 	}
 	if unsafe.Sizeof(DrawUniforms{}) != 128 {

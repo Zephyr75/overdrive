@@ -50,7 +50,7 @@ struct LightData {
 };
 
 // Keep in sync with MaxLights in renderer/uniforms.go
-#define MAX_LIGHTS 8
+#define MAX_LIGHTS 64
 
 // Point lights that own a cube shadow map
 // Each caster bakes into its own cube and binds to a dedicated sampler slot

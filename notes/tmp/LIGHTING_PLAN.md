@@ -386,14 +386,15 @@ with the parts in `LIGHTING_IMPL.md`:
 | after part | scene lights | shadowed | limited by |
 |---|---|---|---|
 | today | 8 | 1 sun + 1 point | `MaxLights`, one target per light |
-| **A** | 16 | 1 sun + 1 point | `MaxLights` |
-| **C–E** | 16 | up to 16 | `MaxLights`, not the atlas |
-| **G** | **1000s** | 77 (§4.1) | atlas texels; 16 *per cluster* |
+| **A** | 64 | 1 sun + 1 point | `MaxLights`, and the early-out's shading cost |
+| **C–E** | 64 | up to 64 | `MaxLights`, not the atlas |
+| **G** | **1000s** | 77 (§4.1) | atlas texels; `maxPerCluster` per fragment |
 
-Note the trap: until Part G the atlas holds far more shadowed lights than
-`FrameUniforms` can name. Parts C–E are still worth shipping — they make 16
-lights *good* rather than *many* — but the light-count headline arrives with
-clustering.
+Note the trap: until Part G the atlas holds more shadowed lights than
+`FrameUniforms` can name — 77 against 64, and against 16 if `MaxLights` is left
+where the first draft of this plan put it. Parts C–E are still worth shipping,
+they make those lights *good* rather than *many*, but the light-count headline
+arrives with clustering.
 
 ---
 
@@ -420,7 +421,7 @@ ShadowCount int32   // 1 for sun and spot, 6 for point
 
 The last three are unread until Parts A and C, and are in early on purpose: this
 is the riskiest edit in the tree, so it happens once. `FrameUniforms` is 1216 at
-`MaxLights = 8`, 1792 at 16.
+today's `MaxLights = 8`, and 5248 once Part A takes it to 64.
 
 `Radius` is derived once at load: the distance at which the light's contribution
 falls below 1/255. Both the shading early-out and the cluster intersection test
@@ -434,8 +435,12 @@ nothing.
 from the Blender terms the XML carries — `<cone>` in degrees and `<coneBlend>`
 as a 0..1 fraction — so the scene file stays legible and the export round-trips.
 
-`MaxLights` goes 8 → 16. After Part G the cluster light list carries the rest,
-so 16 becomes the per-*cluster* cap rather than the scene cap.
+`MaxLights` goes 8 → **64**, sized to what the §6 early-out makes affordable
+rather than to storage: the shader loops to `lightCount`, never to `MaxLights`,
+so the array size costs only its memcpy (~5 KB per pass) and nothing per
+fragment. After Part G the light array moves to a storage buffer and
+`MaxLights` stops bounding the scene at all — `maxPerCluster` becomes the only
+per-fragment cap.
 
 ### 5.2 `ShadowRecord` — new, 96 bytes
 
@@ -467,10 +472,10 @@ Records live in a storage buffer reached by device address (§2.5), not in
 `FarPlane` and `LightPos` were the cube path's per-light state; the record
 carries both now. The six-matrix array leaves because each cube face is an
 ordinary tile draw with its own matrix, and nothing fixed-size replaces it — so
-the block **shrinks** even as the light count doubles: 1184 today, 1984 after
-Part A doubles `MaxLights`, then back down to 1564. `LIGHTING_IMPL.md` carries
-the expected size at each part, which the `init()` guard in
-`renderer/uniforms.go` must be updated to match.
+the block **shrinks at Part C** even though the light count is eight times what
+it was: **1216** today, **5248** once Part A takes `MaxLights` to 64, then down
+to **4828**. `LIGHTING_IMPL.md` carries the expected size at each part, and the
+`init()` guard in `renderer/uniforms.go` must be updated to match each time.
 
 ---
 
@@ -598,8 +603,9 @@ almost entirely into one decision: **add a depth prepass, and write packed
 normals alongside it when AO arrives.**
 
 - Depth only, first: draw `depth.slang` to the backbuffer, then run the forward
-  pass with `EQUAL`. One geometry pass, and no shading of hidden fragments —
-  with 16 lights per fragment that pays for itself above ~1.5 overdraw.
+  pass with `EQUAL`. One geometry pass, and no shading of hidden fragments — at
+  `maxPerCluster` (16) lights a fragment, that pays for itself above ~1.5
+  overdraw.
 - Then a single `RG16` attachment for octahedral-packed view-space normals.
   Depth + normals is exactly what GTAO and SSAO want. This is **not** a G-buffer
   and not a step toward deferred: no albedo, no material, no lighting read back.

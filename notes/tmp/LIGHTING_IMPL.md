@@ -88,9 +88,17 @@ everything later parts need, so the layout is disturbed exactly once.
    is **68 → 72 bytes** and `FrameUniforms` **1184 → 1216** at `MaxLights = 8`.
    `Radius`, `ShadowIndex` and `ShadowCount` are present but unread — grouped in
    so the layout is disturbed once rather than once per part.
-2. `MaxLights` 8 → 16 in `renderer/uniforms.go`, `MAX_LIGHTS` in
-   `common.slang`. `FrameUniforms` then goes 1216 → **1792** (the light array
-   8 × 72 = 576 becomes 16 × 72 = 1152).
+2. `MaxLights` 8 → **64** in `renderer/uniforms.go`, `MAX_LIGHTS` in
+   `common.slang`. `FrameUniforms` goes 1216 → **5248**: the non-light part is
+   640 bytes, and the array 8 × 72 = 576 becomes 64 × 72 = 4608.
+
+   64 rather than 16 because that is what the step 7 early-out actually buys
+   (§6), and because `MaxLights` costs nothing at runtime — `forward.slang:267`
+   loops to `lightCount`, the scene's real count, never to `MaxLights`. The only
+   price is the memcpy: ~5 KB per pass, three passes a frame. There is no
+   uniform-block ceiling in play either, since the block is read through a
+   device address rather than bound as a UBO. Capping at 16 would leave Part D's
+   allocator untestable near the atlas's real capacity until Part G.
 3. ~~Add `LightSpot`, the scene and XML plumbing, delete `cos45`.~~ **Done.**
    The XML carries Blender's own spot terms rather than the cosines —
    `<cone>` (full angle, degrees) and `<coneBlend>` (0..1 soft-edge fraction) —
@@ -121,8 +129,8 @@ everything later parts need, so the layout is disturbed exactly once.
 > `src/`. `CLAUDE.md` says `src/plugin/` and `src/assets/`; both are stale.
 
 **Gate.** Standard gate, plus: the showcase renders a visible cone, and
-`MaxLights` 16 does not regress FPS — the early-out should make it *faster* than
-8 lights without one.
+`MaxLights` 64 does not regress FPS — the early-out should make a 64-light scene
+*faster* than 8 lights without one.
 
 **Risk.** The `LightData` growth is the most dangerous edit in the plan. Do not
 batch it with anything else in one commit.
@@ -187,16 +195,15 @@ only at the end.
    BakeMatrix       mgl32.Mat4            // 64   → 192
    ViewPos          [3]float32            // 12   → 204
    LightCount       int32                 //  4   → 208
-   Lights           [16]LightData         // 1344 → 1552
-   TexShadowStatic  TextureHandle         //  4   → 1556
-   TexShadowDynamic TextureHandle         //  4   → 1560
-   TexSkybox        TextureHandle         //  4   → 1564
+   Lights           [64]LightData         // 4608 → 4816
+   TexShadowStatic  TextureHandle         //  4   → 4820
+   TexShadowDynamic TextureHandle         //  4   → 4824
+   TexSkybox        TextureHandle         //  4   → 4828
    ```
 
-   Expected size **1564**, down from Part A's 1984: the six-matrix array and
-   the cube bookkeeping leave and nothing fixed-size replaces them. Only 380
-   bytes above today's 1184, for twice the lights and a bigger `LightData`.
-   Update the `init()` guard.
+   Expected size **4828**, down from Part A's 5248: the six-matrix array and the
+   cube bookkeeping leave and nothing fixed-size replaces them. Update the
+   `init()` guard.
 3. Replace `Light.RenderShadowMap` (`scene/light.go:99`) with a tile bake: one
    `BeginPass` on the atlas for the whole frame, `SetViewportScissor` per tile,
    one `BakeMatrix` per tile (§4.4's loop). A point light becomes six ordinary
@@ -365,9 +372,9 @@ froxel.
    read offset and count, loop only those lights. The Part A early-out stays as
    the inner guard.
 4. The scene light array outgrows `MaxLights` here — move `Lights[]` out of
-   `FrameUniforms` into the same storage buffer, at which point `MaxLights = 16`
-   becomes the per-*cluster* cap rather than the scene cap and `FrameUniforms`
-   drops to roughly 236 bytes.
+   `FrameUniforms` into the same storage buffer. `MaxLights` stops being the
+   scene cap and `maxPerCluster` (16) takes over as the per-fragment cap;
+   `FrameUniforms` drops to roughly 236 bytes.
 5. Feed the cluster result into Part D's allocator: a light intersecting zero
    clusters skips tile allocation entirely (§2.2). This is the synergy the
    ordering was chosen for.
