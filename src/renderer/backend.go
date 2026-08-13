@@ -109,6 +109,12 @@ type Backend interface {
 	// Ends the pass, after which nothing may be drawn until the next BeginPass
 	EndPass()
 
+	// Narrows the viewport and scissor to a rect of the current pass's target
+	SetViewportScissor(x, y, w, h int)
+
+	// Copies a rect of depth from one target to another, outside any pass
+	CopyDepthRegion(src, dst RenderTargetHandle, srcX, srcY, dstX, dstY, w, h int)
+
 	// Publishes the pass-scoped uniforms, from a snapshot of *f taken at call time
 	//
 	// Must run after BeginPass and before the pass's first draw.

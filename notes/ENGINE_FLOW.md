@@ -35,7 +35,7 @@ descriptor indexing, synchronization2, VMA) is the one this backend uses.
 
 ## 0. The `Backend` contract by how often it is called
 
-`renderer.Backend`'s 25 methods are declared by **resource type** — textures,
+`renderer.Backend`'s 27 methods are declared by **resource type** — textures,
 buffers, meshes, shaders, targets, draws. That is the wrong axis for remembering
 *where a Vulkan call sits in a frame*. This table is the other axis: how often
 each method runs. §4 walks the same methods in interface order, with the
@@ -89,11 +89,21 @@ Two shadow passes (depth-only, no colour clear) then the main backbuffer pass.
 
 | Method | What it does |
 |---|---|
-| `BindFrameUniforms` | Memcpy 1184 B into the ring, cache its device address for the pass's draws |
+| `BindFrameUniforms` | Memcpy 5248 B into the ring, cache its device address for the pass's draws |
 | `BeginPass` | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state |
 | `SetCullMode` | `CmdSetCullMode` — dynamic state, no extra pipeline |
 | `SetDepthCompare` | `CmdSetDepthCompareOp` — dynamic state |
 | `EndPass` | `CmdEndRendering`, and for a shadow target `imageBarrier` depth-attachment → shader-read-only |
+
+### Once per shadow tile — 2 methods, called by nothing yet
+
+The shadow-atlas plumbing. Both exist ahead of their caller, which is the atlas
+bake that replaces `Light.RenderShadowMap`.
+
+| Method | What it does |
+|---|---|
+| `SetViewportScissor` | `CmdSetViewport` + `CmdSetScissor` narrowed to one tile of the pass's target. The only sanctioned way to change a viewport mid-pass (§5) |
+| `CopyDepthRegion` | Two `imageBarrier`s into `TRANSFER_SRC`/`TRANSFER_DST` → `CmdCopyImage` on the depth aspect → two more back to shader-read. Illegal inside a pass, so it sits between them |
 
 ### Once per draw, ~15 a frame — 1 method
 
@@ -110,7 +120,7 @@ point serves face groups, the skybox cube and the UI overlay alike.
   The per-frame and per-draw rows are short — that is the whole point of the API.
 * **The per-draw row is deliberately thin.** The uniform block is split by
   update frequency, so a draw sends 128 bytes of transform and material rather
-  than the whole 1.3 KB of camera and light state. That block goes out once per
+  than the whole 5 KB of camera and light state. That block goes out once per
   pass instead, in `BindFrameUniforms`.
 * **`waitAllFrames` appears in five methods.** Every one is a full pipeline
   drain. They are all rare by design — if one starts running per frame,
@@ -199,7 +209,7 @@ volumetric composite — is an edit to `App.Run` rather than a new file. The `Pa
 interface in §9 item 7 is what changes that.
 
 Uniforms travel as **two** values split by update frequency.
-`renderer.FrameUniforms` (1184 bytes) is filled by the frame loop and
+`renderer.FrameUniforms` (5248 bytes) is filled by the frame loop and
 `Scene.FillFrameUniforms`, then published once per pass by `BindFrameUniforms`.
 `renderer.DrawUniforms` (128 bytes) carries the model matrix and the material,
 which `Mesh.draw` rewrites before each draw. The backend snapshots both at call
@@ -319,12 +329,12 @@ Go packs `float32`/`int32` structs with no padding, which *is* Vulkan's scalar
 block layout (Slang compiles with `-fvk-use-scalar-layout`). So both blocks
 memcpy straight into this frame's ring buffer (1 MiB, 64-byte aligned entries)
 and their **GPU addresses** go out as a 16-byte push constant. The shader
-dereferences those pointers — the uniform data needs no descriptor at all. 1184
+dereferences those pointers — the uniform data needs no descriptor at all. 5248
 and 128 bytes, no padding, no marshalling code.
 [HTV: buffer device address]
 
 `ScalarBlockLayout` is enabled at device creation (`vulkan/backend.go:414`) and
-is load-bearing: `LightData` is 68 bytes, so `lights[]` has a stride that is not
+is load-bearing: `LightData` is 72 bytes, so `lights[]` has a stride that is not
 16-aligned and the *standard* layout rules reject it. `spirv-val` must be given
 `--scalar-block-layout` or it fails on every module.
 
@@ -335,7 +345,7 @@ went out on every draw, roughly 1.2 KB of which was identical across the pass.
 | | How |
 |---|---|
 | Transport | per-frame ring buffer: one frame entry per pass, one draw entry per draw |
-| Layout | scalar, 1184 + 128 bytes |
+| Layout | scalar, 5248 + 128 bytes |
 | Addressing | two 64-bit device addresses in one push constant |
 | Textures | handles rewritten into **bindless slot indices** in the copy |
 | Cost per draw | one 128-byte memcpy + one 16-byte push constant |
@@ -347,7 +357,9 @@ of those, and matrices. Scalar layout and Go packing then agree by construction.
 Nothing else is required. The 16-byte cells, the `float3`-plus-scalar pairing and
 the `int4`-not-`int[4]` trick were std140's rule, mandatory while OpenGL was a
 backend, and were removed on 2026-08-05 along with `LightData`'s three reserved
-floats (80 → 68 bytes, and `FrameUniforms` 1280 → 1184).
+floats (80 → 68 bytes, and `FrameUniforms` 1280 → 1184). The lighting work then
+took `LightData` to **72** bytes and `MaxLights` from 8 to 64, so `FrameUniforms`
+is **5248** today.
 
 The guard is the `init()` size panic in `renderer/uniforms.go`. It catches a
 member added, removed or resized. It does **not** catch two members swapped —
@@ -428,6 +440,21 @@ cannot be sampled as a cube. The image's layout is tracked across passes.
 
 > `TargetColor` exists but nothing uses it yet — it is the seam an HDR target
 > lands on, once the half-float format is bound (`tmp/BACKEND_DECISION.md` §7).
+
+**The atlas methods.** A shadow atlas is not a new kind of target: it is an
+ordinary large `TargetDepth` with `Cube: false`, and what makes it an atlas is
+how it is drawn into. Two methods do that, both added ahead of their caller by
+`tmp/LIGHTING_IMPL.md` Part B.
+
+| Method | What it does |
+|---|---|
+| `SetViewportScissor` | Narrows viewport *and* scissor to one tile, inside a pass. `viewportFor` gives it the pass's own y handedness, so a tile of the atlas is oriented like the whole target would be (§5) |
+| `CopyDepthRegion` | Barriers both images into `TRANSFER_SRC`/`TRANSFER_DST`, `CmdCopyImage` on the depth aspect, barriers both back to shader-read. Refuses to run inside a pass, where a copy is invalid, and refuses a region that does not fit either target — an out-of-bounds copy is a device loss, not a clipped one |
+
+Depth targets are therefore created with `TransferSrc | TransferDst` usage on top
+of attachment and sampled. That is the whole cost of the static/dynamic split:
+one cached atlas is copied tile-by-tile into a second, which then has only the
+movable casters drawn on top.
 
 ### 4.9 Draws
 
@@ -522,6 +549,21 @@ map is sampled rather than presented and the depth comparison in the shaders
 expects that memory layout; the price is inverted winding, which those pipelines
 declare as `FrontFace = Clockwise`.
 
+**One place decides the flip.** `vulkan/backend.go` `viewportFor` builds every
+viewport the backend sets, from the pass kind: negative height for `passMain` and
+`passOffscreenColor`, positive for the two shadow kinds. `BeginPass` calls it for
+the whole target, `SetViewportScissor` for a rect of it, so a tile inherits its
+pass's handedness rather than restating it.
+
+**A viewport is set by `BeginPass`, or narrowed by `SetViewportScissor` within
+that pass, and by nothing else.** This is the amendment to the "clears and
+viewports live inside `BeginPass`" invariant, and it exists for one case: an
+atlas target holds many independent shadow tiles, and baking each through a pass
+of its own would mean one `CmdBeginRendering` and one layout transition per tile.
+The scissor is set alongside the viewport every time — the viewport transforms
+clip space, but only the scissor keeps a clear or an out-of-range primitive off
+the neighbouring tiles.
+
 **Depth range.** The projections built in `scene/` are the OpenGL convention,
 giving clip z in `[-w, w]`, while Vulkan clips to `[0, w]`. Every vertex stage
 therefore calls `TO_VK_DEPTH` from `common.slang`. Changing the projections
@@ -541,7 +583,7 @@ invalid, so this is the one place that decision lives.
 sampler, so outside the sun's frustum reads unshadowed.
 
 **The uniform struct is the contract.** `renderer/uniforms.go` has an `init`
-that panics if `LightData` stops being 68 bytes, `FrameUniforms` 1184 or
+that panics if `LightData` stops being 72 bytes, `FrameUniforms` 5248 or
 `DrawUniforms` 128. Field *order* is what has to match, and the size panic does
 not check order — see §4.5 for how to verify it.
 
@@ -553,7 +595,7 @@ not check order — see §4.5 for how to verify it.
 |---|---|
 | The image is mirrored, or culled inside-out | `vulkan/backend.go` `BeginPass` viewport, `vulkan/shader.go` `frontFace` (§5) |
 | Garbage uniforms after editing `common.slang` | `go test ./renderer/` after rebuilding shaders — it diffs offsets and names against the SPIR-V (§4.5) |
-| `spirv-val` rejects every module | Missing `--scalar-block-layout`; `LightData`'s 68-byte stride is legal only under it (§4.5) |
+| `spirv-val` rejects every module | Missing `--scalar-block-layout`; `LightData`'s 72-byte stride is legal only under it (§4.5) |
 | Validation complains about image layouts | `imageBarrier` call sites in `BeginPass` / `EndPass` / `recordImageUpload` |
 | A resource is destroyed while in use | `waitAllFrames`, `retire`, `drainRetired` (§7) |
 | Shadows missing on one light | `Scene.pickShadowCasters` — only the first sun and first point light get maps |

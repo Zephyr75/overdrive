@@ -267,6 +267,27 @@ Jobs 2 and 3 happen *because* you expressed job 1 — the transition is schedule
 
 > "The write finished" and "the reader can see it" are **different claims**. Ordering alone is not enough; you have to ask for both, which is what the two access masks are for
 
+#### The six fields, one question each
+
+`src*` describes the **last thing that touched this image**, `dst*` the **next thing that will**. The layout transition is sandwiched between the two scopes.
+
+| field | the question it answers | if you get it wrong |
+|---|---|---|
+| `srcStageMask` | which stages of *already-recorded* commands must finish first — not whole commands, only that far down their pipeline | races the producer: reads land before the write retires |
+| `srcAccessMask` | which of those accesses get **flushed** out of the writer's cache | reader sees stale data through a coherent-looking layout |
+| `oldLayout` | the arrangement the image **is in right now** | undefined contents — the driver decompresses from a form the data isn't in |
+| `newLayout` | the arrangement the next user needs | the next access is illegal for that layout |
+| `dstStageMask` | which stages of *later-recorded* commands wait — they may start, they stall on reaching that stage | races the consumer |
+| `dstAccessMask` | which caches get **invalidated** so they see the flushed writes | reader hits its own stale cache line |
+
+> **Only write bits do work in `srcAccessMask`.** Reads dirty no cache, so there is nothing to flush; a `MEMORY_READ` bit there is harmless and inert. A write-after-read hazard is solved by `srcStageMask` alone — the execution dependency is the whole protection
+
+> **`oldLayout` has no getter.** Vulkan never reports an image's current layout; the application tracks it, and every barrier must name what the *previous* barrier set. In this engine that field is `targetEntry.layout`
+
+> **`oldLayout = UNDEFINED` means "discard".** Always legal, and it lets the driver skip the decompress — right before a full clear or full overwrite, wrong for a partial-rect copy destination, whose untouched pixels have to survive
+
+> **The transition itself reads and writes the image memory.** So even a read-only source needs both halves of the dependency populated — "nothing wrote it, so src can be empty" is the wrong instinct
+
 A worked example — handing a finished shadow map to the pass that samples it:
 
 ```

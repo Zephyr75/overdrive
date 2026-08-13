@@ -298,7 +298,10 @@ func (b *VKBackend) CreateRenderTarget(spec renderer.RenderTargetSpec) (renderer
 	}
 
 	format := depthFormat
-	usage := vk.ImageUsageDepthStencilAttachment | vk.ImageUsageSampled
+	// Transfer on both ends is what CopyDepthRegion needs, one shadow atlas being
+	// both the source of a cached tile and the destination of another's copy
+	usage := vk.ImageUsageDepthStencilAttachment | vk.ImageUsageSampled |
+		vk.ImageUsageTransferSrc | vk.ImageUsageTransferDst
 	aspect := vk.ImageAspectFlags(vk.ImageAspectDepth)
 	sampler := b.samplerShadow2D
 	if spec.Cube {

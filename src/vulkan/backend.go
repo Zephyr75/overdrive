@@ -241,6 +241,10 @@ type VKBackend struct {
 	// draw-time state
 	currentPass   passKind
 	currentTarget renderer.RenderTargetHandle // 0 = backbuffer pass
+	// True between BeginPass and EndPass. currentTarget cannot stand in for it,
+	// 0 meaning both "backbuffer pass" and "no pass"; the copy path needs to tell
+	// those apart, a copy being illegal inside dynamic rendering
+	passActive bool
 	boundPipeline vk.Pipeline
 	cullMode      renderer.CullMode
 	depthCompare  renderer.CompareOp
@@ -735,6 +739,7 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 		return
 	}
 	cb := b.frames[b.frameIndex].cb
+	b.passActive = true
 
 	depthAtt := vk.RenderingAttachmentInfo{
 		ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
@@ -743,7 +748,6 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 	}
 	info := vk.RenderingInfo{LayerCount: 1}
 	var viewport vk.Viewport
-	viewport.MaxDepth = 1
 
 	if target == 0 {
 		b.imageBarrier(cb, b.swapImages[b.imageIndex], vk.ImageAspectColor, 1,
@@ -785,11 +789,7 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 		info.RenderArea = vk.Rect2D{Extent: b.swapExtent}
 		info.ColorAttachments = []vk.RenderingAttachmentInfo{colorAtt}
 
-		// Flip the viewport height for the y-up clip space scene/'s projections
-		// assume. That also cancels the winding flip, keeping CCW front faces
-		viewport.Y = float32(b.swapExtent.Height)
-		viewport.Width = float32(b.swapExtent.Width)
-		viewport.Height = -float32(b.swapExtent.Height)
+		viewport = b.viewportFor(passMain, 0, 0, w, h)
 
 		b.currentPass = passMain
 		b.currentTarget = 0
@@ -821,11 +821,7 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 			}
 			info.ColorAttachments = []vk.RenderingAttachmentInfo{colorAtt}
 
-			// Match the backbuffer's flipped viewport, so an offscreen colour
-			// pass and the main pass agree on which way is up
-			viewport.Y = float32(h)
-			viewport.Width = float32(w)
-			viewport.Height = -float32(h)
+			viewport = b.viewportFor(passOffscreenColor, 0, 0, w, h)
 
 			vk.CmdBeginRendering(cb, info)
 			vk.CmdSetViewport(cb, viewport)
@@ -843,10 +839,7 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 		depthAtt.ImageView = t.attachmentView
 		depthAtt.StoreOp = vk.AttachmentStoreOpStore
 
-		// Positive here, unlike the main pass: a shadow map is sampled rather than
-		// presented, so it wants y-down. The cost is CW front faces
-		viewport.Width = float32(w)
-		viewport.Height = float32(h)
+		viewport = b.viewportFor(b.currentPass, 0, 0, w, h)
 	}
 	info.DepthAttachment = &depthAtt
 
@@ -863,6 +856,7 @@ func (b *VKBackend) EndPass() {
 	}
 	cb := b.frames[b.frameIndex].cb
 	vk.CmdEndRendering(cb)
+	b.passActive = false
 
 	// Offscreen targets move to shader-read before a later pass samples them; the
 	// swapchain image keeps its attachment layout until EndFrame
@@ -883,6 +877,113 @@ func (b *VKBackend) EndPass() {
 		t.layout = vk.ImageLayoutShaderReadOnlyOptimal
 		b.currentTarget = 0
 	}
+}
+
+// --- viewport and transfers --------------------------------------------------
+
+// Builds the viewport covering a rect of a pass's target, in target texels from the top left
+func (b *VKBackend) viewportFor(pass passKind, x, y, w, h int) vk.Viewport {
+	vp := vk.Viewport{
+		X: float32(x), Y: float32(y),
+		Width: float32(w), Height: float32(h),
+		MaxDepth: 1,
+	}
+	if pass != passShadow2D && pass != passShadowCube {
+		vp.Y = float32(y + h)
+		vp.Height = -float32(h)
+	}
+	return vp
+}
+
+// Narrows the viewport and scissor to one rect of the current pass's target
+func (b *VKBackend) SetViewportScissor(x, y, w, h int) {
+	if !b.frameActive || !b.passActive {
+		fmt.Fprintln(os.Stderr, "vulkan: SetViewportScissor outside a pass, ignored")
+		return
+	}
+	cb := b.frames[b.frameIndex].cb
+	vk.CmdSetViewport(cb, b.viewportFor(b.currentPass, x, y, w, h))
+	vk.CmdSetScissor(cb, vk.Rect2D{
+		Offset: vk.Offset2D{X: int32(x), Y: int32(y)},
+		Extent: vk.Extent2D{Width: uint32(w), Height: uint32(h)},
+	})
+}
+
+// Copies a depth rect between two targets, both of which end up back in shader-read layout
+//
+// Records into this frame's command buffer, so it is ordered against the passes
+// around it. The two round trips through TRANSFER_SRC/DST are why it returns
+// both images to ShaderReadOnlyOptimal rather than leaving them in a transfer
+// layout: the source atlas stays sampleable, and the destination's next
+// BeginPass barrier starts from a layout it can name.
+func (b *VKBackend) CopyDepthRegion(src, dst renderer.RenderTargetHandle, srcX, srcY, dstX, dstY, w, h int) {
+	if !b.frameActive {
+		return
+	}
+	// A copy inside CmdBeginRendering is invalid, and the attachment it would
+	// write is the one being rendered into
+	if b.passActive {
+		fmt.Fprintln(os.Stderr, "vulkan: CopyDepthRegion inside a pass, ignored")
+		return
+	}
+	s, d := b.target(src), b.target(dst)
+	if s == nil || d == nil || s == d {
+		fmt.Fprintln(os.Stderr, "vulkan: CopyDepthRegion with an invalid target, ignored")
+		return
+	}
+	if s.format != renderer.TargetDepth || d.format != renderer.TargetDepth {
+		fmt.Fprintln(os.Stderr, "vulkan: CopyDepthRegion on a colour target, ignored")
+		return
+	}
+	// Out of bounds is a validation error and a device loss, not a clipped copy
+	if w <= 0 || h <= 0 ||
+		srcX < 0 || srcY < 0 || srcX+w > s.width || srcY+h > s.height ||
+		dstX < 0 || dstY < 0 || dstX+w > d.width || dstY+h > d.height {
+		fmt.Fprintf(os.Stderr, "vulkan: CopyDepthRegion %dx%d out of bounds, ignored\n", w, h)
+		return
+	}
+
+	cb := b.frames[b.frameIndex].cb
+	// Every stage/access on the source side, since the layout it is coming from
+	// depends on whether it was baked this frame or is a cached one from an
+	// earlier frame
+	b.imageBarrier(cb, s.image, vk.ImageAspectDepth, s.layers(),
+		s.layout, vk.ImageLayoutTransferSrcOptimal,
+		vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
+		vk.PipelineStage2Copy, vk.Access2TransferRead)
+	b.imageBarrier(cb, d.image, vk.ImageAspectDepth, d.layers(),
+		d.layout, vk.ImageLayoutTransferDstOptimal,
+		vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
+		vk.PipelineStage2Copy, vk.Access2TransferWrite)
+
+	vk.CmdCopyImage(cb,
+		s.image, vk.ImageLayoutTransferSrcOptimal,
+		d.image, vk.ImageLayoutTransferDstOptimal,
+		[]vk.ImageCopy{{
+			AspectMask: vk.ImageAspectDepth,
+			SrcOffset:  vk.Offset2D{X: int32(srcX), Y: int32(srcY)},
+			DstOffset:  vk.Offset2D{X: int32(dstX), Y: int32(dstY)},
+			Extent:     vk.Extent3D{Width: uint32(w), Height: uint32(h), Depth: 1},
+		}})
+
+	b.imageBarrier(cb, s.image, vk.ImageAspectDepth, s.layers(),
+		vk.ImageLayoutTransferSrcOptimal, vk.ImageLayoutShaderReadOnlyOptimal,
+		vk.PipelineStage2Copy, vk.Access2TransferRead,
+		vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
+	s.layout = vk.ImageLayoutShaderReadOnlyOptimal
+	b.imageBarrier(cb, d.image, vk.ImageAspectDepth, d.layers(),
+		vk.ImageLayoutTransferDstOptimal, vk.ImageLayoutShaderReadOnlyOptimal,
+		vk.PipelineStage2Copy, vk.Access2TransferWrite,
+		vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
+	d.layout = vk.ImageLayoutShaderReadOnlyOptimal
+}
+
+// Resolves a render-target handle, or nil when it names no live target
+func (b *VKBackend) target(h renderer.RenderTargetHandle) *targetEntry {
+	if h == 0 || int(h) >= len(b.targets) || !b.targets[h].valid {
+		return nil
+	}
+	return &b.targets[h]
 }
 
 // --- dynamic state -----------------------------------------------------------

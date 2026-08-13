@@ -185,25 +185,43 @@ nothing yet using them.
 
 **Steps.**
 
-1. **`go-vulkan` first:** bind `vkCmdCopyImage` and `VkImageCopy`. Neither
-   exists today and neither is listed in `BINDINGS_GAP.md` — one function plus
-   one struct, alongside batch 5's `CmdBlitImage`. `CmdSetViewport` and
-   `CmdSetScissor` are already bound (`vk/cmd.go:225,237`).
-2. Add `SetViewportScissor(x, y, w, h int)` and
-   `CopyDepthRegion(src, dst RenderTargetHandle, srcX, srcY, dstX, dstY, w, h int)`
-   to the `Backend` interface (§8).
-3. Implement both on Vulkan: `vkCmdSetViewport` + `vkCmdSetScissor`, both
-   already dynamic state; `vkCmdCopyImage` with the depth aspect and the layout
-   transitions around it.
-4. Allocate the atlas through the existing `RenderTargetSpec` with
-   `Cube: false` — it is an ordinary large 2D depth target, no new spec field.
-5. Record the invariant-2 amendment in `../ENGINE_FLOW.md` §5: a viewport is set
-   by `BeginPass`, or narrowed by `SetViewportScissor` within a pass on an atlas
-   target, and by nothing else.
+1. ~~**`go-vulkan` first:** bind `vkCmdCopyImage` and `VkImageCopy`.~~ **Done**,
+   in `vk/cmd.go` beside `CmdCopyBufferToImage`, and listed in §3 of
+   `BINDINGS_GAP.md`. `ImageCopy` carries one `AspectMask` and one `LayerCount`
+   rather than a pair of each, Vulkan requiring the two subresources to agree;
+   offsets are `Offset2D` with an implied z, as `BufferImageCopy` already does.
+2. ~~Add `SetViewportScissor` and `CopyDepthRegion` to `Backend`.~~ **Done.**
+3. ~~Implement both on Vulkan.~~ **Done.** Three things the plan did not say:
 
-**Gate.** Standard gate. A throwaway test that bakes the existing sun shadow
-into a corner of a 4096 atlas and samples it back proves both methods without
-any of Part C.
+   - **The y-flip had to be extracted first.** `BeginPass` built its viewport
+     inline in three places; `SetViewportScissor` would have been a fourth copy
+     of the rule. They now share `vulkan/backend.go:viewportFor(pass, x, y, w, h)`,
+     which negates the height for `passMain` and `passOffscreenColor` only. The
+     refactor is value-for-value identical to what the three sites emitted.
+   - **`passActive` is a new field.** `currentTarget == 0` means both "backbuffer
+     pass" and "no pass", and `CopyDepthRegion` has to tell them apart: a copy
+     inside `CmdBeginRendering` is invalid.
+   - **Depth targets gained `TransferSrc | TransferDst`** usage in
+     `vulkan/texture.go`. Without it the copy is a validation error, and one
+     atlas is both a source and a destination.
+
+   `CopyDepthRegion` returns **both** images to `ShaderReadOnlyOptimal` rather
+   than leaving them in a transfer layout: the static atlas stays sampleable
+   without a further barrier, and the destination's next `BeginPass` starts from
+   a layout it can name. It also rejects an out-of-range region outright — an
+   out-of-bounds `CmdCopyImage` is a device loss, not a clipped copy.
+4. ~~Allocate the atlas through the existing `RenderTargetSpec`.~~ Nothing to
+   do: a 4096 `TargetDepth` with `Cube: false` already allocates.
+5. ~~Record the invariant-2 amendment in `../ENGINE_FLOW.md` §5.~~ **Done**, plus
+   the two methods in §0's frequency index and §4.8.
+
+**Gate.** Standard gate, run clean. The throwaway probe is kept as
+`.claude` scratch `partB-atlas-probe.diff`: it bakes the sun into a 1024 tile at
+(1024, 512) of a 4096 atlas, copies that tile to (0,0) of a second atlas, and
+remaps `shadowCalculation`'s uv by ×0.25 to sample it back. Applied, it builds
+and runs validation-clean at the same frame rate; **it has not been eyeballed**,
+so "the shadow still looks right" is unconfirmed. Re-apply with `git apply` to
+check that by hand.
 
 **Risk.** Image layout transitions around `vkCmdCopyImage` are the usual
 validation trap. Run with `OVERDRIVE_VK_VALIDATION=1` throughout this part, not

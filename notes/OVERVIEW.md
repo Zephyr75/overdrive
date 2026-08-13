@@ -130,7 +130,7 @@ Two completely separate paths, and the split is forced rather than chosen.
 ```mermaid
 graph LR
     subgraph BDA["buffer device address"]
-        U["FrameUniforms 1184 B<br/>DrawUniforms 128 B"] --> RG["per-frame ring<br/>1 MiB, mapped"]
+        U["FrameUniforms 5248 B<br/>DrawUniforms 128 B"] --> RG["per-frame ring<br/>1 MiB, mapped"]
         RG --> PC["push constant<br/>2 × 64-bit address"]
     end
     subgraph DESC["descriptors"]

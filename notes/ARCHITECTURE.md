@@ -262,7 +262,7 @@ Only what exists. Unexported symbols are marked *(pkg)*.
 | `VertexLayout` | type | `LayoutMesh`, `LayoutPosition`, `LayoutPositionUV` — how a mesh's vertex buffer is read. Recorded at creation, which is what lets one `Draw` serve every drawable |
 | `RenderTargetSpec`, `TargetFormat` | type | Describes an offscreen target by what it *is* — size, depth or colour, cube or not |
 | `Feature`, `Supports` | type, method | The seam for ray tracing and compute; returns `false` today and has never been wired |
-| `FrameUniforms` | type | 1184 B: camera, lights, shadow maps. Published once per pass |
+| `FrameUniforms` | type | 5248 B: camera, lights, shadow maps. Published once per pass |
 | `DrawUniforms` | type | 128 B: model matrix and material. Sent per draw |
 | `LightData` | type | 68 B, mirrors the `LightData` struct in `common.slang` |
 | `MaxLights`, `MaxShadowCubes` | const | 8 and 4, must match `common.slang` |
