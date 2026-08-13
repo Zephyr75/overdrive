@@ -104,24 +104,34 @@ everything later parts need, so the layout is disturbed exactly once.
    `<cone>` (full angle, degrees) and `<coneBlend>` (0..1 soft-edge fraction) —
    and `LightXml.toLight` converts them, so the export round-trips and the
    scene file stays readable.
-5. Derive `Radius` once in `toLight`, from the falloff `forward.slang` actually
-   implements — `1 / (kConstant + d²)`, not the constant/linear/quadratic model
-   the struct's field names suggest. `Linear` and `Quadratic` are dead
-   (`forward.slang:215`), so the cutoff distance is just:
+4. ~~Derive `Radius` at load.~~ **Done**, in `scene.lightRadius`. It solves the
+   falloff `forward.slang:215` really implements — `1/(kConstant + d²)` — so:
 
    ```
-   Radius = sqrt(max(0, 255*Diffuse*Intensity - Constant))
+   Radius = sqrt(max(0, peak/lightCutoff - lightConstant))
+   peak   = max(Color.r, Color.g, Color.b) * Diffuse * Intensity
    ```
 
-   No quadratic to solve and no `quadratic == 0` clamp. If the classic three-term
-   falloff is wanted instead, that is a separate change: it makes `Linear` and
-   `Quadratic` live and alters how every existing scene looks.
-6. `forward.slang`: add `calcSpotLight` — `calcPointLight` times a smoothstep
+   Four things that were not obvious going in:
+
+   - **`peak` uses the brightest channel**, not a flat 1.0. Ignoring `Color`
+     inflates the radius of a tinted light, which is safe but wastes the very
+     culling the field exists for. Averaging instead would cull a saturated
+     light while its strong channel is still visible.
+   - **It runs after the `/1000` intensity scaling**, not before. The raw
+     Blender energy gives a radius √1000 ≈ 32× too large.
+   - **`kConstant` was a bare `1.0` inside `FillFrameUniforms`**, invisible from
+     `toLight`. It is now `scene.lightConstant`, shared by both, so the radius
+     cannot drift out of step with the attenuation it inverts.
+   - **A sun gets 0**, since a directional light does not attenuate. That makes
+     the type guard in step 6 load-bearing: drop it and the sun disappears
+     rather than degrading.
+5. `forward.slang`: add `calcSpotLight` — `calcPointLight` times a smoothstep
    between `outerCutoff` and `cutoff` on `dot(-L, direction)`. Switch on
    `light.type` in `fsMain`.
-7. `forward.slang`: the attenuation early-out (§6), before both the BRDF and any
+6. `forward.slang`: the attenuation early-out (§6), before both the BRDF and any
    shadow lookup, skipped for `LIGHT_SUN`.
-8. ~~`xml_export.py`: export Blender `SPOT` lamps.~~ **Done** — it writes
+7. ~~`xml_export.py`: export Blender `SPOT` lamps.~~ **Done** — it writes
    `spot_size` and `spot_blend` straight through. Still to do: add a spot light
    to `assets/showcase.xml` so the cone is visible.
 
@@ -131,6 +141,24 @@ everything later parts need, so the layout is disturbed exactly once.
 **Gate.** Standard gate, plus: the showcase renders a visible cone, and
 `MaxLights` 64 does not regress FPS — the early-out should make a 64-light scene
 *faster* than 8 lights without one.
+
+**The showcase cannot show that.** Its radii, as computed:
+
+| light | intensity | radius |
+|---|---|---|
+| PointWarm | 0.2 | **7.07** |
+| PointRed | 20 | 71.4 |
+| PointGreen | 30 | 87.5 |
+| PointBlue | 20 | 71.4 |
+| Sun | 4.5 | 0 (directional) |
+
+The scene is ~10–20 units across, so four of the five lights reach every
+fragment in it and the early-out culls almost nothing. Step 6 needs a scene of
+many *dim, localised* lights to measure at all — the same layered test scene
+Part F wants for overdraw, so build it once and use it for both.
+
+That is a property of the showcase's authoring, not of the formula: `PointWarm`
+at intensity 0.2 gets a 7-unit radius and does cull.
 
 **Risk.** The `LightData` growth is the most dangerous edit in the plan. Do not
 batch it with anything else in one commit.

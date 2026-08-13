@@ -173,7 +173,7 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 		l := &s.Lights[i]
 		u.Lights[i] = renderer.LightData{
 			Type:        int32(l.Type),
-			Constant:    1.0,
+			Constant:    lightConstant,
 			Color:       l.Color,
 			Intensity:   l.Intensity,
 			Diffuse:     l.Diffuse,
@@ -181,6 +181,7 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 			Direction:   l.Dir,
 			Cutoff:      l.Cutoff,
 			OuterCutoff: l.OuterCutoff,
+			Radius:      l.Radius,
 			// No allocator yet, so no light owns a shadow record
 			ShadowIndex: -1,
 		}

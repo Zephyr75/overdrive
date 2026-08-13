@@ -423,12 +423,18 @@ The last three are unread until Parts A and C, and are in early on purpose: this
 is the riskiest edit in the tree, so it happens once. `FrameUniforms` is 1216 at
 today's `MaxLights = 8`, and 5248 once Part A takes it to 64.
 
-`Radius` is derived once at load: the distance at which the light's contribution
-falls below 1/255. Both the shading early-out and the cluster intersection test
-need it. Derive it from the falloff `forward.slang` really implements —
-`1 / (kConstant + d²)` — not from the constant/linear/quadratic model the field
-names imply; `Linear` and `Quadratic` are filled in `scene/scene.go` and read by
-nothing.
+`Radius` is derived once at load, in `scene.lightRadius`: the distance at which
+the light's brightest channel falls below `lightCutoff`. Both the shading
+early-out and the cluster intersection test need it. It inverts the falloff
+`forward.slang` really implements, `1 / (kConstant + d²)`, not the
+constant/linear/quadratic model the old field names implied.
+
+`lightCutoff` is `1/255` in **linear** space, which is not one 8-bit step:
+`fsMain` ends on a Reinhard curve and a 1/2.2 gamma, and a linear 1/255 lands at
+roughly 21/255 on screen. So the threshold is conservative rather than
+perceptual — the right direction for culling, and a quality knob for §9 later.
+Deriving a "correct" value through the tonemap is not meaningful while exposure
+is fixed in the shader.
 
 `Cutoff` was in the same state, hardcoded to cos 45° and unread. It and
 `OuterCutoff` are now real per-light values, converted in `LightXml.toLight`
