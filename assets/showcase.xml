@@ -42,12 +42,15 @@
 		<obj>DemoCube.obj</obj>
 	</mesh>
 
-	<!-- Five lights, placed so each is easy to tell apart:
+	<!-- Six lights, placed so each is easy to tell apart:
 	     - warm point above centre  -> casts the cube shadow (first point)
 	     - red point on the left, green on the right, blue in front -> distinct
 	       coloured pools on the ground and props
+	     - violet spot high on the left -> a hard-edged pool, the cone test
 	     - white sun overhead       -> casts the 2D shadow (first directional)
-	     XML position is (GLx, -GLz, GLy) because of the Blender->GL axis swap. -->
+	     XML position is (GLx, -GLz, GLy) because of the Blender->GL axis swap.
+	     Direction is Blender's own: the way the lamp shines, so a lamp aimed
+	     straight down writes (0, 0, -1). -->
 
 	<!-- warm point, GL (1.0, 4.0, 1.5), above the scene -> cube shadow caster -->
 	<light name="PointWarm">
@@ -87,6 +90,20 @@
 		<color>0.2,0.3,1.0</color>
 		<diffuse>1.0</diffuse>
 		<intensity>20000.0</intensity>
+	</light>
+
+	<!-- violet spot, GL (-2.0, 6.0, 4.5), shining straight down. 40 deg full
+	     cone at 6 units of height is a ~2.2 unit pool on the ground, clear of
+	     the coloured points. coneBlend 0.25 leaves the rim visibly soft -->
+	<light name="SpotViolet">
+		<type>spot</type>
+		<position>-2.0,-4.5,6.0</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.8,0.5,1.0</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>40000.0</intensity>
 	</light>
 
 	<!-- sun -> directional 2D shadow map (first directional = caster). direction

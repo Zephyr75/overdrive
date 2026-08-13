@@ -34,8 +34,8 @@ func TestShowcaseLoads(t *testing.T) {
 	if len(s.Meshes) != 5 {
 		t.Errorf("meshes = %d, want 5 (ground, suzanne, 2 spheres, cube)", len(s.Meshes))
 	}
-	if len(s.Lights) != 5 {
-		t.Errorf("lights = %d, want 5 (4 point + 1 sun)", len(s.Lights))
+	if len(s.Lights) != 6 {
+		t.Errorf("lights = %d, want 6 (4 point + 1 spot + 1 sun)", len(s.Lights))
 	}
 
 	// Check the shadow budget goes to the first directional and first point
@@ -50,6 +50,35 @@ func TestShowcaseLoads(t *testing.T) {
 		t.Error("no point shadow caster picked, but the scene has point lights")
 	} else if s.Lights[s.shadowPointIndex].Type != renderer.LightPoint {
 		t.Errorf("point caster is light %d, which is not a point light", s.shadowPointIndex)
+	}
+}
+
+// Checks the spot light's derived terms, which toLight computes and nothing
+// else validates: a malformed cone degrades to cutoff == outerCutoff == 1
+// rather than failing, and a radius of 0 would cull the light everywhere
+func TestShowcaseSpotLight(t *testing.T) {
+	s := loadShowcase(t)
+
+	var spots int
+	for _, l := range s.Lights {
+		if l.Type != renderer.LightSpot {
+			continue
+		}
+		spots++
+		// Inner cone is narrower than the outer one, so its cosine is larger;
+		// equal cosines mean <cone>/<coneBlend> never reached toLight
+		if !(l.Cutoff > l.OuterCutoff) {
+			t.Errorf("%s: cutoff %v not greater than outerCutoff %v", l.Name, l.Cutoff, l.OuterCutoff)
+		}
+		if l.OuterCutoff <= 0 || l.OuterCutoff >= 1 {
+			t.Errorf("%s: outerCutoff %v is not a half-angle cosine of a real cone", l.Name, l.OuterCutoff)
+		}
+		if l.Radius <= 0 {
+			t.Errorf("%s: radius %v, so the shading early-out culls it everywhere", l.Name, l.Radius)
+		}
+	}
+	if spots == 0 {
+		t.Error("no spot light in the showcase — the cone path goes untested")
 	}
 }
 

@@ -49,6 +49,11 @@ struct LightData {
     int type; // 0 = directional, 1 = point, 2 = spot
 };
 
+// Keep in sync with LightSun/LightPoint/LightSpot in renderer/uniforms.go
+#define LIGHT_SUN 0
+#define LIGHT_POINT 1
+#define LIGHT_SPOT 2
+
 // Keep in sync with MaxLights in renderer/uniforms.go
 #define MAX_LIGHTS 64
 

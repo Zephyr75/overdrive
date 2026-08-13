@@ -88,7 +88,7 @@ everything later parts need, so the layout is disturbed exactly once.
    is **68 → 72 bytes** and `FrameUniforms` **1184 → 1216** at `MaxLights = 8`.
    `Radius`, `ShadowIndex` and `ShadowCount` are present but unread — grouped in
    so the layout is disturbed once rather than once per part.
-2. `MaxLights` 8 → **64** in `renderer/uniforms.go`, `MAX_LIGHTS` in
+2. ~~`MaxLights` 8 → **64**~~ **Done**, in `renderer/uniforms.go` and
    `common.slang`. `FrameUniforms` goes 1216 → **5248**: the non-light part is
    640 bytes, and the array 8 × 72 = 576 becomes 64 × 72 = 4608.
 
@@ -126,14 +126,24 @@ everything later parts need, so the layout is disturbed exactly once.
    - **A sun gets 0**, since a directional light does not attenuate. That makes
      the type guard in step 6 load-bearing: drop it and the sun disappears
      rather than degrading.
-5. `forward.slang`: add `calcSpotLight` — `calcPointLight` times a smoothstep
-   between `outerCutoff` and `cutoff` on `dot(-L, direction)`. Switch on
-   `light.type` in `fsMain`.
-6. `forward.slang`: the attenuation early-out (§6), before both the BRDF and any
-   shadow lookup, skipped for `LIGHT_SUN`.
+5. ~~`forward.slang`: add `calcSpotLight`.~~ **Done.** `calcPointLight` times a
+   smoothstep from `outerCutoff` to `cutoff`, with `fsMain` switching on
+   `light.type` through the new `LIGHT_*` defines in `common.slang`.
+
+   The cone term is `dot(L, direction)`, **not** `dot(-L, direction)` as written
+   above: in this engine `direction` points *toward* the light. `LightXml.toLight`
+   negates Blender's shine vector (`scene/light.go:79`) and `calcDirLight` then
+   uses `direction` directly as the incoming `L`. A spot has no shadow path yet —
+   `pickShadowCasters` only ever picks a sun and a point light.
+6. ~~`forward.slang`: the attenuation early-out (§6).~~ **Done**, at the top of
+   the light loop, before the BRDF and before any shadow lookup, guarded on
+   `type != LIGHT_SUN` because a sun's `Radius` is 0.
 7. ~~`xml_export.py`: export Blender `SPOT` lamps.~~ **Done** — it writes
-   `spot_size` and `spot_blend` straight through. Still to do: add a spot light
-   to `assets/showcase.xml` so the cone is visible.
+   `spot_size` and `spot_blend` straight through. ~~Add a spot to the
+   showcase.~~ **Done**: `SpotViolet`, GL (-2, 6, 4.5), straight down, 40° cone,
+   `coneBlend` 0.25. `TestShowcaseSpotLight` in `scene/showcase_test.go` guards
+   the derived cosines and the radius, since a malformed cone degrades silently
+   to `cutoff == outerCutoff == 1`.
 
 > `xml_export.py` and `assets/` are at the **repository root**, not under
 > `src/`. `CLAUDE.md` says `src/plugin/` and `src/assets/`; both are stale.

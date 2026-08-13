@@ -217,6 +217,21 @@ float3 calcPointLight(LightData light, MatParams mat, float3 normal, float3 frag
     return cookTorrance(mat, normal, viewDir, lightDir, radiance);
 }
 
+// A point light cut by a cone: same falloff, scaled by the angular term
+//
+// direction points toward the light, as calcDirLight uses it, so the cone axis
+// is compared against lightDir rather than its negation. cutoff is the inner
+// cosine and outerCutoff the outer one, so smoothstep runs 0 outside the cone
+// to 1 inside it and the rim stays soft instead of aliasing
+float3 calcSpotLight(LightData light, MatParams mat, float3 normal, float3 fragPos, float3 viewDir) {
+    float3 lightDir = normalize(light.position - fragPos);
+    float theta = dot(lightDir, normalize(light.direction));
+    float cone = smoothstep(light.outerCutoff, light.cutoff, theta);
+    if (cone <= 0.0)
+        return float3(0.0);
+    return calcPointLight(light, mat, normal, fragPos, viewDir) * cone;
+}
+
 // Perturb the geometric normal with a tangent-space normal map
 // No precomputed tangents, the TBN basis comes from derivatives of fragPos and uv
 // Schüler's cotangent frame, so tangents stay out of the vertex layout
@@ -266,13 +281,28 @@ float4 fsMain(VSOut i) : SV_Target {
     float3 Lo = float3(0.0);
     for (int l = 0; l < lightCount; l++) {
         LightData light = FRAME.lights[l];
+        // Attenuation early-out, before the BRDF and before any shadow tap
+        // radius is where the falloff drops below scene.lightCutoff, so past it
+        // the light contributes nothing measurable. Most fragments touch a few
+        // lights, not all of them, which is what makes a plain loop over 64
+        // lights affordable. A sun does not attenuate and has radius 0, so it
+        // must skip the test rather than cull itself
+        if (light.type != LIGHT_SUN) {
+            float3 d = light.position - i.fragPos;
+            if (dot(d, d) > light.radius * light.radius)
+                continue;
+        }
         float shadow = 0.0;
         float3 contrib;
-        if (light.type == 0) {
+        if (light.type == LIGHT_SUN) {
             contrib = calcDirLight(light, mat, norm, viewDir);
             if (l == shadowDirIndex)
                 shadow = shadowCalculation(i.fragPos, norm,
                                            normalize(light.direction));
+        } else if (light.type == LIGHT_SPOT) {
+            // No shadow path yet: pickShadowCasters only picks a sun and a
+            // point light, so a spot lights unshadowed until the atlas lands
+            contrib = calcSpotLight(light, mat, norm, i.fragPos, viewDir);
         } else {
             contrib = calcPointLight(light, mat, norm, i.fragPos, viewDir);
             // Does this point light own a cube shadow slot
