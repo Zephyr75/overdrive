@@ -231,12 +231,16 @@ type VKBackend struct {
 
 	// Which texture handles are currently mirrored into the dedicated shadow
 	// descriptors (bindings 2 and 3), so they are only rewritten on change.
-	shadow2DHandle   renderer.TextureHandle
-	shadowCubeHandle [renderer.MaxShadowCubes]renderer.TextureHandle
+	shadowStaticHandle  renderer.TextureHandle
+	shadowDynamicHandle renderer.TextureHandle
 
 	// Device address of this pass's frame block, re-pushed by every draw.
 	// BindFrameUniforms writes it; the ring entry lives until the frame ends.
 	frameUniformAddr uint64
+	// Device address of this frame's shadow record array, likewise re-pushed by
+	// every draw. Frame-scoped, so BeginFrame seeds it with one empty record and
+	// no draw can push a null pointer.
+	recordAddr uint64
 
 	// draw-time state
 	currentPass   passKind
@@ -244,7 +248,7 @@ type VKBackend struct {
 	// True between BeginPass and EndPass. currentTarget cannot stand in for it,
 	// 0 meaning both "backbuffer pass" and "no pass"; the copy path needs to tell
 	// those apart, a copy being illegal inside dynamic rendering
-	passActive bool
+	passActive    bool
 	boundPipeline vk.Pipeline
 	cullMode      renderer.CullMode
 	depthCompare  renderer.CompareOp
@@ -255,12 +259,10 @@ type VKBackend struct {
 // Builds an empty Vulkan backend, before any Vulkan object exists
 func New() *VKBackend {
 	b := &VKBackend{
-		swapFormat:     vk.FormatB8G8R8A8Unorm,
-		samples:        vk.SampleCount1Bit, // Init narrows this once the device is known
-		shadow2DHandle: invalidHandle,
-	}
-	for i := range b.shadowCubeHandle {
-		b.shadowCubeHandle[i] = invalidHandle
+		swapFormat:          vk.FormatB8G8R8A8Unorm,
+		samples:             vk.SampleCount1Bit, // Init narrows this once the device is known
+		shadowStaticHandle:  invalidHandle,
+		shadowDynamicHandle: invalidHandle,
 	}
 	// Reserve index 0 in the tables whose handle 0 means "none"
 	b.buffers = append(b.buffers, bufEntry{})
@@ -502,8 +504,8 @@ func (b *VKBackend) createSamplers() {
 
 // Creates the one descriptor set the engine binds: two bindless texture arrays plus dedicated shadow-map descriptors
 func (b *VKBackend) createDescriptors() {
-	// 0/1 bindless material arrays, 2/3 dedicated shadow maps. Dedicated because
-	// PCF taps them 9x/20x per fragment and some drivers re-fetch a
+	// 0/1 bindless material arrays, 2/3 the static and dynamic shadow atlases.
+	// Dedicated because PCF taps them 9x per fragment and some drivers re-fetch a
 	// dynamically-indexed descriptor per tap — measured at ~1.7x frame time.
 	// Matches common.slang
 	const bindless = vk.DescriptorBindingPartiallyBound | vk.DescriptorBindingUpdateAfterBind
@@ -515,7 +517,7 @@ func (b *VKBackend) createDescriptors() {
 		{Binding: 2, DescriptorType: vk.DescriptorTypeCombinedImageSampler,
 			DescriptorCount: 1, StageFlags: vk.ShaderStageFragment, BindingFlags: bindless},
 		{Binding: 3, DescriptorType: vk.DescriptorTypeCombinedImageSampler,
-			DescriptorCount: renderer.MaxShadowCubes, StageFlags: vk.ShaderStageFragment, BindingFlags: bindless},
+			DescriptorCount: 1, StageFlags: vk.ShaderStageFragment, BindingFlags: bindless},
 	}
 
 	layout, err := vk.CreateDescriptorSetLayout(b.device, vk.DescriptorSetLayoutCreateInfo{
@@ -526,7 +528,7 @@ func (b *VKBackend) createDescriptors() {
 	fatal(err, "create descriptor set layout")
 	b.setLayout = layout
 
-	total := uint32(max2DTextures + maxCubeTextures + 1 + renderer.MaxShadowCubes)
+	total := uint32(max2DTextures + maxCubeTextures + 2)
 	pool, err := vk.CreateDescriptorPool(b.device, vk.DescriptorPoolCreateInfo{
 		Flags:     vk.DescriptorPoolCreateUpdateAfterBind,
 		MaxSets:   1,
@@ -543,11 +545,10 @@ func (b *VKBackend) createDescriptors() {
 	b.descriptorSet = sets[0]
 }
 
-// Creates the one layout every pipeline shares: the bindless set plus an 8-byte push constant holding this draw's uniform address
 func (b *VKBackend) createGlobalPipelineLayout() {
 	layout, err := vk.CreatePipelineLayout(b.device, vk.PipelineLayoutCreateInfo{
 		SetLayouts:         []vk.DescriptorSetLayout{b.setLayout},
-		PushConstantRanges: []vk.PushConstantRange{{StageFlags: pushStages, Size: 16}},
+		PushConstantRanges: []vk.PushConstantRange{{StageFlags: pushStages, Size: pushConstantSize}},
 	})
 	fatal(err, "create pipeline layout")
 	b.pipelineLayout = layout
@@ -560,12 +561,11 @@ func (b *VKBackend) createDefaultTextures() {
 	// Fill cube slot 0 with a black dummy, sampled when no cubemap was ever set
 	b.uploadTexture(make([]byte, 4*6), 1, 1, 6, true, b.samplerCubeLinear)
 
-	// Seed the dedicated shadow descriptors: partially-bound tolerates holes, but a
-	// draw sampling one would still read undefined data
+	// Seed both atlas descriptors with the white pixel: partially-bound tolerates
+	// holes, but a draw sampling one would still read undefined data. Both are 2D
+	// now that a cube face is an ordinary atlas tile
 	b.writeDedicatedTexture(2, 0, b.textures[0].view, b.samplerShadow2D)
-	for i := uint32(0); i < renderer.MaxShadowCubes; i++ {
-		b.writeDedicatedTexture(3, i, b.textures[1].view, b.samplerShadowCube)
-	}
+	b.writeDedicatedTexture(3, 0, b.textures[0].view, b.samplerShadow2D)
 }
 
 // Waits for the GPU to go idle, then destroys every Vulkan object the backend owns, in reverse creation order
@@ -685,6 +685,12 @@ func (b *VKBackend) BeginFrame() {
 	// Flush anything staged during the previous frame's passes, copies being
 	// legal only outside a render pass
 	b.flushPendingUploads(f.cb)
+
+	// One empty record at the head of the ring, so a draw pushes a valid pointer
+	// even in a frame where nothing called BindShadowRecords. The shader only
+	// indexes it through a non-negative LightData.ShadowIndex, which no light has
+	// in that case, but the address itself is dereferenced by the pipeline setup
+	b.recordAddr = writeRing(b, renderer.ShadowRecord{})
 
 	b.boundPipeline = 0
 	b.frameActive = true

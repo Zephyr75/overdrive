@@ -6,7 +6,6 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/Zephyr75/overdrive/renderer"
-	"github.com/Zephyr75/overdrive/settings"
 	"github.com/Zephyr75/overdrive/utils"
 )
 
@@ -41,11 +40,11 @@ type LightXml struct {
 
 type Light struct {
 	Name      string
-	Type      int // renderer.LightSun, LightPoint or LightSpot
-	Pos       mgl32.Vec3
-	Dir       mgl32.Vec3
+	Type      int        // renderer.LightSun, LightPoint or LightSpot
+	Pos       mgl32.Vec3 // shading ignores this for a sun; its shadow camera still sits here
+	Dir       mgl32.Vec3 // sun and spot only, points away from the light
 	Color     mgl32.Vec3
-	Diffuse   float32
+	Diffuse   float32    // second radiance multiplier beside Intensity
 	Intensity float32
 	// Cone cosines, not angles: the shader compares them against a dot product
 	Cutoff      float32
@@ -55,11 +54,11 @@ type Light struct {
 	// Diffuse and Intensity, so anything mutating those must recompute it
 	Radius float32
 
-	backend      renderer.Backend
-	shadowTarget renderer.RenderTargetHandle
-	depthMap     renderer.TextureHandle // sun: 2D depth map
-	depthCubeMap renderer.TextureHandle // point: depth cubemap
-	castsShadow  bool                   // set by Scene at load time
+	// Where this light's tiles are in the shadow atlas: the index of its first
+	// record and how many it owns, 1 for a sun or spot and 6 for a point light.
+	// -1 and 0 when the allocator gave it none, which lights it unshadowed
+	shadowIndex int32
+	shadowCount int32
 }
 
 // Offsets the light's position
@@ -132,76 +131,6 @@ func lightRadius(color mgl32.Vec3, diffuse, intensity float32) float32 {
 	return float32(math.Sqrt(math.Max(0, float64(peak/lightCutoff-lightConstant))))
 }
 
-// Allocates this light's shadow map, but only when the scene picked it as a caster
-func (l *Light) setup(b renderer.Backend, castsShadow bool) {
-	l.backend = b
-	l.castsShadow = castsShadow
-	if !castsShadow {
-		return
-	}
-	spec := renderer.RenderTargetSpec{
-		Width:  settings.ShadowWidth,
-		Height: settings.ShadowHeight,
-		Format: renderer.TargetDepth,
-		Cube:   l.Type != renderer.LightSun,
-	}
-	if l.Type == renderer.LightSun {
-		l.shadowTarget, l.depthMap = b.CreateRenderTarget(spec)
-	} else {
-		l.shadowTarget, l.depthCubeMap = b.CreateRenderTarget(spec)
-	}
-}
-
-// Bakes this light's shadow map, drawing every mesh into its depth target
-//
-// Renders the scene from the light's point of view, not the light itself. The
-// matrices are left behind in f rather than returned.
-func (l *Light) RenderShadowMap(nearPlane, farPlane float32,
-	depthShader, depthCubeShader renderer.ShaderHandle,
-	s *Scene, f *renderer.FrameUniforms) {
-
-	b := l.backend
-
-	// Static mesh geometry is baked into the OBJ vertices, so the depth passes
-	// draw everything with an identity model matrix and no material at all
-	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
-
-	b.BeginPass(l.shadowTarget, nil)
-
-	if l.Type == renderer.LightSun { // TODO: enum
-		lightProjection := mgl32.Ortho(-10.0, 10.0, -10.0, 10.0, nearPlane, farPlane)
-		lightView := mgl32.LookAtV(l.Pos, l.Pos.Sub(l.Dir), mgl32.Vec3{0.0, 1.0, 0.0})
-		f.LightSpaceMatrix = lightProjection.Mul4(lightView)
-		b.BindFrameUniforms(f)
-
-		// Cull front faces, which avoids peter-panning on the shadow's near edge
-		b.SetCullMode(renderer.CullFront)
-		b.BindShader(depthShader)
-		for i := range s.Meshes {
-			s.Meshes[i].draw(&u)
-		}
-		b.SetCullMode(renderer.CullBack)
-	} else {
-		shadowProjection := mgl32.Perspective(mgl32.DegToRad(90.0), settings.ShadowAspectRatio(), nearPlane, farPlane)
-		shadowTransforms := [6]mgl32.Mat4{
-			shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{-1.0, 0.0, 0.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{0.0, 1.0, 0.0}), mgl32.Vec3{0.0, 0.0, 1.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{0.0, -1.0, 0.0}), mgl32.Vec3{0.0, 0.0, -1.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{0.0, 0.0, 1.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
-			shadowProjection.Mul4(mgl32.LookAtV(l.Pos, l.Pos.Add(mgl32.Vec3{0.0, 0.0, -1.0}), mgl32.Vec3{0.0, -1.0, 0.0})),
-		}
-
-		f.FarPlane = farPlane
-		f.LightPos = l.Pos
-		f.ShadowMatrices = shadowTransforms
-		b.BindFrameUniforms(f)
-
-		b.BindShader(depthCubeShader)
-		for i := range s.Meshes {
-			s.Meshes[i].draw(&u)
-		}
-	}
-
-	b.EndPass()
-}
+// Shadow tiles are allocated per frame by the atlas, so a light owns no GPU
+// resource of its own any more: scene/shadowatlas.go carries what RenderShadowMap
+// and Light.setup used to do.

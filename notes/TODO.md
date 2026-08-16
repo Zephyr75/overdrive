@@ -7,14 +7,16 @@ Small, concrete items. Anything that needs a paragraph of reasoning lives in
 
 - [x] Overlay Gutter on Overdrive
 - [ ] Fix Gutter on Overdrive — `main.go` still calls `App.Run` with a nil widget
-- [x] Support multiple shadows (one 2D map + one cube)
-- [ ] Fill the remaining 3 cube-shadow slots — the shader has `MAX_SHADOW_CUBES` (4), `Scene` tracks a single `shadowPointIndex`
+- [x] Support multiple shadows (one 2D map + one cube) — superseded by the atlas
+- [x] Retire the cube-shadow slots — every shadow is a tile of one atlas now, `tmp/LIGHTING_IMPL.md` Part C
+- [ ] Allocate the atlas's other 9 tiles — `pickShadowCasters` still picks one sun and one point light, Part D
+- [ ] Delete the ×5 point-shadow scale in `forward.slang` and re-tune — it makes a shadowed fragment subtract light
 - [x] Clean up the fragment shader
 - [x] Integrate the skybox reflection into the colour computation (PBR ambient term)
 - [x] Usable from a simple ECS script
 - [x] Read collider position, size and rotation from the Blender scene
 - [ ] Debug mode
-- [x] Multiple lights of the same type (up to `MAX_LIGHTS` = 8)
+- [x] Multiple lights of the same type (up to `MAX_LIGHTS` = 64)
 - [ ] Proper box colliders — `physics/box.go` is empty, `box_old.go` is commented out
 - [ ] Verlet distance constraints — `physics/link.go` is commented out
 - [ ] Audio support
@@ -55,7 +57,7 @@ The ordered plan is `tmp/BACKEND_DECISION.md` §9. These are its first items.
 - [ ] Shadow cascades — currently fixed at 1024², no CSM
 - [ ] Geometry shader for fur
 - [ ] Ray-traced shadows — `FEATURES.md` §3, `tmp/BACKEND_DECISION.md` §8
-- [ ] Ray marching for basic shapes and clouds — existed in the pre-Slang GLSL tree, not ported; `shaders/slang/` has only `forward`, `depth`, `depth_cube`, `skybox`, `ui`
+- [ ] Ray marching for basic shapes and clouds — existed in the pre-Slang GLSL tree, not ported; `shaders/slang/` has only `forward`, `depth`, `depth_point`, `skybox`, `ui`
 
 ## Tooling and cleanup
 

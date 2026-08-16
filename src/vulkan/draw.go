@@ -16,10 +16,16 @@ const (
 	drawUniformSize  = uint64(unsafe.Sizeof(renderer.DrawUniforms{}))
 )
 
-// The push constant both shaders read: one device address per block
+// The push constant every shader reads: one device address per block
+//
+// The records are a pointer rather than a member of FrameUniforms because the
+// array is sized by the scene, not by a constant.
 type pushAddresses struct {
-	frame, draw uint64
+	frame, draw, records uint64
 }
+
+// Size of the push constant range, well inside the 128-byte guaranteed minimum
+const pushConstantSize = uint32(unsafe.Sizeof(pushAddresses{}))
 
 // Binds the pipeline for the current pass, pushes both uniform addresses and draws one mesh
 func (b *VKBackend) Draw(m renderer.MeshHandle, u *renderer.DrawUniforms) {
@@ -73,7 +79,7 @@ func (b *VKBackend) BindFrameUniforms(u *renderer.FrameUniforms) {
 		return
 	}
 	block := *u
-	// Skybox handle to bindless slot. The shadow-map fields are left alone: those have dedicated bindings
+	// Skybox handle to bindless slot. The atlas fields are left alone: those have dedicated bindings
 	block.TexSkybox = renderer.TextureHandle(b.slotCube(u.TexSkybox))
 	b.bindShadowMaps(u)
 
@@ -89,16 +95,23 @@ func (b *VKBackend) bindDrawUniforms(cb vk.CommandBuffer, u *renderer.DrawUnifor
 	block.TexNormalMap = renderer.TextureHandle(b.slot2D(u.TexNormalMap))
 
 	addrs := pushAddresses{
-		frame: b.frameUniformAddr,
-		draw:  writeRing(b, block),
+		frame:   b.frameUniformAddr,
+		draw:    writeRing(b, block),
+		records: b.recordAddr,
 	}
-	vk.CmdPushConstants(cb, b.pipelineLayout, pushStages, 0, 16, unsafe.Pointer(&addrs))
+	vk.CmdPushConstants(cb, b.pipelineLayout, pushStages, 0, pushConstantSize, unsafe.Pointer(&addrs))
 }
 
 // Copies one block into this frame's ring and returns its device address
 func writeRing[T any](b *VKBackend, block T) uint64 {
+	return writeRingSlice(b, []T{block})
+}
+
+// Copies a contiguous run of blocks into this frame's ring and returns the address of the first
+func writeRingSlice[T any](b *VKBackend, blocks []T) uint64 {
 	f := &b.frames[b.frameIndex]
-	size := uint64(unsafe.Sizeof(block))
+	var zero T
+	size := uint64(unsafe.Sizeof(zero)) * uint64(len(blocks))
 
 	// Align to 64 bytes, keeping each entry on a cache line as the C++ ring did
 	f.ringOffset = (f.ringOffset + 63) &^ 63
@@ -106,26 +119,39 @@ func writeRing[T any](b *VKBackend, block T) uint64 {
 		fmt.Fprintln(os.Stderr, "vulkan: uniform ring overflow, wrapping (draws this frame may be wrong)")
 		f.ringOffset = 0
 	}
-	vk.MemCopy(unsafe.Add(f.ringMapped, f.ringOffset), []T{block})
+	vk.MemCopy(unsafe.Add(f.ringMapped, f.ringOffset), blocks)
 
 	addr := f.ringAddr + f.ringOffset
 	f.ringOffset += size
 	return addr
 }
 
-// Mirrors the scene's current shadow maps into the dedicated bindings 2 and 3, rewriting them only when a handle changes
-func (b *VKBackend) bindShadowMaps(u *renderer.FrameUniforms) {
-	if u.TexShadowMap != 0 && u.TexShadowMap != b.shadow2DHandle {
-		if e := b.texture(u.TexShadowMap); e != nil && !e.cube {
-			b.shadow2DHandle = u.TexShadowMap
-			b.writeDedicatedTexture(2, 0, e.view, b.samplerShadow2D)
-		}
+// Snapshots this frame's shadow records into the ring, for every draw of the frame to reach by address
+func (b *VKBackend) BindShadowRecords(records []renderer.ShadowRecord) {
+	if !b.frameActive || len(records) == 0 {
+		return
 	}
-	// The single point-shadow caster gets cube slot 0; PointShadowLights maps the rest once more casters exist
-	if u.TexShadowCubeMap != 0 && u.TexShadowCubeMap != b.shadowCubeHandle[0] {
-		if e := b.texture(u.TexShadowCubeMap); e != nil && e.cube {
-			b.shadowCubeHandle[0] = u.TexShadowCubeMap
-			b.writeDedicatedTexture(3, 0, e.view, b.samplerShadowCube)
+	b.recordAddr = writeRingSlice(b, records)
+}
+
+// Mirrors the two shadow atlases into the dedicated bindings 2 and 3, rewriting them only when a handle changes
+func (b *VKBackend) bindShadowMaps(u *renderer.FrameUniforms) {
+	atlases := [2]struct {
+		handle renderer.TextureHandle
+		cached *renderer.TextureHandle
+	}{
+		{u.TexShadowStatic, &b.shadowStaticHandle},
+		{u.TexShadowDynamic, &b.shadowDynamicHandle},
+	}
+	for i, a := range atlases {
+		if a.handle == 0 || a.handle == *a.cached {
+			continue
+		}
+		// A cube would be the wrong descriptor type for these bindings, and the
+		// atlas retired the last reason to create one
+		if e := b.texture(a.handle); e != nil && !e.cube {
+			*a.cached = a.handle
+			b.writeDedicatedTexture(uint32(2+i), 0, e.view, b.samplerShadow2D)
 		}
 	}
 }

@@ -6,11 +6,8 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
-// Must match MAX_LIGHTS / MAX_SHADOW_CUBES in shaders/slang/common.slang
-const (
-	MaxLights      = 64
-	MaxShadowCubes = 4
-)
+// Must match MAX_LIGHTS in shaders/slang/common.slang
+const MaxLights = 64
 
 // Light types, matching the integer the shaders switch on
 const (
@@ -46,21 +43,30 @@ type LightData struct {
 //
 // Tex* fields hold plain TextureHandles, where 0 means "white pixel".
 
+// One shadow tile: where it lives in the atlas and how to project into it
+// A sun or a spot owns one and a point light six consecutive ones
+type ShadowRecord struct {
+	WorldToTile mgl32.Mat4 // world to this tile's clip space, both baking and sampling
+	AtlasCoords [4]float32 // uv offset.xy, uv scale.xy
+	PCFStep     float32    // Percentage-Closer Filtering step for soft edges: high smooths more
+	FarPlane    float32    // far plane distance to divide radial distance into [0, 1]
+	FaceIndex   int32      // 0..5 for a cube face, -1 for a 2D tile
+	Flags       int32      // bit 0: sample the dynamic or static atlas
+}
+
 // Camera, lights and shadow maps: Update once per pass
 type FrameUniforms struct {
-	View, Projection  mgl32.Mat4
-	LightSpaceMatrix  mgl32.Mat4
-	ShadowMatrices    [6]mgl32.Mat4
-	ViewPos           [3]float32
-	FarPlane          float32
-	LightPos          [3]float32
-	LightCount        int32
-	Lights            [MaxLights]LightData
-	TexShadowMap      TextureHandle
-	TexShadowCubeMap  TextureHandle
-	TexSkybox         TextureHandle
-	ShadowDirIndex    int32
-	PointShadowLights [MaxShadowCubes]int32
+	View             mgl32.Mat4           // world to camera space
+	Projection       mgl32.Mat4           // camera to clip space, z in [-w, w]
+	CurWorldToTile   mgl32.Mat4           // WorldToTile of the tile being baked
+	CurLightPos      [3]float32           // world position of the light being baked
+	CurFarPlane      float32              // FarPlane of the tile being baked
+	ViewPos          [3]float32           // world position of the camera
+	LightCount       int32                // live entries in Lights, 0 to MaxLights
+	Lights           [MaxLights]LightData // every light in the scene, shadow-casting or not
+	TexShadowStatic  TextureHandle        // depth atlas sampled when Flags bit 0 is 0
+	TexShadowDynamic TextureHandle        // depth atlas sampled when Flags bit 0 is 1
+	TexSkybox        TextureHandle        // cubemap drawn as the sky and sampled for ambient
 }
 
 // Transform and material of one face group: Update once per draw
@@ -84,8 +90,11 @@ func init() { // TODO: where is it called
 	if unsafe.Sizeof(LightData{}) != 72 {
 		panic("renderer.LightData no longer matches common.slang")
 	}
-	if unsafe.Sizeof(FrameUniforms{}) != 5248 {
+	if unsafe.Sizeof(FrameUniforms{}) != 4844 {
 		panic("renderer.FrameUniforms no longer matches common.slang")
+	}
+	if unsafe.Sizeof(ShadowRecord{}) != 96 {
+		panic("renderer.ShadowRecord no longer matches common.slang")
 	}
 	if unsafe.Sizeof(DrawUniforms{}) != 128 {
 		panic("renderer.DrawUniforms no longer matches common.slang")

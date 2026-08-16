@@ -27,19 +27,19 @@ type Mesh struct {
 	Vertices      []mgl32.Vec3
 	NormalCoords  []mgl32.Vec3
 	TextureCoords []mgl32.Vec2
-	Faces         [][]uint32
+	Faces         [][]uint32 // one []uint32 per material group, pos/tex/norm indices interleaved in threes
 	Materials     []Material
 	Position      mgl32.Vec3
 
-	vertexData  []float32
-	indexGroups [][]uint32
+	vertexData  []float32  // Faces flattened by fillVertices into pos/normal/uv triples, interleaved
+	indexGroups [][]uint32 // one index list per material group, indexing into vertexData
 
 	backend     renderer.Backend
 	vertexBuf   renderer.BufferHandle
 	gpu         []renderer.MeshHandle // one handle per material face group
-	needsUpdate bool
+	needsUpdate bool                  // MoveBy/MoveTo was called since the last upload
 
-	initialPosition mgl32.Vec3
+	initialPosition mgl32.Vec3 // Position at load, what MoveBy/MoveTo offsets are relative to
 }
 
 // Offsets the mesh and rebuilds its vertex data for the next upload

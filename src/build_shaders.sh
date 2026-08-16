@@ -35,9 +35,8 @@ for row in \
     skybox:fsMain:fragment:frag \
     depth:vsMain:vertex:vert \
     depth:fsMain:fragment:frag \
-    depth_cube:vsMain:vertex:vert \
-    depth_cube:gsMain:geometry:geo \
-    depth_cube:fsMain:fragment:frag \
+    depth_point:vsMain:vertex:vert \
+    depth_point:fsMain:fragment:frag \
     ui:vsMain:vertex:vert \
     ui:fsMain:fragment:frag
 do

@@ -120,6 +120,13 @@ type Backend interface {
 	// Must run after BeginPass and before the pass's first draw.
 	BindFrameUniforms(f *FrameUniforms)
 
+	// Publishes this frame's shadow tile records, from a copy taken at call time
+	//
+	// Frame-scoped rather than pass-scoped: call once after BeginFrame, before
+	// the first pass. Every draw of the frame then reaches the array by device
+	// address, LightData.ShadowIndex being the index into it.
+	BindShadowRecords(records []ShadowRecord)
+
 	// Selects which face is culled, as pass-scoped state
 	SetCullMode(m CullMode)
 	// Selects the depth compare op, as pass-scoped state

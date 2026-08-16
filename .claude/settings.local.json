@@ -102,7 +102,9 @@
       "Bash(echo \"pid $!\")",
       "Bash(ps -p 217810 -o pid,etime,cmd --no-headers)",
       "Bash(ps -p 218411 -o pid,etime --no-headers)",
-      "Bash(cosmic-screenshot --interactive=false --notify=false --save-dir /tmp)"
+      "Bash(cosmic-screenshot --interactive=false --notify=false --save-dir /tmp)",
+      "Bash(timeout 12 env OVERDRIVE_VK_VALIDATION=1 go run .)",
+      "Bash(go test *)"
     ]
   }
 }

@@ -21,7 +21,7 @@ diff is not.
 When asked for a change:
 
 1. Say what you would do — which files and functions, what the approach is, and
-   *why that approach* rather than an obvious alternative.
+   _why that approach_ rather than an obvious alternative.
 2. Flag anything that would break, anything non-obvious, and any ordering the
    change depends on.
 3. Then stop, unless the change is trivial or mechanical (a rename, a typo, a
@@ -81,7 +81,7 @@ main.go            builds an App, loads a Scene, builds an ECS World
 core/              NewApp (window + backend), App.Run (the frame loop), renderUI
 scene/ ecs/        meshes, lights, camera, skybox, materials, physics entities
 input/ physics/    — plain Go, zero graphics calls
-renderer/          the abstraction: Backend interface, opaque handles, the two uniform structs
+renderer/          the abstraction: Backend interface, opaque handles, the three uniform structs
 vulkan/            the only package that may import vk.*
 ```
 
@@ -89,28 +89,30 @@ Four invariants hold the engine together. Breaking any of them is how it goes wr
 
 1. **Nothing above `renderer/` imports a graphics API.** Scene/core/ecs/input/physics own opaque handles (`renderer.MeshHandle`, `TextureHandle`, …) that the backend interprets in its own table. This is the rule that keeps `go test ./...` runnable without a GPU, and it is why the abstraction is kept despite there being one backend.
 
-2. **Clears and viewports exist only inside `Backend.BeginPass`.** Never add a free-floating clear to scene or core code.
+2. **Clears and viewports exist only inside `Backend.BeginPass`** — or are narrowed by `SetViewportScissor` within a pass on an atlas target, which is the one amendment. Never add a free-floating clear to scene or core code.
 
-3. **Uniforms are two typed structs, split by update frequency.** `renderer.FrameUniforms` (1184 bytes, camera/lights/shadow maps) is published once per pass by `BindFrameUniforms`; `renderer.DrawUniforms` (128 bytes, model matrix + material) goes out per draw. Both mirror `shaders/slang/common.slang` field for field, and the backend **uploads them by memcpy** into a ring buffer plus two pushed device addresses.
+3. **Uniforms are three typed structs, split by update frequency.** `renderer.FrameUniforms` (4844 bytes, camera/lights/the tile being baked) is published once per pass by `BindFrameUniforms`; `renderer.DrawUniforms` (128 bytes, model matrix + material) goes out per draw; `renderer.ShadowRecord` (96 bytes, one shadow tile) is a variable-length **array** published once per frame by `BindShadowRecords`, its length being a property of the scene. All three mirror `shaders/slang/common.slang` field for field, and the backend **uploads them by memcpy** into a ring buffer plus three pushed device addresses.
 
    That works because Slang compiles with `-fvk-use-scalar-layout` and scalar layout is exactly Go's packing for `float32`/`int32` structs — so **keeping the field order in step is the whole requirement**. No 16-byte cells, no `vec3`-plus-scalar pairing, no vectors standing in for scalar arrays; that was std140's rule and it went with the OpenGL backend on 2026-08-05. Use only `float32`, `int32`, arrays of those, and `mgl32` matrices — anything with a wider alignment breaks the correspondence.
 
    The guard is an `init()` size panic in `renderer/uniforms.go`. It catches a member added, removed or resized — it cannot catch two members swapped, which leaves the size identical and renders silent garbage. **After editing `common.slang`, rebuild shaders and look at the scene.** To check a layout by hand, `spirv-dis shaders/vk/forward.frag.spv | grep OpMemberDecorate` prints the offsets the compiler actually emitted.
 
-   `ScalarBlockLayout` is load-bearing: `LightData` is 68 bytes, so `lights[]` has a non-16-aligned stride that the standard layout rules reject. `spirv-val` fails on these modules unless given `--scalar-block-layout`.
+   `ScalarBlockLayout` is load-bearing: `LightData` is 72 bytes, so `lights[]` has a non-16-aligned stride that the standard layout rules reject. `spirv-val` fails on these modules unless given `--scalar-block-layout`.
 
 4. **Shaders are authored once in Slang** (`src/shaders/slang/`) and compiled to SPIR-V. The backend does not read `.slang` at runtime, so `build_shaders.sh` must run before the first build and after every shader edit.
 
-Frame shape (`core/App.Run`): physics + mesh re-upload → input → `BeginFrame` → ≤2 shadow passes (depth-only, no color clear) → main backbuffer pass (skybox with LEQUAL depth, scene forward, UI fullscreen quad) → `EndFrame`. Shadow budget is fixed at load: `Scene.pickShadowCasters` gives a 2D map to the first directional light and a cube map to the first point light; other lights still light the scene, they just cast nothing.
+Frame shape (`core/App.Run`): physics + mesh re-upload → input → `BeginFrame` → tile allocation + records → one shadow-atlas pass (depth-only, no color clear, one viewport per tile) → main backbuffer pass (skybox with LEQUAL depth, scene forward, UI fullscreen quad) → `EndFrame`.
 
-Conventions that would silently produce a mirrored or inside-out image: the main pass uses a **negative-height viewport** so clip space comes out y-up, which is what the projection matrices in `scene/` assume; that also flips winding, so it keeps CCW front faces. The shadow passes use a positive viewport and declare `FrontFace = Clockwise`. Projections are the OpenGL convention (clip z in `[-w, w]`), so every vertex stage calls `TO_VK_DEPTH`. `notes/ENGINE_FLOW.md` §5 is the full list, §6 is a symptom→file table.
+**Every shadow in the scene is a sub-rect of one 4096² depth texture** — a sun or spot takes one tile, a point light six 90° tiles rather than a cubemap — so the pass count does not grow with the light count. Each tile is described by a `ShadowRecord` whose `LightSpace` matrix both bakes it and samples it. Two rules are silent corruption if broken: **clamp every PCF tap to the tile inset by one texel** (an atlas has no border; the neighbour is another light's shadow), and **widen each cube face to `90° + 2 texels`** (no cross-face filtering, so the kernel must stay inside its own tile). Shadow budget is still fixed at load: `Scene.pickShadowCasters` picks the first directional and first point light; other lights still light the scene, they just cast nothing.
+
+Conventions that would silently produce a mirrored or inside-out image: the main pass uses a **negative-height viewport** so clip space comes out y-up, which is what the projection matrices in `scene/` assume; that also flips winding, so it keeps CCW front faces. The shadow pass uses a positive viewport and declares `FrontFace = Clockwise`. Projections are the OpenGL convention (clip z in `[-w, w]`), so every vertex stage calls `TO_VK_DEPTH`. `notes/ENGINE_FLOW.md` §5 is the full list, §6 is a symptom→file table.
 
 ## Documentation map
 
 - `notes/OVERVIEW.md` — **the whole engine in one read.** Layers, startup order, one frame, how uniforms and textures reach a shader, and the record-vs-submit model. Start here if the context is cold; it is deliberately the one file that restates the others.
-- `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method. §0 indexes all 25 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §5 is the rendering conventions, §6 a symptom→file table, §7 the Vulkan object-ownership tree and the five lifetime classes.
+- `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method. §0 indexes all 27 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §5 is the rendering conventions, §6 a symptom→file table, §7 the Vulkan object-ownership tree and the five lifetime classes.
 - `notes/ARCHITECTURE.md` — the code map: repository layout, the dependency rule (with the diagram), scene loading, physics/ECS, a package-by-package symbol reference, the XML/OBJ scene format and the Blender add-on, and §8 the list of dead files.
-- `notes/FEATURES.md` — what is implemented and *why it is built that way* (shadow bias, early-bail PCF, bindless vs dedicated descriptors), Part 2 the roadmap and known gaps, plus the performance history.
+- `notes/FEATURES.md` — what is implemented and _why it is built that way_ (shadow bias, early-bail PCF, bindless vs dedicated descriptors), Part 2 the roadmap and known gaps, plus the performance history.
 - `notes/tmp/BACKEND_DECISION.md` — **the current plan.** Why Vulkan only, what the `Backend` interface cannot yet express, and the ordered work items to fix that.
 - `notes/TODO.md` — the working list.
 - `notes/README.md` — index of `notes/`, and the shared conventions the cheatsheets follow.
@@ -118,6 +120,6 @@ Conventions that would silently produce a mirrored or inside-out image: the main
 
 ## Conventions
 
-Comments here are one-line, sentence-case, no trailing period, placed above the declaration and explaining *why* or *what invariant*, not what the code literally does. Match that density — it is deliberate and consistent across the tree.
+Comments here are one-line, sentence-case, no trailing period, placed above the declaration and explaining _why_ or _what invariant_, not what the code literally does. Match that density — it is deliberate and consistent across the tree.
 
 Scenes are XML (`src/assets/*.xml`) referencing OBJ/MTL in `assets/meshes/`, produced by the Blender add-on in `src/plugin/xml_export.py`. Static mesh geometry is baked into the OBJ vertices (identity model matrix), so `<position>` is unused for them.

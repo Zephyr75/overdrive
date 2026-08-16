@@ -1,12 +1,19 @@
 # Lighting implementation — Parts A–H
 
-**Status: not started.** The build order for `LIGHTING_PLAN.md`, split so each
-part is a session's work that leaves the tree running.
+**Status: A, B and C landed.** The build order for `LIGHTING_PLAN.md`, split so
+each part is a session's work that leaves the tree running.
+
+The "As each part lands" sync below **has been done through C**:
+`../FEATURES.md`, `../ENGINE_FLOW.md`, `../ARCHITECTURE.md`, `../OVERVIEW.md`,
+`../TODO.md` and `../../CLAUDE.md` describe the atlas rather than per-light
+shadow targets. A–C are not struck from this file yet, since the deviations
+recorded under each are the only account of _why_ the shipped shape differs from
+`LIGHTING_PLAN.md`.
 
 Scope: what to edit, in what order, and how to know each part landed. Every
 `§n` below points into `LIGHTING_PLAN.md`.
 
-Not here: *why* the design looks like this — the decisions, the atlas layout,
+Not here: _why_ the design looks like this — the decisions, the atlas layout,
 the capacity arithmetic and the rejected alternatives all live in
 `LIGHTING_PLAN.md`.
 
@@ -14,16 +21,16 @@ the capacity arithmetic and the rejected alternatives all live in
 
 ## Parts
 
-| part | theme | risk | unlocks |
-|---|---|---|---|
-| [A](#part-a--light-model) | light model, spot lights | struct layout | ~64 lights |
-| [B](#part-b--atlas-plumbing) | atlas plumbing | image layouts | tiles drawable |
-| [C](#part-c--records-and-atlas-sampling) | records, atlas sampling | tile bleeding | one sampler, N tiles |
-| [D](#part-d--the-allocator) | quadtree allocator | fragmentation | variable resolution |
-| [E](#part-e--staticdynamic-split) | static/dynamic, caching | classification | the shadow budget |
-| [F](#part-f--depth-prepass) | depth prepass | MSAA + `EQUAL` | overdraw, AO input |
-| [G](#part-g--clustered-forward) | clustered forward | Z distribution | 1000s of lights |
-| [H](#part-h--quality-tiers) | quality tiers | dead knobs | the low-end story |
+| part                                                | theme                    | risk           | unlocks              |
+| --------------------------------------------------- | ------------------------ | -------------- | -------------------- |
+| [A](#part-a--light-model) _(landed)_                | light model, spot lights | struct layout  | ~64 lights           |
+| [B](#part-b--atlas-plumbing) _(landed)_             | atlas plumbing           | image layouts  | tiles drawable       |
+| [C](#part-c--records-and-atlas-sampling) _(landed)_ | records, atlas sampling  | tile bleeding  | one sampler, N tiles |
+| [D](#part-d--the-allocator)                         | quadtree allocator       | fragmentation  | variable resolution  |
+| [E](#part-e--staticdynamic-split)                   | static/dynamic, caching  | classification | the shadow budget    |
+| [F](#part-f--depth-prepass)                         | depth prepass            | MSAA + `EQUAL` | overdraw, AO input   |
+| [G](#part-g--clustered-forward)                     | clustered forward        | Z distribution | 1000s of lights      |
+| [H](#part-h--quality-tiers)                         | quality tiers            | dead knobs     | the low-end story    |
 
 Three positions in that order are fixed:
 
@@ -99,6 +106,7 @@ everything later parts need, so the layout is disturbed exactly once.
    uniform-block ceiling in play either, since the block is read through a
    device address rather than bound as a UBO. Capping at 16 would leave Part D's
    allocator untestable near the atlas's real capacity until Part G.
+
 3. ~~Add `LightSpot`, the scene and XML plumbing, delete `cos45`.~~ **Done.**
    The XML carries Blender's own spot terms rather than the cosines —
    `<cone>` (full angle, degrees) and `<coneBlend>` (0..1 soft-edge fraction) —
@@ -126,15 +134,17 @@ everything later parts need, so the layout is disturbed exactly once.
    - **A sun gets 0**, since a directional light does not attenuate. That makes
      the type guard in step 6 load-bearing: drop it and the sun disappears
      rather than degrading.
+
 5. ~~`forward.slang`: add `calcSpotLight`.~~ **Done.** `calcPointLight` times a
    smoothstep from `outerCutoff` to `cutoff`, with `fsMain` switching on
    `light.type` through the new `LIGHT_*` defines in `common.slang`.
 
    The cone term is `dot(L, direction)`, **not** `dot(-L, direction)` as written
-   above: in this engine `direction` points *toward* the light. `LightXml.toLight`
+   above: in this engine `direction` points _toward_ the light. `LightXml.toLight`
    negates Blender's shine vector (`scene/light.go:79`) and `calcDirLight` then
    uses `direction` directly as the incoming `L`. A spot has no shadow path yet —
    `pickShadowCasters` only ever picks a sun and a point light.
+
 6. ~~`forward.slang`: the attenuation early-out (§6).~~ **Done**, at the top of
    the light loop, before the BRDF and before any shadow lookup, guarded on
    `type != LIGHT_SUN` because a sun's `Radius` is 0.
@@ -150,21 +160,21 @@ everything later parts need, so the layout is disturbed exactly once.
 
 **Gate.** Standard gate, plus: the showcase renders a visible cone, and
 `MaxLights` 64 does not regress FPS — the early-out should make a 64-light scene
-*faster* than 8 lights without one.
+_faster_ than 8 lights without one.
 
 **The showcase cannot show that.** Its radii, as computed:
 
-| light | intensity | radius |
-|---|---|---|
-| PointWarm | 0.2 | **7.07** |
-| PointRed | 20 | 71.4 |
-| PointGreen | 30 | 87.5 |
-| PointBlue | 20 | 71.4 |
-| Sun | 4.5 | 0 (directional) |
+| light      | intensity | radius          |
+| ---------- | --------- | --------------- |
+| PointWarm  | 0.2       | **7.07**        |
+| PointRed   | 20        | 71.4            |
+| PointGreen | 30        | 87.5            |
+| PointBlue  | 20        | 71.4            |
+| Sun        | 4.5       | 0 (directional) |
 
 The scene is ~10–20 units across, so four of the five lights reach every
 fragment in it and the early-out culls almost nothing. Step 6 needs a scene of
-many *dim, localised* lights to measure at all — the same layered test scene
+many _dim, localised_ lights to measure at all — the same layered test scene
 Part F wants for overdraw, so build it once and use it for both.
 
 That is a property of the showcase's authoring, not of the formula: `PointWarm`
@@ -210,6 +220,7 @@ nothing yet using them.
    without a further barrier, and the destination's next `BeginPass` starts from
    a layout it can name. It also rejects an out-of-range region outright — an
    out-of-bounds `CmdCopyImage` is a device loss, not a clipped copy.
+
 4. ~~Allocate the atlas through the existing `RenderTargetSpec`.~~ Nothing to
    do: a 4096 `TargetDepth` with `Cube: false` already allocates.
 5. ~~Record the invariant-2 amendment in `../ENGINE_FLOW.md` §5.~~ **Done**, plus
@@ -239,59 +250,106 @@ only at the end.
 
 **Steps.**
 
-1. Define `ShadowRecord` (§5.2, 96 bytes) in `renderer/`. Put the array in a
-   storage buffer reached by device address and push it as a **third pointer**
-   beside the two `PushConstants` already carries (§2.5) — no new descriptor, no
-   texel buffer, no bindings work. `PushConstants` goes 16 → 24 bytes, well
-   inside the 128-byte minimum.
-2. Rework `FrameUniforms` per §5.3, to:
+1. ~~Define `ShadowRecord` (§5.2, 96 bytes) and push it as a third pointer.~~
+   **Done.** `PushConstants` is 16 → 24 bytes, and `pushConstantSize` is now
+   `unsafe.Sizeof(pushAddresses{})` rather than a literal at the two call sites
+   that had to agree.
+
+   The array rides the **existing per-frame ring**, not a separate storage
+   buffer: the ring is already `BufferUsageShaderDeviceAddress` and already
+   reset per frame, so `writeRing` only had to grow a slice form
+   (`writeRingSlice`). `CreateStorageBuffer` (`BACKEND_DECISION.md` §9 item 8)
+   is still worth having, but nothing here needed it.
+
+   That took a **third `Backend` method**, which §8 did not list:
+   `BindShadowRecords([]ShadowRecord)`, frame-scoped rather than pass-scoped.
+   `BeginFrame` seeds the ring with one empty record so a frame that never calls
+   it still pushes a dereferenceable address.
+
+2. ~~Rework `FrameUniforms` per §5.3.~~ **Done, at 4844 bytes rather than the
+   4828 the plan predicted.** §5.3 removed `FarPlane` and `LightPos` on the
+   grounds that "the record carries both now" — true of the _sampling_ side, and
+   wrong about the _bake_ side: `depth_point.slang` writes radial distance and
+   never reads the record array, so it needs the light position and far plane
+   from somewhere. They came back as `BakeLightPos` / `BakeFarPlane` beside
+   `BakeMatrix`, +16 bytes:
 
    ```go
    View, Projection mgl32.Mat4            // 128
    BakeMatrix       mgl32.Mat4            // 64   → 192
-   ViewPos          [3]float32            // 12   → 204
-   LightCount       int32                 //  4   → 208
-   Lights           [64]LightData         // 4608 → 4816
-   TexShadowStatic  TextureHandle         //  4   → 4820
-   TexShadowDynamic TextureHandle         //  4   → 4824
-   TexSkybox        TextureHandle         //  4   → 4828
+   BakeLightPos     [3]float32            // 12   → 204
+   BakeFarPlane     float32               //  4   → 208
+   ViewPos          [3]float32            // 12   → 220
+   LightCount       int32                 //  4   → 224
+   Lights           [64]LightData         // 4608 → 4832
+   TexShadowStatic  TextureHandle         //  4   → 4836
+   TexShadowDynamic TextureHandle         //  4   → 4840
+   TexSkybox        TextureHandle         //  4   → 4844
    ```
 
-   Expected size **4828**, down from Part A's 5248: the six-matrix array and the
-   cube bookkeeping leave and nothing fixed-size replaces them. Update the
-   `init()` guard.
-3. Replace `Light.RenderShadowMap` (`scene/light.go:99`) with a tile bake: one
-   `BeginPass` on the atlas for the whole frame, `SetViewportScissor` per tile,
-   one `BakeMatrix` per tile (§4.4's loop). A point light becomes six ordinary
-   tile bakes at 90° with the `+2 texel` FOV widening from §4.2. Delete
-   `Light.setup`'s per-light `CreateRenderTarget` and the `shadowTarget` /
-   `depthMap` / `depthCubeMap` fields with it.
-4. In `core/app.go`, the two-iteration `for _, i := range [2]int32{dirCaster,
-   pointCaster}` loop becomes one call into the tile bake.
-5. Delete `depth_cube.slang` and its `CreateShader("depth_cube")` call. The
-   backend probes for `<name>.geo.spv`, so nothing else references it. If
-   `BACKEND_DECISION.md` §9 item 3 has not landed yet, the Vulkan
-   `FrontFace = Clockwise` shadow-pass case goes here too — it exists only to
-   match that geometry stage's memory layout.
-6. `forward.slang`: one `shadowLookup(record, fragPos, normal)` replacing
-   `shadowCalculation` and `shadowCalculationCube`. Cube face selection is the
-   major axis of `fragPos - light.position`, indexing
-   `records[light.shadowIndex + face]`. Keep the 4-tap early-bail, and **clamp
-   every tap to the record's rect inset by one texel** (§4.2).
+   Still a net shrink from Part A's 5248. `spirv-dis` confirms slangc emits
+   those exact offsets.
 
-   Keep storing **linear radial distance to the light**, as the current cube
-   path does, rather than switching to per-face projected depth — that is what
-   `ShadowRecord.FarPlane` carries. Radial distance is face-independent, so
-   depth is continuous across a face boundary and the bias tunes once rather
-   than per face (§2.4).
-7. `common.slang`: `shadowMap2D` and `shadowCubeMap[]` collapse to two
-   `Sampler2D`; the dedicated cube descriptors and `MAX_SHADOW_CUBES` go.
-8. Interim allocation: hardcode a fixed partition — sun tile plus N point-light
-   tile groups — so the part is testable before Part D exists.
+3. ~~Replace `Light.RenderShadowMap` with a tile bake.~~ **Done** in the new
+   `scene/shadowatlas.go`: one `BeginPass` on the atlas, then per tile a
+   `SetViewportScissor`, a `BakeMatrix` and a full mesh loop. `Light.setup`,
+   `shadowTarget`, `depthMap`, `depthCubeMap` and the `backend` field are gone —
+   a light owns no GPU resource at all now, only a `shadowIndex`/`shadowCount`
+   pair into the record array.
+4. ~~`core/app.go`: one call into the tile bake.~~ **Done**, and the order is
+   load-bearing: `UpdateShadows` (allocate + build records) → `BindShadowRecords`
+   → `FillFrameUniforms` (which copies each light's `shadowIndex` out) →
+   `BakeShadows`.
+5. ~~Delete `depth_cube.slang`.~~ **Done**, replaced by `depth_point.slang`:
+   vertex plus a fragment stage writing `SV_Depth`, no geometry stage. The
+   `FrontFace = Clockwise` case stays for now — `passShadow2D` and
+   `passShadowCube` were already identical pipeline state, so retiring the
+   geometry stage did not touch it, and `BACKEND_DECISION.md` §9 item 3 is still
+   what deletes it.
+6. ~~`forward.slang`: one `shadowLookup`.~~ **Done**, as `shadowLookup` +
+   `pcfTile` + `tileSample` + `cubeFace`. Radial depth for face tiles, projected
+   depth for a sun or spot, normalised so both compare in the tile's own [0, 1].
 
-**Gate.** Standard gate, and specifically: the showcase scene's shadows are
-indistinguishable from before this part. It is a pure refactor of *where* shadow
-data lives.
+   Two things the plan did not say:
+
+   - **The clamp-to-border sampler stopped meaning anything.** The sun's map got
+     "outside the frustum reads fully lit" free from `BorderColorOpaqueWhite`;
+     inside an atlas the neighbours _are_ the border. `shadowLookup` now tests
+     the tile-local uv explicitly and returns 0 before sampling.
+   - **The point-light kernel changed shape**, from 20 taps on a 3D disk to the
+     same 4-then-3×3 the 2D path uses. It is the one place the image is not a
+     pure refactor: penumbra width on point shadows will differ slightly.
+
+7. ~~`common.slang`: two `Sampler2D`.~~ **Done.** Bindings 2 and 3 are
+   `shadowAtlasStatic` and `shadowAtlasDynamic`; `MAX_SHADOW_CUBES` and
+   `renderer.MaxShadowCubes` are gone, and the descriptor pool lost 3 of its 4
+   cube-shadow descriptors. `samplerShadowCube` survives only because
+   `CreateRenderTarget` still handles a cube depth spec nothing asks for.
+8. ~~Interim allocation.~~ **Done**: a 4096² atlas as a row-major grid of 16
+   tiles of `settings.ShadowWidth` (1024), handed out in order, with the caster
+   set left exactly as it was — first sun, first point light — so the gate has
+   something to compare against. A point light takes its six tiles all or
+   nothing; five would leave a lit wedge.
+
+**Gate.** Standard gate: builds, `go test ./...` green, `spirv-val
+--scalar-block-layout` clean on all ten modules, and
+`OVERDRIVE_VK_VALIDATION=1 go run .` runs silent at ~180 FPS on the 5070 Ti.
+
+**The eyeball step has not been done** — no screenshot path on this Wayland
+session — so "the showcase's shadows are indistinguishable" is _unverified_.
+Standing in for it: `scene/shadowatlas_test.go` checks on the CPU that
+`cubeFaceDirs`, `cubeFace()` and the six matrices agree (a point along each face
+direction projects inside that face's own tile), that a tile's `AtlasRect` and
+`TexelSize` match the pixels the bake's viewport wrote, and that the allocator
+hands out non-overlapping tiles and refuses to wrap. That covers the two silent
+failures in the Risk note; it does not cover bias, penumbra or bleeding.
+
+**Also unresolved, and now more visible.** The point-light path multiplies its
+shadow by **5.0**, so `Lo += contrib * (1.0 - shadow)` goes _negative_ on a fully
+shadowed fragment and subtracts light that other lights put there. That predates
+this part and is preserved verbatim rather than silently fixed, since the gate is
+an unchanged image — but it is a bug, not a tuning constant, and Part D or E
+should delete the factor and re-tune.
 
 **Risk.** Tile bleeding (missing rect clamp) shows as shadows from the wrong
 light; cube seams (missing FOV widening) show as hairline cracks at face

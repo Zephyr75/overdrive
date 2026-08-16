@@ -78,13 +78,13 @@ Two things to notice:
 
 - **Per-frame data** is one function creating four things — command buffer,
   fence, semaphore, uniform ring — because they share a lifetime, not a
-  subsystem. Everything that exists *once per frame in flight* is built there.
+  subsystem. Everything that exists _once per frame in flight_ is built there.
 - **Samplers and descriptors are independent.** Neither uses the other. They
   only meet later, when a texture is written into a descriptor (§4).
 
-Then `App.Run` loads five shader sets — `forward`, `depth`, `depth_cube`, `ui`,
+Then `App.Run` loads five shader sets — `forward`, `depth`, `depth_point`, `ui`,
 `skybox` — and `scene.NewScene` parses XML, uploads meshes and textures, and
-allocates the shadow maps.
+allocates the one shadow atlas.
 
 → `ENGINE_FLOW.md` §2.
 
@@ -95,9 +95,9 @@ allocates the shadow maps.
 ```mermaid
 graph TD
     P["physics · mesh re-upload · input"] --> BF["BeginFrame"]
-    BF --> S1["shadow pass — sun<br/><i>depth only</i>"]
-    S1 --> S2["shadow pass — point light<br/><i>depth cube, one layered draw</i>"]
-    S2 --> MP["main pass"]
+    BF --> AL["allocate tiles · build records<br/><i>one record per shadow</i>"]
+    AL --> S1["shadow-atlas pass<br/><i>depth only, one viewport per tile</i>"]
+    S1 --> MP["main pass"]
     MP --> SK["skybox"] --> SC["scene meshes"] --> UI["UI overlay"]
     UI --> EF["EndFrame<br/><i>submit + present</i>"]
     EF --> P
@@ -110,14 +110,18 @@ Each pass is the same three beats: `BeginPass` → bind uniforms → draw → `E
 
 What the green and red boxes actually do:
 
-| | |
-|---|---|
-| **`BeginFrame`** | wait on this slot's fence *(the CPU throttle)* · acquire a swapchain image · reset the ring · flush any staged texture uploads · begin the command buffer · bind the one descriptor set |
-| **`EndFrame`** | barrier the image to present layout · end the command buffer · **submit** · present · advance the frame slot |
+|                  |                                                                                                                                                                                         |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`BeginFrame`** | wait on this slot's fence _(the CPU throttle)_ · acquire a swapchain image · reset the ring · flush any staged texture uploads · begin the command buffer · bind the one descriptor set |
+| **`EndFrame`**   | barrier the image to present layout · end the command buffer · **submit** · present · advance the frame slot                                                                            |
 
-The shadow budget is fixed at load: the first directional light gets a 2D map,
-the first point light gets a cube. Other lights still light the scene, they just
-cast nothing.
+Every shadow in the scene is a sub-rect of **one** 4096² depth texture: a sun or
+spot takes one tile, a point light six 90° tiles instead of a cubemap. So the
+pass count no longer grows with the light count — one `BeginPass`, then a
+`SetViewportScissor` per tile.
+
+The budget is still fixed at load: the first directional and the first point
+light get tiles. Other lights still light the scene, they just cast nothing.
 
 → `ENGINE_FLOW.md` §3.
 
@@ -130,8 +134,8 @@ Two completely separate paths, and the split is forced rather than chosen.
 ```mermaid
 graph LR
     subgraph BDA["buffer device address"]
-        U["FrameUniforms 5248 B<br/>DrawUniforms 128 B"] --> RG["per-frame ring<br/>1 MiB, mapped"]
-        RG --> PC["push constant<br/>2 × 64-bit address"]
+        U["FrameUniforms 4844 B<br/>DrawUniforms 128 B<br/>ShadowRecord[] 96 B each"] --> RG["per-frame ring<br/>1 MiB, mapped"]
+        RG --> PC["push constant<br/>3 × 64-bit address"]
     end
     subgraph DESC["descriptors"]
         T["textures"] --> DS["one descriptor set<br/>4 bindings"]
@@ -143,19 +147,24 @@ graph LR
 ### Uniforms — by pointer
 
 The blocks are memcpy'd into a mapped ring buffer, and their **GPU addresses**
-go out as a 16-byte push constant. The shader dereferences them like C pointers.
+go out as a 24-byte push constant. The shader dereferences them like C pointers.
 No descriptors, no dynamic offsets, no binding.
 
 They are split by **update frequency**, which is the whole reason it is cheap:
 
-- `FrameUniforms` — camera, lights, shadow maps — published **once per pass**
+- `FrameUniforms` — camera, lights, atlas handles — published **once per pass**
 - `DrawUniforms` — model matrix, material — sent **once per draw**
+- `ShadowRecord[]` — one per shadow tile — published **once per frame**
 
-So a draw costs one 128-byte memcpy plus a 16-byte push. Before the split, all
+So a draw costs one 128-byte memcpy plus a 24-byte push. Before the split, all
 1.3 KB went out on every draw.
 
+The records are a pointer rather than a member of `FrameUniforms` for one
+reason: their count is a property of the scene, and a block whose size is fixed
+at compile time cannot hold it.
+
 This works because Go packs `float32`/`int32` structs exactly the way Vulkan's
-*scalar layout* does — so both sides agree with no marshalling code. The only
+_scalar layout_ does — so both sides agree with no marshalling code. The only
 rule left: **keep the field order in `renderer/uniforms.go` and `common.slang`
 identical.**
 
@@ -170,21 +179,23 @@ compressed — so they need descriptors, and always will.
 
 One set, four bindings, bound **once per frame**:
 
-| binding | what | how many |
-|---|---|---|
-| 0 | material textures — bindless | 256 |
-| 1 | cubemaps — bindless | 64 |
-| 2 | the sun's shadow map — dedicated | 1 |
-| 3 | point-light shadow cubes — dedicated | 4 |
+| binding | what                                 | how many |
+| ------- | ------------------------------------ | -------- |
+| 0       | material textures — bindless         | 256      |
+| 1       | cubemaps — bindless                  | 64       |
+| 2       | the static shadow atlas — dedicated  | 1        |
+| 3       | the dynamic shadow atlas — dedicated | 1        |
 
 "Bindless" means the shader indexes an array: `textures2D[DRAW.texOurTexture]`.
 The engine translates a `TextureHandle` into a slot index on the CPU and writes
 that integer into the uniform block. **The shader never receives a descriptor —
 it receives an int.**
 
-Bindings 2 and 3 are deliberately *not* bindless: PCF taps them 9–20× per
+Bindings 2 and 3 are deliberately _not_ bindless: PCF taps them up to 13× per
 fragment, and some drivers re-fetch a dynamically-indexed descriptor on every
-tap. That cost ~1.7× the frame time.
+tap. That cost ~1.7× the frame time. Both are plain `Sampler2D` — a point
+light's six faces are ordinary tiles of the same atlas, not a cubemap. The
+second one is Part E's static/dynamic split; today both point at one texture.
 
 ### What a descriptor actually holds
 
@@ -194,11 +205,11 @@ For the type used here, one slot is a **triple**:
 (image view, sampler, image layout)
 ```
 
-| part | answers | comes from |
-|---|---|---|
-| **image view** | *which* pixels, read as what type | view creation — several views can overlay one image |
-| **sampler** | *how* to filter them | sampler creation, referencing no image at all |
-| **layout** | how the pixels are arranged *when read* | a **promise**, kept by a barrier elsewhere |
+| part           | answers                                 | comes from                                          |
+| -------------- | --------------------------------------- | --------------------------------------------------- |
+| **image view** | _which_ pixels, read as what type       | view creation — several views can overlay one image |
+| **sampler**    | _how_ to filter them                    | sampler creation, referencing no image at all       |
+| **layout**     | how the pixels are arranged _when read_ | a **promise**, kept by a barrier elsewhere          |
 
 That last one is the subtle bit. **The layout in a descriptor performs no
 transition.** It declares "when a shader reads through this, the image will be
@@ -221,26 +232,26 @@ graph LR
     end
     R2 --> SUB["QueueSubmit2<br/><i>in EndFrame</i>"]
     subgraph GPU["GPU — after the submit"]
-        SUB --> EX["shadow passes, draws,<br/>barriers all execute"]
+        SUB --> EX["atlas pass, draws,<br/>barriers all execute"]
     end
 ```
 
 Every `vkCmd*` call **records**. Nothing in the frame's command buffer runs
 until `EndFrame` submits. The queue is touched in only three places:
 
-| where | what |
-|---|---|
-| `EndFrame` | `QueueSubmit2` — **one submit carries the entire frame** |
-| `EndFrame` | `QueuePresentKHR` |
+| where             | what                                                      |
+| ----------------- | --------------------------------------------------------- |
+| `EndFrame`        | `QueueSubmit2` — **one submit carries the entire frame**  |
+| `EndFrame`        | `QueuePresentKHR`                                         |
 | `immediateSubmit` | load-time texture uploads, which block the CPU until done |
 
-But *host-side* work is immediate, not deferred: memcpy into mapped memory,
+But _host-side_ work is immediate, not deferred: memcpy into mapped memory,
 `vkUpdateDescriptorSets`, and lazy pipeline compilation all take effect the
 moment they are called. That distinction is why the fence throttle exists — it
-protects the *memory the commands point at*, not the commands.
+protects the _memory the commands point at_, not the commands.
 
 The submit also does not wait for everything at once. Its semaphore wait is
-scoped to `ColorAttachmentOutput`, so the shadow passes can start immediately
+scoped to `ColorAttachmentOutput`, so the shadow-atlas pass can start immediately
 while only the swapchain colour writes wait for the image to arrive.
 
 ### Barriers
@@ -249,11 +260,11 @@ Nine of the ~21 recording sites are barriers — the work OpenGL did invisibly.
 One `vkCmdPipelineBarrier2` does **three jobs at once**:
 
 1. **ordering** — these stages finish before those stages start
-2. **cache flushing** — make writes *available* (out of the writer's cache),
-   then *visible* (into the reader's)
+2. **cache flushing** — make writes _available_ (out of the writer's cache),
+   then _visible_ (into the reader's)
 3. **layout transition** — the physical re-tiling
 
-Jobs 2 and 3 happen *because* you expressed job 1. Right layouts with sloppy
+Jobs 2 and 3 happen _because_ you expressed job 1. Right layouts with sloppy
 stage masks still renders garbage.
 
 > "The write finished" and "the reader can see it" are different claims.
@@ -273,7 +284,7 @@ Two index spaces that are **not** interchangeable:
 - `imageIndex` comes back from acquire — selects the swapchain image and its
   render semaphore
 
-Present waits on the *image's* semaphore; the submit waits on the *frame's*.
+Present waits on the _image's_ semaphore; the submit waits on the _frame's_.
 Mixing them is a subtle race.
 
 → `cheatsheets/VULKAN.md` §8 · `ENGINE_FLOW.md` §4.11, §7.
@@ -284,13 +295,13 @@ Mixing them is a subtle race.
 
 Not crashes — wrong pictures. Each is a convention that must hold everywhere.
 
-| convention | why |
-|---|---|
-| Main pass uses a **negative-height viewport** | Vulkan's clip space is y-down; the projections in `scene/` assume y-up. Flipping the viewport also flips winding, which is why CCW front faces stay correct |
-| Shadow passes use a **positive** viewport and declare **CW** front faces | a shadow map is sampled, not presented, so it wants the other memory layout — and pays for it in winding |
-| Every vertex stage calls `TO_VK_DEPTH` | the projections give clip z in `[-w, w]`; Vulkan clips to `[0, w]` |
-| Uniform **field order** matches between Go and Slang | scalar layout means no marshalling — and no protection if the order drifts |
-| Offscreen targets stay single-sampled | a later pass samples them, and these shaders cannot read a multisampled texture |
+| convention                                                                   | why                                                                                                                                                         |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Main pass uses a **negative-height viewport**                                | Vulkan's clip space is y-down; the projections in `scene/` assume y-up. Flipping the viewport also flips winding, which is why CCW front faces stay correct |
+| The shadow pass uses a **positive** viewport and declares **CW** front faces | an atlas is sampled, not presented, so it wants the other memory layout — and pays for it in winding                                                        |
+| Every vertex stage calls `TO_VK_DEPTH`                                       | the projections give clip z in `[-w, w]`; Vulkan clips to `[0, w]`                                                                                          |
+| Uniform **field order** matches between Go and Slang                         | scalar layout means no marshalling — and no protection if the order drifts                                                                                  |
+| Offscreen targets stay single-sampled                                        | a later pass samples them, and these shaders cannot read a multisampled texture                                                                             |
 
 The first three are all leftovers of the OpenGL era, and all four workarounds
 disappear together if the projections are rebuilt Vulkan-native — which is the
@@ -302,12 +313,12 @@ next planned change.
 
 ## 7. Where to go next
 
-| you want | read |
-|---|---|
-| how a frame is drawn, method by method | `ENGINE_FLOW.md` — start at §0 |
-| where a symbol lives | `ARCHITECTURE.md` §5 |
-| whether a feature exists, and why it is built that way | `FEATURES.md` |
-| Vulkan concepts, engine-independent | `cheatsheets/VULKAN.md` |
-| the theory behind the shading | `cheatsheets/PBR.md` |
-| what is planned, in order | `tmp/BACKEND_DECISION.md` §9 |
-| the next small task | `TODO.md` |
+| you want                                               | read                           |
+| ------------------------------------------------------ | ------------------------------ |
+| how a frame is drawn, method by method                 | `ENGINE_FLOW.md` — start at §0 |
+| where a symbol lives                                   | `ARCHITECTURE.md` §5           |
+| whether a feature exists, and why it is built that way | `FEATURES.md`                  |
+| Vulkan concepts, engine-independent                    | `cheatsheets/VULKAN.md`        |
+| the theory behind the shading                          | `cheatsheets/PBR.md`           |
+| what is planned, in order                              | `tmp/BACKEND_DECISION.md` §9   |
+| the next small task                                    | `TODO.md`                      |

@@ -14,9 +14,9 @@ type Collider interface {
 
 type Verlet struct {
 	Pos     mgl32.Vec3
-	PrevPos mgl32.Vec3
-	Accel   mgl32.Vec3
-	Fixed   bool
+	PrevPos mgl32.Vec3 // last step's Pos; the gap between the two stands in for velocity
+	Accel   mgl32.Vec3 // accumulated this step by Accelerate, consumed and zeroed by UpdatePosition
+	Fixed   bool       // true skips integration, an immovable collider
 }
 
 // Creates Verlet state at rest, fixed bodies never being integrated

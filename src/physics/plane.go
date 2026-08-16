@@ -7,11 +7,11 @@ import (
 
 type Plane struct {
 	Verlet
-	Normal    mgl32.Vec3
-	MainAxis  mgl32.Vec3
-	CrossAxis mgl32.Vec3
-	MainHalf  float32
-	CrossHalf float32
+	Normal    mgl32.Vec3 // unit, mainAxis × crossAxis
+	MainAxis  mgl32.Vec3 // unit, p2 - p1
+	CrossAxis mgl32.Vec3 // unit, p4 - p1
+	MainHalf  float32    // half-extent along MainAxis, the plane's finite boundary
+	CrossHalf float32    // half-extent along CrossAxis
 }
 
 // Fits a plane collider to a mesh's first quad

@@ -88,7 +88,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 	utils.HandleError(err)
 	depthShader, err := b.CreateShader("depth")
 	utils.HandleError(err)
-	depthCubeShader, err := b.CreateShader("depth_cube")
+	depthPointShader, err := b.CreateShader("depth_point")
 	utils.HandleError(err)
 	uiShader, err := b.CreateShader("ui")
 	utils.HandleError(err)
@@ -132,19 +132,16 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 
 		// One pass-scoped block, refilled and rebound as each pass begins
 		var f renderer.FrameUniforms
-		f.FarPlane = farPlane
 
 		if s != nil {
+			// Allocate this frame's tiles first: FillFrameUniforms copies each
+			// light's record index out of it, and the bake walks the same tiles
+			s.UpdateShadows(nearPlane, farPlane)
+			b.BindShadowRecords(s.ShadowRecords())
 			s.FillFrameUniforms(&f)
 
-			// One pass per casting light. Non-casters are lit unshadowed, and the
-			// sun's pass leaves its light-space matrix in f for the main pass
-			dirCaster, pointCaster := s.ShadowCasters()
-			for _, i := range [2]int32{dirCaster, pointCaster} {
-				if i >= 0 {
-					s.Lights[i].RenderShadowMap(nearPlane, farPlane, depthShader, depthCubeShader, s, &f)
-				}
-			}
+			// One pass for every shadow in the scene, a tile at a time
+			s.BakeShadows(depthShader, depthPointShader, &f)
 		}
 
 		// Run the main pass, the only one that clears color

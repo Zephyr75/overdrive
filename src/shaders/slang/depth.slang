@@ -2,11 +2,12 @@
 
 [shader("vertex")]
 float4 vsMain(float3 aPos) : SV_Position {
-    float4 pos = mul(FRAME.lightSpaceMatrix, mul(DRAW.model, float4(aPos, 1.0)));
-    TO_VK_DEPTH(pos);
-    return pos;
+  float4 pos = mul(FRAME.bakeMatrix, mul(DRAW.model, float4(aPos, 1.0)));
+  TO_VK_DEPTH(pos);
+  return pos;
 }
 
-// Depth-only pass, depth is written automatically and the fragment stage is empty
+// Depth-only pass, depth is written automatically and the fragment stage is
+// empty
 [shader("fragment")]
 void fsMain() {}

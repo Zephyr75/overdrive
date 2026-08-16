@@ -3,8 +3,8 @@
 Where everything lives and what calls what, package by package. This is the
 **navigation** document: use it to find the file you need.
 
-`ENGINE_FLOW.md` is the other half — it takes the same tree and follows *one
-frame* through it, then walks the `renderer.Backend` contract method by method.
+`ENGINE_FLOW.md` is the other half — it takes the same tree and follows _one
+frame_ through it, then walks the `renderer.Backend` contract method by method.
 Nothing about backend internals is repeated here.
 
 ---
@@ -25,7 +25,7 @@ Nothing about backend internals is repeated here.
 ## 1. Repository layout
 
 The Go module root is **`src/`** (module `github.com/Zephyr75/overdrive`), so
-`go` commands run from there. Runtime files are *not* found relative to the
+`go` commands run from there. Runtime files are _not_ found relative to the
 working directory: `paths` (§2.1) resolves them against the project root, the
 directory holding both `assets/` and `src/`.
 
@@ -97,13 +97,13 @@ project root once — walking up from the working directory for a directory
 containing both `assets/` and `src/` — and every runtime file is resolved
 against it:
 
-| call | resolves to |
-|---|---|
-| `paths.Asset("showcase.xml")` | `<root>/assets/showcase.xml` |
-| `paths.Mesh("Cube.obj")` | `<root>/assets/meshes/Cube.obj` |
-| `paths.Texture("skybox/top.png")` | `<root>/assets/textures/skybox/top.png` |
+| call                               | resolves to                              |
+| ---------------------------------- | ---------------------------------------- |
+| `paths.Asset("showcase.xml")`      | `<root>/assets/showcase.xml`             |
+| `paths.Mesh("Cube.obj")`           | `<root>/assets/meshes/Cube.obj`          |
+| `paths.Texture("skybox/top.png")`  | `<root>/assets/textures/skybox/top.png`  |
 | `paths.Shader("forward.vert.spv")` | `<root>/src/shaders/vk/forward.vert.spv` |
-| `paths.Config("vulkan.toml")` | `<root>/configs/vulkan.toml` |
+| `paths.Config("vulkan.toml")`      | `<root>/configs/vulkan.toml`             |
 
 `paths.Config` is the exception: a bare name resolves under `configs/`, anything
 carrying a separator is a path the user typed and is used as given, so
@@ -154,7 +154,7 @@ another backend is rejected rather than ignored.
 Two further invariants, both enforced by convention rather than by the compiler:
 
 - **Clears and viewports exist only inside `Backend.BeginPass`.** No free-floating clear anywhere in scene or core code
-- **Uniforms are two typed structs split by update frequency**, mirroring `shaders/slang/common.slang` field for field. See `ENGINE_FLOW.md` §4.5
+- **Uniforms are three typed structs split by update frequency**, mirroring `shaders/slang/common.slang` field for field. See `ENGINE_FLOW.md` §4.5
 
 ---
 
@@ -175,7 +175,7 @@ flowchart TD
     FV --> SU["Mesh.setup<br/>CreateBuffer + one CreateMesh per face group<br/>decode + CreateTexture per material"]
 
     LI --> PS["Scene.pickShadowCasters<br/>first sun + first point light"]
-    PS --> LS["Light.setup<br/>CreateRenderTarget for casters only"]
+    PS --> LS["shadowAtlas.setup<br/>one 4096² CreateRenderTarget, whatever the light count"]
 
     P --> SK["Skybox.setup<br/>CreateBuffer + CreateMesh + CreateCubemap"]
 
@@ -188,11 +188,13 @@ flowchart TD
 `BufferHandle` plus three `MeshHandle`s, each owning only its index list. That is
 why `Mesh.gpu` is a slice.
 
-**The shadow budget is fixed at load.** `pickShadowCasters` gives a 2D depth map
-to the first directional light and a depth cube to the first point light; every
-other light still lights the scene, it just casts nothing. The shader is built
-for up to `MAX_SHADOW_CUBES` (4) cube slots, but `Scene` currently fills only
-slot 0 — see `TODO.md`.
+**The shadow budget is fixed at load.** `pickShadowCasters` picks the first
+directional and the first point light; every other light still lights the scene,
+it just casts nothing. What they get is **tiles of one atlas** — one for the sun,
+six for the point light's faces — allocated per frame by `Scene.UpdateShadows`
+(`scene/shadowatlas.go`), which also writes one `ShadowRecord` per tile. The
+atlas holds 16 tiles and 7 are used; the per-frame allocator that fills the rest
+is `tmp/LIGHTING_IMPL.md` Part D.
 
 **Texture paths are made portable.** Blender bakes the absolute path of the
 machine that exported the scene into the MTL, so `texturePath` keeps only the
@@ -231,115 +233,120 @@ of the next frame.
 
 ## 5. Package reference
 
-Only what exists. Unexported symbols are marked *(pkg)*.
+Only what exists. Unexported symbols are marked _(pkg)_.
 
 ### `main.go`
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `main` | func | Creates the `App`, loads `assets/showcase.xml`, builds the ECS world, runs |
-| `createWorld` | func | Wires the demo's physics bodies, skipping meshes the scene lacks |
-| `StaticCollider` | type | An immovable body wrapping a `physics.Collider` |
-| `Sphere`, `Sphere2` | type | A falling and a static ball, each pairing a collider with a `scene.Mesh` |
-| `MainWindow` | func | The demo widget tree. Currently unused — `App.Run` is called with a nil widget |
+| Symbol              | Kind | Description                                                                    |
+| ------------------- | ---- | ------------------------------------------------------------------------------ |
+| `main`              | func | Creates the `App`, loads `assets/showcase.xml`, builds the ECS world, runs     |
+| `createWorld`       | func | Wires the demo's physics bodies, skipping meshes the scene lacks               |
+| `StaticCollider`    | type | An immovable body wrapping a `physics.Collider`                                |
+| `Sphere`, `Sphere2` | type | A falling and a static ball, each pairing a collider with a `scene.Mesh`       |
+| `MainWindow`        | func | The demo widget tree. Currently unused — `App.Run` is called with a nil widget |
 
 ### `core/`
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `App` | type | Window, backend, dimensions, debug flag, input callbacks |
-| `NewApp` | func | Constructs the backend (`vulkan.New()`, the only place it is named), hints and creates the window, wires input, then `Backend.Init` |
-| `App.Run` | func | Loads the five shader sets, builds the UI quad, then loops until the window closes. The frame shape is hardcoded here — see `tmp/BACKEND_DECISION.md` §6 |
-| `App.Quit` | func | Asks the window to close |
-| `renderUI` *(pkg)* | func | Rasterises the widget tree to RGBA, uploads it, draws the quad. Redraws only when the tree or hover state changed |
+| Symbol             | Kind | Description                                                                                                                                              |
+| ------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `App`              | type | Window, backend, dimensions, debug flag, input callbacks                                                                                                 |
+| `NewApp`           | func | Constructs the backend (`vulkan.New()`, the only place it is named), hints and creates the window, wires input, then `Backend.Init`                      |
+| `App.Run`          | func | Loads the five shader sets, builds the UI quad, then loops until the window closes. The frame shape is hardcoded here — see `tmp/BACKEND_DECISION.md` §6 |
+| `App.Quit`         | func | Asks the window to close                                                                                                                                 |
+| `renderUI` _(pkg)_ | func | Rasterises the widget tree to RGBA, uploads it, draws the quad. Redraws only when the tree or hover state changed                                        |
 
 ### `renderer/`
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `Backend` | interface | 25 methods, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency |
-| `TextureHandle`, `BufferHandle`, `MeshHandle`, `RenderTargetHandle`, `ShaderHandle` | type | Opaque `uint32`. Texture 0 is the white pixel, render target 0 the backbuffer |
-| `VertexLayout` | type | `LayoutMesh`, `LayoutPosition`, `LayoutPositionUV` — how a mesh's vertex buffer is read. Recorded at creation, which is what lets one `Draw` serve every drawable |
-| `RenderTargetSpec`, `TargetFormat` | type | Describes an offscreen target by what it *is* — size, depth or colour, cube or not |
-| `Feature`, `Supports` | type, method | The seam for ray tracing and compute; returns `false` today and has never been wired |
-| `FrameUniforms` | type | 5248 B: camera, lights, shadow maps. Published once per pass |
-| `DrawUniforms` | type | 128 B: model matrix and material. Sent per draw |
-| `LightData` | type | 68 B, mirrors the `LightData` struct in `common.slang` |
-| `MaxLights`, `MaxShadowCubes` | const | 8 and 4, must match `common.slang` |
+| Symbol                                                                              | Kind         | Description                                                                                                                                                       |
+| ----------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Backend`                                                                           | interface    | 27 methods, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency                                                                                  |
+| `TextureHandle`, `BufferHandle`, `MeshHandle`, `RenderTargetHandle`, `ShaderHandle` | type         | Opaque `uint32`. Texture 0 is the white pixel, render target 0 the backbuffer                                                                                     |
+| `VertexLayout`                                                                      | type         | `LayoutMesh`, `LayoutPosition`, `LayoutPositionUV` — how a mesh's vertex buffer is read. Recorded at creation, which is what lets one `Draw` serve every drawable |
+| `RenderTargetSpec`, `TargetFormat`                                                  | type         | Describes an offscreen target by what it _is_ — size, depth or colour, cube or not                                                                                |
+| `Feature`, `Supports`                                                               | type, method | The seam for ray tracing and compute; returns `false` today and has never been wired                                                                              |
+| `FrameUniforms`                                                                     | type         | 4844 B: camera, lights, the bake tile, the two atlas handles. Published once per pass, and once per tile inside the atlas pass                                    |
+| `DrawUniforms`                                                                      | type         | 128 B: model matrix and material. Sent per draw                                                                                                                   |
+| `ShadowRecord`                                                                      | type         | 96 B: one shadow tile — its light-space matrix, atlas rect, texel size, far plane, face and flags. A variable-length array, published once per frame              |
+| `LightData`                                                                         | type         | 72 B, mirrors the `LightData` struct in `common.slang`                                                                                                            |
+| `MaxLights`                                                                         | const        | 64, must match `common.slang`                                                                                                                                     |
 
 ### `scene/`
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `Scene` | type | Meshes, lights, skybox, camera, and the two shadow-caster indices |
-| `NewScene` | func | Parse then upload everything through the backend |
-| `LoadScene` | func | Pure XML deserialisation, no GPU work — what the tests use |
-| `EmptyScene` | func | Nothing in it, for running the app as a UI shell |
-| `Scene.FillFrameUniforms` | func | Camera matrices, the light array, scene-wide texture handles, shadow indices |
-| `Scene.RenderScene` | func | Rebinds the frame block, then draws every mesh with the forward shader |
-| `Scene.RenderSkybox` | func | Binds a *copy* of the frame block with the view translation stripped |
-| `Scene.UpdateMeshes` | func | Reuploads the vertex buffers physics moved this frame |
-| `Scene.ShadowCasters` | func | Returns the two caster indices, or -1 |
-| `Scene.Mesh` / `Light` / `Camera` | func | Lookup by name |
-| `Mesh` | type | Vertices, normals, UVs, faces, materials, plus the GPU handles |
-| `Mesh.MoveTo` / `MoveBy` | func | Rebuild vertex data and flag it for reupload |
-| `Mesh.draw` *(pkg)* | func | One `Backend.Draw` per face group, rewriting the material fields of `u` |
-| `Light` | type | Position, direction, colour, intensity, type, and its shadow target |
-| `Light.RenderShadowMap` | func | Runs this light's depth pass: ortho for the sun, six cube faces for a point |
-| `Material` | type | Ambient, diffuse (= albedo), specular, shininess, alpha, metallic, roughness, ao, plus diffuse and normal-map handles |
-| `Camera` | type | Position, front, up, yaw, pitch, FOV |
-| `Skybox` | type | The cube mesh handle and the cubemap texture |
+| Symbol                            | Kind | Description                                                                                                                                               |
+| --------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Scene`                           | type | Meshes, lights, skybox, camera, the two shadow-caster indices, and the shadow atlas with this frame's tiles and records                                   |
+| `NewScene`                        | func | Parse then upload everything through the backend                                                                                                          |
+| `LoadScene`                       | func | Pure XML deserialisation, no GPU work — what the tests use                                                                                                |
+| `EmptyScene`                      | func | Nothing in it, for running the app as a UI shell                                                                                                          |
+| `Scene.FillFrameUniforms`         | func | Camera matrices, the light array, scene-wide texture handles, shadow indices                                                                              |
+| `Scene.RenderScene`               | func | Rebinds the frame block, then draws every mesh with the forward shader                                                                                    |
+| `Scene.RenderSkybox`              | func | Binds a _copy_ of the frame block with the view translation stripped                                                                                      |
+| `Scene.UpdateMeshes`              | func | Reuploads the vertex buffers physics moved this frame                                                                                                     |
+| `Scene.ShadowCasters`             | func | Returns the two caster indices, or -1. No caller since the atlas landed                                                                                   |
+| `Scene.UpdateShadows`             | func | Allocates a tile per caster and builds this frame's `ShadowRecord` array. Must run before `FillFrameUniforms`, which copies each light's record index out |
+| `Scene.ShadowRecords`             | func | This frame's records, for `Backend.BindShadowRecords`                                                                                                     |
+| `Scene.BakeShadows`               | func | One pass over the atlas: per tile a `SetViewportScissor`, a `BakeMatrix` and every mesh                                                                   |
+| `Scene.Mesh` / `Light` / `Camera` | func | Lookup by name                                                                                                                                            |
+| `Mesh`                            | type | Vertices, normals, UVs, faces, materials, plus the GPU handles                                                                                            |
+| `Mesh.MoveTo` / `MoveBy`          | func | Rebuild vertex data and flag it for reupload                                                                                                              |
+| `Mesh.draw` _(pkg)_               | func | One `Backend.Draw` per face group, rewriting the material fields of `u`                                                                                   |
+| `Light`                           | type | Position, direction, colour, intensity, type, cone cosines, radius, and its record index into the atlas. Owns **no** GPU resource                         |
+| `Light.shadowRecord` _(pkg)_      | func | Builds one tile's record: ortho for a sun, one widened 90° face for a point                                                                               |
+| `shadowAtlas` _(pkg)_             | type | The one depth target and the interim grid allocator over it, in `shadowatlas.go`                                                                          |
+| `Material`                        | type | Ambient, diffuse (= albedo), specular, shininess, alpha, metallic, roughness, ao, plus diffuse and normal-map handles                                     |
+| `Camera`                          | type | Position, front, up, yaw, pitch, FOV                                                                                                                      |
+| `Skybox`                          | type | The cube mesh handle and the cubemap texture                                                                                                              |
 
 ### `ecs/`
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `Entity` | interface | `Init`, `Update`, `Type`, `Collider` |
-| `World` | type | A slice of entities |
-| `World.AddEntities` / `Init` / `Update` | func | Build and step the world |
-| `World.Entities` / `FirstEntity` | func | Lookup by type string |
+| Symbol                                  | Kind      | Description                          |
+| --------------------------------------- | --------- | ------------------------------------ |
+| `Entity`                                | interface | `Init`, `Update`, `Type`, `Collider` |
+| `World`                                 | type      | A slice of entities                  |
+| `World.AddEntities` / `Init` / `Update` | func      | Build and step the world             |
+| `World.Entities` / `FirstEntity`        | func      | Lookup by type string                |
 
 ### `physics/`
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `Collider` | interface | Anything that can `Collide` and expose its `Verlet` |
-| `Verlet` | type | `Pos`, `PrevPos`, `Accel`, `Fixed` |
-| `Verlet.UpdatePosition` / `Accelerate` | func | Integrate; accumulate a force |
-| `Sphere` | type | A `Verlet` plus a radius |
-| `NewSphere` / `NewSphereFromMesh` | func | Explicit, or bounding radius derived from a mesh |
-| `Sphere.Collide` | func | Dispatches to sphere-sphere or sphere-plane |
-| `Collider.Body` | method | The `Verlet` the integrator steps. Named `Body` because every implementer embeds a `Verlet` field |
-| `Plane` | type | A `Verlet` plus a normal, axes and half-sizes |
-| `NewPlane` / `NewPlaneFromMesh` | func | From four corners, or derived from a mesh |
+| Symbol                                 | Kind      | Description                                                                                       |
+| -------------------------------------- | --------- | ------------------------------------------------------------------------------------------------- |
+| `Collider`                             | interface | Anything that can `Collide` and expose its `Verlet`                                               |
+| `Verlet`                               | type      | `Pos`, `PrevPos`, `Accel`, `Fixed`                                                                |
+| `Verlet.UpdatePosition` / `Accelerate` | func      | Integrate; accumulate a force                                                                     |
+| `Sphere`                               | type      | A `Verlet` plus a radius                                                                          |
+| `NewSphere` / `NewSphereFromMesh`      | func      | Explicit, or bounding radius derived from a mesh                                                  |
+| `Sphere.Collide`                       | func      | Dispatches to sphere-sphere or sphere-plane                                                       |
+| `Collider.Body`                        | method    | The `Verlet` the integrator steps. Named `Body` because every implementer embeds a `Verlet` field |
+| `Plane`                                | type      | A `Verlet` plus a normal, axes and half-sizes                                                     |
+| `NewPlane` / `NewPlaneFromMesh`        | func      | From four corners, or derived from a mesh                                                         |
 
 ### `input/`
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `DefaultInput` | func | WASD, Q/E for up and down, Shift to sprint, Tab toggles the cursor, Esc quits |
-| `DefaultMouseCallback` | func | FPS look: yaw and pitch from mouse delta, pitch clamped to ±89° |
-| `ScrollCallback` | func | Field of view, clamped |
+| Symbol                    | Kind | Description                                                                    |
+| ------------------------- | ---- | ------------------------------------------------------------------------------ |
+| `DefaultInput`            | func | WASD, Q/E for up and down, Shift to sprint, Tab toggles the cursor, Esc quits  |
+| `DefaultMouseCallback`    | func | FPS look: yaw and pitch from mouse delta, pitch clamped to ±89°                |
+| `ScrollCallback`          | func | Field of view, clamped                                                         |
 | `FramebufferSizeCallback` | func | Records the new size in `settings`. The viewport itself is a per-pass decision |
-| `SetScene` | func | Gives the input package the camera to drive |
+| `SetScene`                | func | Gives the input package the camera to drive                                    |
 
 ### `settings/` and `utils/`
 
-| Symbol | Kind | Description |
-|---|---|---|
-| `WindowWidth` / `WindowHeight` | var | 1920×1080, updated on resize |
-| `ShadowWidth` / `ShadowHeight` | var | 1024², fixed |
-| `Backend` | var | `"vulkan"`, the only accepted value. Kept so a config naming another backend is rejected rather than ignored |
-| `AntiAliasing` / `MSAASamples` | var | `AAMSAA` ×4 by default; both read once at `Backend.Init` |
-| `Anisotropy` / `AnisotropyEnabled` | var, func | Anisotropic filtering on material textures, 8 by default, 1 meaning off. Read once in `createSamplers`, which clamps it to the device limit |
-| `AAMode` | type | `AANone` or `AAMSAA` |
-| `MSAAEnabled` | func | Mode is MSAA *and* the count actually multisamples |
-| `Config` | type | The TOML file's shape: `[window]`, `[shadows]`, `[renderer]`, `[antialiasing]`, `[textures]` |
-| `Load` | func | Decodes a settings file over the defaults and validates it — the engine's only configuration input. Rejects unknown keys and values, changing nothing when it does |
-| `AspectRatio` / `ShadowAspectRatio` | func | For the camera and cube-shadow projections |
-| `ParseVec3` | func | `"x,y,z"` → `mgl32.Vec3` |
-| `EulerToDirection` | func | Pitch/yaw/roll → direction vector |
-| `HandleError` | func | Panic on a non-nil error |
+| Symbol                              | Kind      | Description                                                                                                                                                        |
+| ----------------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `WindowWidth` / `WindowHeight`      | var       | 1920×1080, updated on resize                                                                                                                                       |
+| `ShadowWidth` / `ShadowHeight`      | var       | 1024², fixed. Now the _tile_ size inside the 4096² atlas, not a whole map                                                                                          |
+| `Backend`                           | var       | `"vulkan"`, the only accepted value. Kept so a config naming another backend is rejected rather than ignored                                                       |
+| `AntiAliasing` / `MSAASamples`      | var       | `AAMSAA` ×4 by default; both read once at `Backend.Init`                                                                                                           |
+| `Anisotropy` / `AnisotropyEnabled`  | var, func | Anisotropic filtering on material textures, 8 by default, 1 meaning off. Read once in `createSamplers`, which clamps it to the device limit                        |
+| `AAMode`                            | type      | `AANone` or `AAMSAA`                                                                                                                                               |
+| `MSAAEnabled`                       | func      | Mode is MSAA _and_ the count actually multisamples                                                                                                                 |
+| `Config`                            | type      | The TOML file's shape: `[window]`, `[shadows]`, `[renderer]`, `[antialiasing]`, `[textures]`                                                                       |
+| `Load`                              | func      | Decodes a settings file over the defaults and validates it — the engine's only configuration input. Rejects unknown keys and values, changing nothing when it does |
+| `AspectRatio` / `ShadowAspectRatio` | func      | For the camera and cube-shadow projections                                                                                                                         |
+| `ParseVec3`                         | func      | `"x,y,z"` → `mgl32.Vec3`                                                                                                                                           |
+| `EulerToDirection`                  | func      | Pitch/yaw/roll → direction vector                                                                                                                                  |
+| `HandleError`                       | func      | Panic on a non-nil error                                                                                                                                           |
 
 ---
 
@@ -384,7 +391,7 @@ Blender (x, y, z)  →  Overdrive (x, z, -y)
 ```
 
 applied to mesh positions, light positions, and — with sign flips — light
-directions. The camera's `front` is *not* read from the XML: it is rebuilt from
+directions. The camera's `front` is _not_ read from the XML: it is rebuilt from
 `yaw` and `pitch`, and `up` is forced to world up.
 
 **Static geometry is baked.** The demo OBJs are exported already in world space
@@ -403,14 +410,14 @@ units and the shader's inverse-square falloff are not on the same scale.
 `src/plugin/xml_export.py`, registered under **File → Export → Export Overdrive
 scene…**
 
-| Symbol | Description |
-|---|---|
-| `OverdriveWriter` | Stateful XML builder |
-| `.write` | Camera → meshes (each exported via `bpy.ops.wm.obj_export`) → lights → write the `.xml` |
-| `.write_camera` | Position, front and up vectors, yaw, pitch, FOV |
-| `.write_mesh` | Position, rotation, and the OBJ/MTL filenames |
-| `.write_light` | Type, position, direction, colour, diffuse, specular, intensity |
-| `OverdriveExporter` | The `bpy.types.Operator` + `ExportHelper` that puts it in the menu |
+| Symbol              | Description                                                                             |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| `OverdriveWriter`   | Stateful XML builder                                                                    |
+| `.write`            | Camera → meshes (each exported via `bpy.ops.wm.obj_export`) → lights → write the `.xml` |
+| `.write_camera`     | Position, front and up vectors, yaw, pitch, FOV                                         |
+| `.write_mesh`       | Position, rotation, and the OBJ/MTL filenames                                           |
+| `.write_light`      | Type, position, direction, colour, diffuse, specular, intensity                         |
+| `OverdriveExporter` | The `bpy.types.Operator` + `ExportHelper` that puts it in the menu                      |
 
 ---
 
@@ -420,14 +427,14 @@ Authored in Slang under `src/shaders/slang/` and compiled to SPIR-V by
 `build_shaders.sh`. The backend does not read `.slang` at runtime, so the script
 must run before the first build and after every shader edit.
 
-| Set | Stages | Used by |
-|---|---|---|
-| `common.slang` | — | Included by all of them: `MAX_LIGHTS`, `LightData`, `FrameUniforms`, `DrawUniforms`, the bindless sampler arrays, and the `FRAME` / `DRAW` access macros |
-| `forward` | vert, frag | The main pass. Cook-Torrance PBR, normal mapping, both shadow tests, skybox ambient, Reinhard tonemap |
-| `depth` | vert, frag | The directional light's 2D shadow pass |
-| `depth_cube` | vert, **geo**, frag | The point light's cube shadow pass, one layered draw for all six faces |
-| `skybox` | vert, frag | The cube, drawn with `LEQUAL` depth |
-| `ui` | vert, frag | The fullscreen overlay quad |
+| Set            | Stages     | Used by                                                                                                                                                                                                     |
+| -------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `common.slang` | —          | Included by all of them: `MAX_LIGHTS`, `LightData`, `ShadowRecord`, `FrameUniforms`, `DrawUniforms`, the bindless sampler arrays, the two atlas samplers, and the `FRAME` / `DRAW` / `RECORD` access macros |
+| `forward`      | vert, frag | The main pass. Cook-Torrance PBR, normal mapping, one `shadowLookup` for every light type, skybox ambient, Reinhard tonemap                                                                                 |
+| `depth`        | vert, frag | A sun or spot tile: ordinary projected depth                                                                                                                                                                |
+| `depth_point`  | vert, frag | A point light's face tile: linear radial distance written to `SV_Depth`                                                                                                                                     |
+| `skybox`       | vert, frag | The cube, drawn with `LEQUAL` depth                                                                                                                                                                         |
+| `ui`           | vert, frag | The fullscreen overlay quad                                                                                                                                                                                 |
 
 The uniform macros are named `FRAME` and `DRAW` rather than anything shorter
 because `forward.slang` already uses `F`, `D` and `G` for the Fresnel,
@@ -440,10 +447,20 @@ distribution and geometry terms of the BRDF.
 These files are on disk but contain nothing the build uses. They are kept as
 placeholders for planned work; delete or implement.
 
-| File | State |
-|---|---|
-| `src/physics/box.go` | Empty, a placeholder for box colliders (`TODO.md`) |
-| `src/physics/box_old.go` | Fully commented out, the earlier box attempt |
-| `src/physics/link.go` | Fully commented out, Verlet distance constraints |
-| `src/ecs/ecs.go` | Fully commented out, an earlier set-based World. `entity.go` is the live one, and this file is the only thing `gofmt -l` reports |
-| `src/algorithms/wfc.go` | Empty, the Wave Function Collapse placeholder |
+| File                     | State                                                                                                                            |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| `src/physics/box.go`     | Empty, a placeholder for box colliders (`TODO.md`)                                                                               |
+| `src/physics/box_old.go` | Fully commented out, the earlier box attempt                                                                                     |
+| `src/physics/link.go`    | Fully commented out, Verlet distance constraints                                                                                 |
+| `src/ecs/ecs.go`         | Fully commented out, an earlier set-based World. `entity.go` is the live one, and this file is the only thing `gofmt -l` reports |
+| `src/algorithms/wfc.go`  | Empty, the Wave Function Collapse placeholder                                                                                    |
+
+Live code with no caller, which is different — each is a step ahead of its user,
+not an abandoned one:
+
+| Symbol                                                                                     | Waiting for                                                                             |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
+| `Backend.CopyDepthRegion`                                                                  | Part E's static-to-dynamic tile promotion                                               |
+| `Scene.ShadowCasters`                                                                      | Nothing — Part D deletes it along with `pickShadowCasters`                              |
+| `GeometryShader` device feature, `passShadowCube`, the cube branch of `CreateRenderTarget` | The escape hatch in `tmp/LIGHTING_PLAN.md` §11.3, if atlas corner filtering disappoints |
+| `renderer.TargetColor`                                                                     | An HDR target, once a half-float format is bound                                        |

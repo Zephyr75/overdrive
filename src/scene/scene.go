@@ -24,10 +24,17 @@ type Scene struct {
 	Skybox Skybox
 	Cam    Camera
 
-	// Which lights own a shadow map: one 2D for a directional, one cube for a
-	// point. Decided once at load, not by XML order. -1 means nobody
+	// Which lights own shadow tiles: one directional, one point. Decided once at
+	// load, not by XML order. -1 means nobody. Part D replaces this with a
+	// per-frame score, which is what turns the atlas's spare tiles into lights
 	shadowDirIndex   int32
 	shadowPointIndex int32
+
+	// The one depth texture every shadow in the scene is a sub-rect of, plus the
+	// tiles handed out this frame and the records that describe them
+	atlas         shadowAtlas
+	tiles         []shadowTile
+	shadowRecords []renderer.ShadowRecord
 
 	backend renderer.Backend
 }
@@ -64,11 +71,8 @@ func NewScene(path string, b renderer.Backend) Scene {
 		s.Meshes[i].setup(b)
 	}
 	s.pickShadowCasters()
-	for i := range s.Lights {
-		// Allocate a shadow map for casters alone, every other light being
-		// evaluated unshadowed in the main pass
-		s.Lights[i].setup(b, s.casts(int32(i)))
-	}
+	// One atlas for every light, allocated here rather than per casting light
+	s.atlas.setup(b)
 	s.Skybox.setup(b)
 	return s
 }
@@ -182,26 +186,18 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 			Cutoff:      l.Cutoff,
 			OuterCutoff: l.OuterCutoff,
 			Radius:      l.Radius,
-			// No allocator yet, so no light owns a shadow record
-			ShadowIndex: -1,
+			// Set by UpdateShadows, which must therefore run first
+			ShadowIndex: l.shadowIndex,
+			ShadowCount: l.shadowCount,
 		}
 	}
 
 	u.TexSkybox = s.Skybox.Texture
 
-	// Which light each shadow map belongs to. Without the indices the shader
-	// would apply the directional shadow to whatever sits at index 0
-	u.ShadowDirIndex = s.shadowDirIndex
-	for i := range u.PointShadowLights {
-		u.PointShadowLights[i] = -1
-	}
-	if s.shadowDirIndex >= 0 {
-		u.TexShadowMap = s.Lights[s.shadowDirIndex].depthMap
-	}
-	if s.shadowPointIndex >= 0 {
-		u.PointShadowLights[0] = s.shadowPointIndex
-		u.TexShadowCubeMap = s.Lights[s.shadowPointIndex].depthCubeMap
-	}
+	// Both bindings point at the one atlas until Part E splits static from
+	// dynamic; no record sets the flag that would select the second
+	u.TexShadowStatic = s.atlas.tex
+	u.TexShadowDynamic = s.atlas.tex
 }
 
 // Draws every mesh of the scene with the forward shader, inside the main pass

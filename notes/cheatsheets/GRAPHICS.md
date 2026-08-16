@@ -1,6 +1,6 @@
 # Graphics — real-time techniques, simulation, GPGPU
 
-> **Scope** the breadth layer: rendering techniques a modern engine ships, procedural generation, physics simulation, agent AI, compression, high-performance optimisation, GPGPU, emulation. Each entry is the idea plus the one detail that shows you understand *why*, not a full derivation.
+> **Scope** the breadth layer: rendering techniques a modern engine ships, procedural generation, physics simulation, agent AI, compression, high-performance optimisation, GPGPU, emulation. Each entry is the idea plus the one detail that shows you understand _why_, not a full derivation.
 >
 > **Not here** the deep dives live in their own files — BRDF and material theory in `PBR.md`, ray vs path tracing in `RAYTRACING.md`, the OpenGL API in `OPENGL.md`, the Vulkan object model in `VULKAN.md`, matrices and quaternions in `ALGEBRA.md`. §11 is the one-screen recall index into them.
 >
@@ -40,23 +40,23 @@ Render depth from the light's point of view, then in the main pass a fragment is
 
 `Omnidirectional` a point light needs all six directions: render into a cubemap, store linear distance / farPlane
 
-> Overdrive uses exactly this: 2D map for the sun, cube for the point light, normal-offset bias, PCF with an early-bail on the first 4 taps. See `../FEATURES.md`
+> Overdrive uses exactly this, unified: every light's shadow — sun, spot, or one of a point light's six faces — is a tile of one 4096² atlas, sampled by the same 9-tap PCF with an early-bail on the first 4 taps, and normal-offset bias. No separate cubemap path any more. See `../FEATURES.md`
 
 ### Forward vs deferred — the classic question
 
-| | Forward | Deferred |
-|---|---|---|
-| Shading happens | per object, in the fragment shader, looping over lights | per screen pixel, in a second pass |
-| Cost | #objects × #lights × **overdraw** | #pixels × #lights |
-| Scales with | badly in light count | badly in memory bandwidth |
-| MSAA | native | hard (screen-space AA → TAA instead) |
-| Transparency | easy | broken, needs a separate forward pass |
-| Material variety | free | one lighting model for the whole scene |
-| Memory | low | a fat G-buffer |
+|                  | Forward                                                 | Deferred                               |
+| ---------------- | ------------------------------------------------------- | -------------------------------------- |
+| Shading happens  | per object, in the fragment shader, looping over lights | per screen pixel, in a second pass     |
+| Cost             | #objects × #lights × **overdraw**                       | #pixels × #lights                      |
+| Scales with      | badly in light count                                    | badly in memory bandwidth              |
+| MSAA             | native                                                  | hard (screen-space AA → TAA instead)   |
+| Transparency     | easy                                                    | broken, needs a separate forward pass  |
+| Material variety | free                                                    | one lighting model for the whole scene |
+| Memory           | low                                                     | a fat G-buffer                         |
 
 **Forward.** A pixel covered five times is shaded five times, four of which the depth test throws away. That is the overdraw term, and it is why forward collapses with many lights.
 
-**Deferred.** Pass 1 (*geometry*) writes surface *properties* of the visible fragment into the **G-buffer** — several render targets: albedo, normal, depth, roughness/metallic. Pass 2 (*lighting*) shades in screen space, one fragment per pixel because the depth test already sorted it, accumulating lights. The cost is decoupled from object count and from overdraw → hundreds of lights.
+**Deferred.** Pass 1 (_geometry_) writes surface _properties_ of the visible fragment into the **G-buffer** — several render targets: albedo, normal, depth, roughness/metallic. Pass 2 (_lighting_) shades in screen space, one fragment per pixel because the depth test already sorted it, accumulating lights. The cost is decoupled from object count and from overdraw → hundreds of lights.
 
 ```mermaid
 flowchart LR
@@ -69,13 +69,13 @@ flowchart LR
     end
 ```
 
-**Deferred's real problem is bandwidth.** The G-buffer is written once and read once per pixel per frame; on consoles and handhelds that is usually *the* wall. Mitigations: octahedral normal encoding, packing channels, fewer targets.
+**Deferred's real problem is bandwidth.** The G-buffer is written once and read once per pixel per frame; on consoles and handhelds that is usually _the_ wall. Mitigations: octahedral normal encoding, packing channels, fewer targets.
 
 `Forward+ / clustered` the modern compromise. Split the screen into tiles (or the frustum into 3D clusters), run a compute pass listing which lights touch each tile, then a forward pass shades only those lights. Keeps MSAA, transparency and material variety with deferred's light scaling. This is where the industry sits today
 
 ### Ambient occlusion
 
-Approximates how much a point is *hidden* from ambient light by nearby geometry → darkens crevices, corners and contacts. Without it, ambient is flat.
+Approximates how much a point is _hidden_ from ambient light by nearby geometry → darkens crevices, corners and contacts. Without it, ambient is flat.
 
 `SSAO` (Crytek) sample N random points in a hemisphere around the pixel, compare their depth against the G-buffer → the fraction "buried" is the occlusion. Cheap, noisy (needs a blur), limited to what is on screen
 
@@ -108,11 +108,11 @@ Do not draw the invisible.
 
 ### GPU-driven rendering
 
-Move the *what to draw* decision from CPU to GPU.
+Move the _what to draw_ decision from CPU to GPU.
 
 **Problem.** The classic loop is "for each object: cull, bind, draw" on the CPU → thousands of draw calls, driver overhead, CPU becomes the bottleneck.
 
-**Idea.** The whole scene (matrices, bounding boxes, material indices) lives in GPU buffers. A compute shader does the culling and *writes the draw list itself* into a buffer. The CPU issues one `vkCmdDrawIndirectCount` that reads it.
+**Idea.** The whole scene (matrices, bounding boxes, material indices) lives in GPU buffers. A compute shader does the culling and _writes the draw list itself_ into a buffer. The CPU issues one `vkCmdDrawIndirectCount` that reads it.
 
 ```mermaid
 flowchart LR
@@ -165,11 +165,11 @@ Render into a float linear target (`RGBA16F`) → **tone map** (ACES, Reinhard) 
 
 ### Integration
 
-| | Idea | Property |
-|---|---|---|
-| **Euler** | `pos += vel·dt; vel += a·dt` | simplest, drifts and blows up |
+|            | Idea                                                                | Property                                              |
+| ---------- | ------------------------------------------------------------------- | ----------------------------------------------------- |
+| **Euler**  | `pos += vel·dt; vel += a·dt`                                        | simplest, drifts and blows up                         |
 | **Verlet** | store current + previous position, `pos += (pos - prevPos) + a·dt²` | stable, no explicit velocity, trivially constrainable |
-| **RK4** | four weighted derivative samples per step | accurate, four times the cost |
+| **RK4**    | four weighted derivative samples per step                           | accurate, four times the cost                         |
 
 > Overdrive's `src/physics/verlet.go` is the middle row: unconditional stability, no built-in damping.
 
@@ -180,7 +180,7 @@ Each point is position + velocity + lifetime; update, spawn, kill. The base of f
 ### Cloth and soft bodies
 
 `Mass-spring` masses linked by springs, integrated in Verlet
-`PBD / XPBD` position-based dynamics: correct *positions* directly to satisfy distance constraints instead of integrating forces. Stable at large time steps, and the game-industry standard
+`PBD / XPBD` position-based dynamics: correct _positions_ directly to satisfy distance constraints instead of integrating forces. Stable at large time steps, and the game-industry standard
 
 ### Rigid bodies
 
@@ -189,16 +189,16 @@ flowchart LR
     A["broad phase<br/>grid · sweep &amp; prune · BVH"] --> B["narrow phase<br/>SAT · GJK/EPA"] --> C["resolution<br/>impulses + positional correction"]
 ```
 
-`Broad phase` find pairs that *might* touch, cheaply
+`Broad phase` find pairs that _might_ touch, cheaply
 `Narrow phase` exact test: **SAT** for convex shapes, **GJK/EPA** for distance and penetration depth
 `Resolution` apply impulses at the contact point, then correct the position
 
 **Cube vs cube, in detail (SAT — separating axis theorem).**
 
-- **Theorem** two convex shapes do *not* intersect iff there exists an axis on which their 1D projections do not overlap. That axis defines a separating plane
+- **Theorem** two convex shapes do _not_ intersect iff there exists an axis on which their 1D projections do not overlap. That axis defines a separating plane
 - **Which axes** for boxes: the 3 face normals of A, the 3 of B, and the 9 cross products edge_A × edge_B → 15 axes for oriented boxes. Axis-aligned boxes need only the 3 world axes
 - **Per axis** project all 8 corners of each box → intervals `[minA,maxA]`, `[minB,maxB]`. No overlap → separated, stop early. All axes overlap → collision
-- **Penetration depth** the *smallest* overlap across all axes; its axis is the collision normal (the direction to push along). The contact manifold comes from clipping the two facing faces
+- **Penetration depth** the _smallest_ overlap across all axes; its axis is the collision normal (the direction to push along). The contact manifold comes from clipping the two facing faces
 - **Resolution** apply an impulse along the normal to both bodies (momentum exchange weighted by mass, scaled by restitution for bounce), then a positional correction to remove residual overlap
 
 ### Fluids
@@ -228,7 +228,7 @@ flowchart LR
 
 ## 5. Compression
 
-`BCn / DXT, ASTC` block compression decoded *by the GPU* → less VRAM and less bandwidth, permanently, not just on disk
+`BCn / DXT, ASTC` block compression decoded _by the GPU_ → less VRAM and less bandwidth, permanently, not just on disk
 `Basis Universal` one intermediate format transcoded to whatever the target GPU supports
 `Mesh quantisation` positions as int16 instead of float32; `meshoptimizer`, `Draco`
 `Entropy coding` Huffman, arithmetic/range — short codes for frequent symbols
@@ -240,6 +240,7 @@ flowchart LR
 **Idea.** Fixed-length encoding (8 bits per character) wastes bits: rare and frequent symbols cost the same. Huffman gives short codes to frequent symbols, long codes to rare ones → total size approaches the **entropy** of the data, Shannon's limit.
 
 **Construction (binary tree).**
+
 1. Count each symbol's frequency
 2. Put every symbol as a leaf node in a priority queue
 3. Repeatedly remove the **two** lowest-frequency nodes, create a parent whose frequency is their sum, reinsert it
@@ -255,11 +256,11 @@ flowchart LR
 
 ## 6. High-performance optimisation
 
-> **The wall is memory, not arithmetic.** A RAM access costs ~200-300 cycles, an L1 hit ~4. The CPU spends its time *waiting*. Every modern optimisation is about feeding the machine without starving it.
+> **The wall is memory, not arithmetic.** A RAM access costs ~200-300 cycles, an L1 hit ~4. The CPU spends its time _waiting_. Every modern optimisation is about feeding the machine without starving it.
 
-`Data-oriented design` organise data for the cache, not for the logic. **AoS** (`struct{pos,vel,hp}[]`): summing all positions also drags `vel` and `hp` into cache. **SoA** (one array per field): the loop pulls only positions, so every cache line is fully useful *and* the compiler can vectorise. This is the reason ECS and particle systems are shaped the way they are
+`Data-oriented design` organise data for the cache, not for the logic. **AoS** (`struct{pos,vel,hp}[]`): summing all positions also drags `vel` and `hp` into cache. **SoA** (one array per field): the loop pulls only positions, so every cache line is fully useful _and_ the compiler can vectorise. This is the reason ECS and particle systems are shaped the way they are
 
-`Locality` *spatial* — neighbouring data used together, so linear traversal beats pointer chasing; *temporal* — reuse what is already hot. Prefer contiguous arrays to linked structures
+`Locality` _spatial_ — neighbouring data used together, so linear traversal beats pointer chasing; _temporal_ — reuse what is already hot. Prefer contiguous arrays to linked structures
 
 `SIMD` one instruction over 4/8/16 lanes (SSE/AVX on x86, NEON on ARM and Switch). Ideal for vector math, particles, image processing. Requires packed data → SoA
 
@@ -295,14 +296,14 @@ Global thread index: `int i = blockIdx.x * blockDim.x + threadIdx.x;`. Block siz
 
 ### Memory
 
-| Memory | Scope | Speed |
-|---|---|---|
-| Registers | thread | fastest |
-| Shared (`__shared__`) | block | very fast, on-chip |
-| Global (`cudaMalloc`) | device | slow, DRAM |
-| Constant / texture | device, cached | fast when reused |
+| Memory                | Scope          | Speed              |
+| --------------------- | -------------- | ------------------ |
+| Registers             | thread         | fastest            |
+| Shared (`__shared__`) | block          | very fast, on-chip |
+| Global (`cudaMalloc`) | device         | slow, DRAM         |
+| Constant / texture    | device, cached | fast when reused   |
 
-Host and device are **separate address spaces**; copy explicitly with `cudaMemcpy(dst, src, bytes, dir)`. That PCIe transfer is usually *the* bottleneck → CUDA pays off on large, reused data, never on small one-off arrays.
+Host and device are **separate address spaces**; copy explicitly with `cudaMemcpy(dst, src, bytes, dir)`. That PCIe transfer is usually _the_ bottleneck → CUDA pays off on large, reused data, never on small one-off arrays.
 
 Cycle: `cudaMalloc` → memcpy H→D → kernel → memcpy D→H → `cudaFree`.
 
@@ -362,12 +363,12 @@ __global__ void reduce(const float* in, float* out, int n) {
 
 An emulator makes a console program believe it runs on its original machine while it executes on a PC.
 
-**The problem.** The game is machine code compiled for the *console's* CPU (e.g. ARM) talking to *specific* hardware (GPU, audio, controllers, memory map). The PC has a different CPU and a different GPU → everything must be translated.
+**The problem.** The game is machine code compiled for the _console's_ CPU (e.g. ARM) talking to _specific_ hardware (GPU, audio, controllers, memory map). The PC has a different CPU and a different GPU → everything must be translated.
 
 **CPU, two approaches.**
 
 `Interpretation` read one console instruction, decode it, execute the equivalent, advance. Simple and exact, but slow — per-instruction overhead
-`Dynamic recompilation (JIT)` translate *blocks* of console instructions into native x86 on the fly and cache the result → a hot block is translated once, then re-executed natively. What every performance-oriented emulator does
+`Dynamic recompilation (JIT)` translate _blocks_ of console instructions into native x86 on the fly and cache the result → a hot block is translated once, then re-executed natively. What every performance-oriented emulator does
 
 **Memory.** Emulate the console's address space, usually one large host allocation plus address translation. Handle endianness if it differs.
 
@@ -397,7 +398,7 @@ the divergence of the gradient, weighted by the area element `√|g|` so it stay
 
 $$\Delta u = \frac{1}{\sin^2\theta}\frac{\partial^2 u}{\partial\phi^2} + \frac{1}{\sin\theta}\frac{\partial}{\partial\theta}\!\left(\sin\theta\frac{\partial u}{\partial\theta}\right)$$
 
-The `1/sin²θ` in front of `∂²_φ` is `g^φφ` — meridians crowd together at the poles. The `sinθ` *inside* the θ derivative is the area element that keeps the operator conservative; that form discretises with positive weights everywhere and handles the poles cleanly.
+The `1/sin²θ` in front of `∂²_φ` is `g^φφ` — meridians crowd together at the poles. The `sinθ` _inside_ the θ derivative is the area element that keeps the operator conservative; that form discretises with positive weights everywhere and handles the poles cleanly.
 
 **Torus.** Same formula with `sinθ` replaced by `D(θ) = R + r cosθ` (distance to the axis). The metric is bounded, so it is better conditioned than the sphere, and periodic on both axes.
 
@@ -424,11 +425,12 @@ Sphere tracing advances by `SDF(P)` each step (it cannot overshoot). Bounding sp
 `Manual bilinear` in `Image`, needing per-axis wrapping — φ wraps, θ clamps at the poles
 
 `Walk on Spheres (WoS)` a Monte Carlo method giving the harmonic value at **one point**, with no grid and no PDE discretisation
+
 - **Principle** for Laplace, `u(P)` is the expected value of the constraint hit by a random walk started at `P` (the mean-value property: a harmonic function at a point equals its average over any sphere centred there)
-- **The walk** at each step compute the distance to the nearest constraint — the radius of the largest empty circle around the point. Jump *exactly* that radius in a uniformly random tangent direction (landing on the circle's boundary). Repeat. Close enough to a constraint, record its value (0 or 1)
+- **The walk** at each step compute the distance to the nearest constraint — the radius of the largest empty circle around the point. Jump _exactly_ that radius in a uniformly random tangent direction (landing on the circle's boundary). Repeat. Close enough to a constraint, record its value (0 or 1)
 - **Estimate** run many independent walks from `P` and average. On a curved surface the jumps are geodesic distances
 - **Upside** no discretisation error, only Monte Carlo variance; handles arbitrary constraint geometry; parallelises trivially (one fragment = one walk)
-- **Why it was dropped here** too slow to converge for real time (16 samples × 64 steps was still very noisy, and temporal accumulation was not enough). Good for the value at *one* point; to visualise the *whole* surface, grid Jacobi is sharper and does not flicker
+- **Why it was dropped here** too slow to converge for real time (16 samples × 64 steps was still very noisy, and temporal accumulation was not enough). Good for the value at _one_ point; to visualise the _whole_ surface, grid Jacobi is sharper and does not flicker
 
 `Multigrid` would accelerate convergence by solving coarse-to-fine, skipped for complexity
 
@@ -455,6 +457,7 @@ private:
     int count_;
 };
 ```
+
 ```cpp
 // mesh.cpp — the implementation
 #include "mesh.hpp"
@@ -483,6 +486,7 @@ enum class Backend { OpenGL, Vulkan };
 
 `Stack` `Mesh m(...)` — destroyed at scope exit (RAII). Prefer this
 `Heap` never raw `new`/`delete` → smart pointers:
+
 - `std::unique_ptr<T>` **sole** ownership, freed automatically. `auto b = std::make_unique<VKBackend>();`
 - `std::shared_ptr<T>` **shared** ownership via a reference count
 
@@ -527,7 +531,7 @@ All rendering — raster, ray tracing, path tracing — is a way of approximatin
 
 ### Ray vs path tracing → `RAYTRACING.md`
 
-Whitted (1980) bounces deterministically (mirror, refraction) → clean but no global illumination. Path tracing (1986) bounces randomly according to the BRDF → full GI, noise falling as `1/√N`. Path tracing *is* ray tracing; the reverse is not true. "Ray tracing" in games means partial path tracing plus aggressive denoising.
+Whitted (1980) bounces deterministically (mirror, refraction) → clean but no global illumination. Path tracing (1986) bounces randomly according to the BRDF → full GI, noise falling as `1/√N`. Path tracing _is_ ray tracing; the reverse is not true. "Ray tracing" in games means partial path tracing plus aggressive denoising.
 
 ### OpenGL → `OPENGL.md`
 
