@@ -24,12 +24,6 @@ type Scene struct {
 	Skybox Skybox
 	Cam    Camera
 
-	// Which lights own shadow tiles: one directional, one point. Decided once at
-	// load, not by XML order. -1 means nobody. Part D replaces this with a
-	// per-frame score, which is what turns the atlas's spare tiles into lights
-	shadowDirIndex   int32
-	shadowPointIndex int32
-
 	// The one depth texture every shadow in the scene is a sub-rect of, plus the
 	// tiles handed out this frame and the records that describe them
 	atlas         shadowAtlas
@@ -39,30 +33,6 @@ type Scene struct {
 	backend renderer.Backend
 }
 
-// Selects the first directional and the first point light as the shadow casters
-func (s *Scene) pickShadowCasters() {
-	s.shadowDirIndex = -1
-	s.shadowPointIndex = -1
-	for i := range s.Lights {
-		switch {
-		case s.Lights[i].Type == renderer.LightSun && s.shadowDirIndex < 0:
-			s.shadowDirIndex = int32(i)
-		case s.Lights[i].Type == renderer.LightPoint && s.shadowPointIndex < 0:
-			s.shadowPointIndex = int32(i)
-		}
-	}
-}
-
-// Reports whether the light at index i owns a shadow map
-func (s *Scene) casts(i int32) bool {
-	return i == s.shadowDirIndex || i == s.shadowPointIndex
-}
-
-// Returns the caster indices, so the frame loop bakes only those lights' depth passes
-func (s *Scene) ShadowCasters() (dir, point int32) {
-	return s.shadowDirIndex, s.shadowPointIndex
-}
-
 // Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
 func NewScene(path string, b renderer.Backend) Scene {
 	s := LoadScene(path)
@@ -70,8 +40,8 @@ func NewScene(path string, b renderer.Backend) Scene {
 	for i := range s.Meshes {
 		s.Meshes[i].setup(b)
 	}
-	s.pickShadowCasters()
-	// One atlas for every light, allocated here rather than per casting light
+	// One atlas for every light, allocated here rather than per casting light.
+	// Who gets a tile of it is a per-frame decision, not a load-time one
 	s.atlas.setup(b)
 	s.Skybox.setup(b)
 	return s
@@ -189,6 +159,11 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 			// Set by UpdateShadows, which must therefore run first
 			ShadowIndex: l.shadowIndex,
 			ShadowCount: l.shadowCount,
+		}
+		// Read here rather than cached at init: settings.Load runs after this
+		// package's variables are initialised, so a snapshot would be the default
+		if settings.NoShadows {
+			u.Lights[i].ShadowIndex, u.Lights[i].ShadowCount = -1, 0
 		}
 	}
 

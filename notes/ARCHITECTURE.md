@@ -174,8 +174,7 @@ flowchart TD
     ME --> FV["fillVertices<br/>flatten faces to interleaved vertices"]
     FV --> SU["Mesh.setup<br/>CreateBuffer + one CreateMesh per face group<br/>decode + CreateTexture per material"]
 
-    LI --> PS["Scene.pickShadowCasters<br/>first sun + first point light"]
-    PS --> LS["shadowAtlas.setup<br/>one 4096² CreateRenderTarget, whatever the light count"]
+    LI --> LS["shadowAtlas.setup<br/>one 4096² CreateRenderTarget, whatever the light count<br/>who gets a tile of it is a per-frame decision"]
 
     P --> SK["Skybox.setup<br/>CreateBuffer + CreateMesh + CreateCubemap"]
 
@@ -188,13 +187,15 @@ flowchart TD
 `BufferHandle` plus three `MeshHandle`s, each owning only its index list. That is
 why `Mesh.gpu` is a slice.
 
-**The shadow budget is fixed at load.** `pickShadowCasters` picks the first
-directional and the first point light; every other light still lights the scene,
-it just casts nothing. What they get is **tiles of one atlas** — one for the sun,
-six for the point light's faces — allocated per frame by `Scene.UpdateShadows`
-(`scene/shadowatlas.go`), which also writes one `ShadowRecord` per tile. The
-atlas holds 16 tiles and 7 are used; the per-frame allocator that fills the rest
-is `tmp/LIGHTING_IMPL.md` Part D.
+**The atlas partition is fixed at load; who occupies it is decided per frame.**
+`buildLayout` (`scene/shadowatlas.go`) carves the one 4096 atlas into the slot
+counts `slotLayout` declares, once, and those rects never move again.
+`Scene.UpdateShadows` then scores every light by `Radius / distance to camera`,
+sorts by score, and hands each the best free slot no larger than the ceiling its
+score earns — one slot for a sun or a spot, six for a point light's faces, which
+need not be adjacent — writing one `ShadowRecord` per tile as it goes. A light
+that fits nowhere degrades a pool at a time and finally lights unshadowed. Load
+time allocates the atlas image and its slot table, nothing else.
 
 **Texture paths are made portable.** Blender bakes the absolute path of the
 machine that exported the scene into the MTL, so `texturePath` keeps only the
@@ -282,9 +283,9 @@ Only what exists. Unexported symbols are marked _(pkg)_.
 | `Scene.RenderScene`               | func | Rebinds the frame block, then draws every mesh with the forward shader                                                                                    |
 | `Scene.RenderSkybox`              | func | Binds a _copy_ of the frame block with the view translation stripped                                                                                      |
 | `Scene.UpdateMeshes`              | func | Reuploads the vertex buffers physics moved this frame                                                                                                     |
-| `Scene.ShadowCasters`             | func | Returns the two caster indices, or -1. No caller since the atlas landed                                                                                   |
-| `Scene.UpdateShadows`             | func | Allocates a tile per caster and builds this frame's `ShadowRecord` array. Must run before `FillFrameUniforms`, which copies each light's record index out |
+| `Scene.UpdateShadows`             | func | Scores every light, allocates its tiles and builds this frame's `ShadowRecord` array. Must run before `FillFrameUniforms`, which copies each light's record index out |
 | `Scene.ShadowRecords`             | func | This frame's records, for `Backend.BindShadowRecords`                                                                                                     |
+| `Mesh.CastsShadow`                | field | Whether the shadow bake draws this mesh. `<castsShadow>` in the XML, default true; false for a plane that can only occlude itself |
 | `Scene.BakeShadows`               | func | One pass over the atlas: per tile a `SetViewportScissor`, a `BakeMatrix` and every mesh                                                                   |
 | `Scene.Mesh` / `Light` / `Camera` | func | Lookup by name                                                                                                                                            |
 | `Mesh`                            | type | Vertices, normals, UVs, faces, materials, plus the GPU handles                                                                                            |
@@ -292,7 +293,9 @@ Only what exists. Unexported symbols are marked _(pkg)_.
 | `Mesh.draw` _(pkg)_               | func | One `Backend.Draw` per face group, rewriting the material fields of `u`                                                                                   |
 | `Light`                           | type | Position, direction, colour, intensity, type, cone cosines, radius, and its record index into the atlas. Owns **no** GPU resource                         |
 | `Light.shadowRecord` _(pkg)_      | func | Builds one tile's record: ortho for a sun, one widened 90° face for a point                                                                               |
-| `shadowAtlas` _(pkg)_             | type | The one depth target and the interim grid allocator over it, in `shadowatlas.go`                                                                          |
+| `shadowAtlas` _(pkg)_             | type | The one depth target, its fixed slot pools and who holds them this frame, in `shadowatlas.go`                                                              |
+| `slotLayout` _(pkg)_              | var  | How many slots exist at each size, as divisions of `atlasSize`. The light budget lives here; the atlas size only sets sharpness                            |
+| `buildLayout` _(pkg)_             | func | Carves the slot rects out of the atlas once at load, largest size first, then discards the quadtree that placed them                                       |
 | `Material`                        | type | Ambient, diffuse (= albedo), specular, shininess, alpha, metallic, roughness, ao, plus diffuse and normal-map handles                                     |
 | `Camera`                          | type | Position, front, up, yaw, pitch, FOV                                                                                                                      |
 | `Skybox`                          | type | The cube mesh handle and the cubemap texture                                                                                                              |
@@ -369,6 +372,10 @@ Scenes are XML in `src/assets/`, referencing OBJ and MTL files in
     <position>0.0,0.0,0.0</position>
     <obj>DemoGround.obj</obj>
     <!-- <mtl> is optional: it defaults to the .obj basename -->
+    <!-- <castsShadow> is optional and defaults to true. False keeps the mesh
+         out of the shadow bake, which a single-sided ground plane wants: with
+         the whole scene above it, it can only occlude itself -->
+    <castsShadow>false</castsShadow>
   </mesh>
 
   <light name="Sun">
@@ -461,6 +468,5 @@ not an abandoned one:
 | Symbol                                                                                     | Waiting for                                                                             |
 | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
 | `Backend.CopyDepthRegion`                                                                  | Part E's static-to-dynamic tile promotion                                               |
-| `Scene.ShadowCasters`                                                                      | Nothing — Part D deletes it along with `pickShadowCasters`                              |
 | `GeometryShader` device feature, `passShadowCube`, the cube branch of `CreateRenderTarget` | The escape hatch in `tmp/LIGHTING_PLAN.md` §11.3, if atlas corner filtering disappoints |
 | `renderer.TargetColor`                                                                     | An HDR target, once a half-float format is bound                                        |

@@ -9,13 +9,17 @@ Small, concrete items. Anything that needs a paragraph of reasoning lives in
 - [ ] Fix Gutter on Overdrive — `main.go` still calls `App.Run` with a nil widget
 - [x] Support multiple shadows (one 2D map + one cube) — superseded by the atlas
 - [x] Retire the cube-shadow slots — every shadow is a tile of one atlas now, `tmp/LIGHTING_IMPL.md` Part C
-- [ ] Allocate the atlas's other 9 tiles — `pickShadowCasters` still picks one sun and one point light, Part D
-- [ ] Delete the ×5 point-shadow scale in `forward.slang` and re-tune — it makes a shadowed fragment subtract light
+- [x] Per-frame atlas allocation — a buddy quadtree scored by `radius / distance`, `tmp/LIGHTING_IMPL.md` Part D
+- [x] Replace the per-frame quadtree with a fixed slot layout — rank picks the slot, the tier caps it; rects never move, so Part E can cache a baked tile. The layout is `tmp/LIGHTING_PLAN.md` §4.1's partition exactly: 1x2048 + 16x512 + 64x256 + 256x128, 337 slots, 100% of the atlas
+- [ ] Make `atlasSize` a `[shadows]` quality knob — the layout already scales with it, but `NORMAL_OFFSET_2D`/`NORMAL_OFFSET_CUBE` in `forward.slang` are fixed world-space constants, so halving the atlas re-introduces the acne they were tuned to hide. Scale them by `rec.texelSize` against a reference tile first
+- [ ] Check whether `[shadows] width`/`height` in the TOML still drive anything — they predate the atlas and may be dead
+- [ ] Split the per-tile bake state out of `FrameUniforms` — `CurWorldToTile`/`CurLightPos`/`CurFarPlane` are the only fields the shadow pass changes per tile, but it republishes all 4844 bytes, so a tile costs 4864 ring bytes instead of ~100. That overflowed the 1 MiB ring at 259 tiles (silent wrong depth, one stderr line); `ringSize` is 4 MiB now as a stopgap, and a full 337-slot atlas would still cost ~1.6 MiB per frame
+- [x] Delete the ×5 point-shadow scale in `forward.slang` — it made a shadowed fragment subtract light, invisible with one caster and blotchy with six
 - [x] Clean up the fragment shader
 - [x] Integrate the skybox reflection into the colour computation (PBR ambient term)
 - [x] Usable from a simple ECS script
 - [x] Read collider position, size and rotation from the Blender scene
-- [ ] Debug mode
+- [~] Debug mode — a `[debug]` TOML section so far: `lockCamera`, `noShadows`, `validation`. Images are inspected in RenderDoc; no in-engine overlay yet
 - [x] Multiple lights of the same type (up to `MAX_LIGHTS` = 64)
 - [ ] Proper box colliders — `physics/box.go` is empty, `box_old.go` is commented out
 - [ ] Verlet distance constraints — `physics/link.go` is commented out

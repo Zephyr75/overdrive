@@ -15,7 +15,8 @@ notes/
 │   ├── BACKEND_DECISION.md  why Vulkan only, what the interface must grow, in what order
 │   ├── LIGHTING_PLAN.md     proposal, not yet built: clustered forward + shadow atlas
 │   │                        design sound, implementation constraints stale — see its banner
-│   └── LIGHTING_IMPL.md     the build order for it, Parts A-H, one at a time
+│   ├── LIGHTING_IMPL.md     the build order for it, Parts A-H, one at a time
+│   └── PART_D_REPORT.md     every change of the Part D session, with the reasoning
 └── cheatsheets/        reference notes, engine-independent
     ├── GRAPHICS.md     real-time techniques, procedural, physics, AI, GPGPU, optimisation
     ├── PBR.md          radiometry, BRDF, Cook-Torrance, metallic-roughness, IBL

@@ -19,9 +19,17 @@ import (
 
 const (
 	framesInFlight = 2
-	// Per-frame uniform ring. Each draw snapshots one Uniforms block (1312
-	// bytes) into it, so this holds a few hundred draws per frame.
-	ringSize = 1 << 20
+	// Per-frame uniform ring. Sized by the shadow pass, not by the draw count:
+	// the bake rebinds the whole 4844-byte FrameUniforms once per tile, because
+	// three of its fields describe the tile being baked, so a full 337-slot atlas
+	// costs ~1.6 MiB of ring before a single scene draw. 1 MiB overflowed at 259
+	// tiles, and an overflow wraps to offset 0 over blocks the GPU still needs —
+	// silent wrong depth, one warning line on stderr.
+	//
+	// The real fix is to split those three fields into their own small block so a
+	// tile costs ~100 bytes instead of 4844; see notes/TODO.md. This is the size
+	// that makes the current shape safe.
+	ringSize = 4 << 20
 	// Bindless array sizes, which must match the descriptor set layout the
 	// shaders were compiled against.
 	max2DTextures   = 256
@@ -325,12 +333,12 @@ func (b *VKBackend) Init(window *glfw.Window) error {
 	return nil
 }
 
-// Creates the instance with the extensions GLFW requires, and the validation layers when OVERDRIVE_VK_VALIDATION is set
+// Creates the instance with the extensions GLFW requires, and the validation layers when [debug] validation is set
 func (b *VKBackend) createInstance() error {
 	// Keep validation opt-in, as the layers are a separate package on most
 	// distributions and instance creation fails outright when one is missing
 	var layers []string
-	if os.Getenv("OVERDRIVE_VK_VALIDATION") != "" { // TODO: add to config
+	if settings.Validation {
 		layers = append(layers, "VK_LAYER_KHRONOS_validation")
 	}
 

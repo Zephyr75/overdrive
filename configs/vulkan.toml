@@ -1,4 +1,8 @@
 # go run . -config configs/vulkan.toml
+#
+# Every key is optional and an absent one keeps its default, but an unknown key
+# or an out-of-range value is an error rather than a shrug: a settings file that
+# is silently ignored is worse than one that fails.
 
 [window]
 width = 1920
@@ -12,8 +16,25 @@ height = 1024
 backend = "vulkan"
 
 [antialiasing]
-mode = "msaa"
-samples = 4
+mode = "msaa"         # or "none"
+samples = 4           # 1, 2, 4 or 8
 
 [textures]
-anisotropy = 8
+anisotropy = 8        # 1 (off), 2, 4, 8 or 16
+
+# Inspection switches. These change how a run is looked at, not what it renders
+# — except noShadows, which is deliberately an A/B.
+[debug]
+# Vulkan validation layers. Costs frame rate, reports API misuse
+validation = false
+
+# Freeze the camera where the scene put it: no mouse look, no WASD. A
+# reproducible RenderDoc capture needs it — with the cursor captured, the
+# compositor delivers a position event of its own choosing on the first frames
+# and the view drifts every run
+lockCamera = false
+
+# Light every light unshadowed while still baking every tile. The A/B that
+# separates "the scene is dark" from "every light is wrongly occluded", two
+# failures that render identically and share no code
+noShadows = false

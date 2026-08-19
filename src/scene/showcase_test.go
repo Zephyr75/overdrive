@@ -27,44 +27,35 @@ func loadShowcase(t *testing.T) Scene {
 	return LoadScene(paths.Asset("showcase.xml"))
 }
 
-// Checks the scene parses into the expected meshes and lights, and picks both shadow casters
+// Checks the scene parses into meshes and lights of all three types, and that a
+// spot's derived cone terms survived toLight
+//
+// One of each type matters because the bake has a distinct projection per type,
+// and a scene missing one leaves that path untested. A malformed cone degrades
+// to cutoff == outerCutoff rather than failing, and a radius of 0 culls the
+// light everywhere.
 func TestShowcaseLoads(t *testing.T) {
 	s := loadShowcase(t)
 
 	if len(s.Meshes) != 5 {
 		t.Errorf("meshes = %d, want 5 (ground, suzanne, 2 spheres, cube)", len(s.Meshes))
 	}
-	if len(s.Lights) != 6 {
-		t.Errorf("lights = %d, want 6 (4 point + 1 spot + 1 sun)", len(s.Lights))
+	if len(s.Lights) != 9 {
+		t.Errorf("lights = %d, want 9 (5 point + 3 spot + 1 sun)", len(s.Lights))
 	}
 
-	// Check the shadow budget goes to the first directional and first point
-	// light, resolved by index so XML ordering does not matter
-	s.pickShadowCasters()
-	if s.shadowDirIndex < 0 {
-		t.Error("no directional shadow caster picked, but the scene has a sun")
-	} else if s.Lights[s.shadowDirIndex].Type != renderer.LightSun {
-		t.Errorf("directional caster is light %d, which is not a sun", s.shadowDirIndex)
-	}
-	if s.shadowPointIndex < 0 {
-		t.Error("no point shadow caster picked, but the scene has point lights")
-	} else if s.Lights[s.shadowPointIndex].Type != renderer.LightPoint {
-		t.Errorf("point caster is light %d, which is not a point light", s.shadowPointIndex)
-	}
-}
-
-// Checks the spot light's derived terms, which toLight computes and nothing
-// else validates: a malformed cone degrades to cutoff == outerCutoff == 1
-// rather than failing, and a radius of 0 would cull the light everywhere
-func TestShowcaseSpotLight(t *testing.T) {
-	s := loadShowcase(t)
-
-	var spots int
+	counts := map[int]int{}
 	for _, l := range s.Lights {
+		counts[l.Type]++
+
 		if l.Type != renderer.LightSpot {
 			continue
 		}
-		spots++
+		// A sun is unbounded, but a spot's radius is what the shading early-out
+		// tests: 0 culls the light everywhere
+		if l.Radius <= 0 {
+			t.Errorf("%s: radius %v, so the shading early-out culls it everywhere", l.Name, l.Radius)
+		}
 		// Inner cone is narrower than the outer one, so its cosine is larger;
 		// equal cosines mean <cone>/<coneBlend> never reached toLight
 		if !(l.Cutoff > l.OuterCutoff) {
@@ -73,12 +64,45 @@ func TestShowcaseSpotLight(t *testing.T) {
 		if l.OuterCutoff <= 0 || l.OuterCutoff >= 1 {
 			t.Errorf("%s: outerCutoff %v is not a half-angle cosine of a real cone", l.Name, l.OuterCutoff)
 		}
-		if l.Radius <= 0 {
-			t.Errorf("%s: radius %v, so the shading early-out culls it everywhere", l.Name, l.Radius)
+	}
+	for _, c := range []struct {
+		t    int
+		name string
+	}{
+		{renderer.LightSun, "sun"},
+		{renderer.LightPoint, "point"},
+		{renderer.LightSpot, "spot"},
+	} {
+		if counts[c.t] == 0 {
+			t.Errorf("the showcase has no %s light, so its shadow path goes untested", c.name)
 		}
 	}
-	if spots == 0 {
-		t.Error("no spot light in the showcase — the cone path goes untested")
+}
+
+// Checks the caster flag: absent means true, and the ground opts out
+//
+// The default is the load-bearing half. `CastsShadow *bool` in MeshXml exists
+// only so an absent element is distinguishable from an explicit false — get that
+// wrong and every mesh silently stops casting, which looks like the shadow pass
+// broke rather than like a parse bug.
+func TestShowcaseShadowCasters(t *testing.T) {
+	s := loadShowcase(t)
+
+	ground := s.Mesh("Ground")
+	if ground == nil {
+		t.Fatal("the showcase has no Ground mesh")
+	}
+	if ground.CastsShadow {
+		t.Error("the ground casts shadows: a single-sided plane under the whole scene can only occlude itself, which is acne")
+	}
+	for i := range s.Meshes {
+		m := &s.Meshes[i]
+		if m.Name == "Ground" {
+			continue
+		}
+		if !m.CastsShadow {
+			t.Errorf("%s does not cast, but its XML says nothing — the default is not true", m.Name)
+		}
 	}
 }
 

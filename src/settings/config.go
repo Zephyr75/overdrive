@@ -26,6 +26,13 @@ type Config struct {
 	Textures struct {
 		Anisotropy int
 	}
+	// Inspection switches, not rendering ones. Kept in the file rather than in
+	// environment variables so a run's whole configuration is readable from it
+	Debug struct {
+		Validation bool
+		LockCamera bool
+		NoShadows  bool
+	}
 }
 
 // Loads a settings file over the defaults
@@ -55,6 +62,9 @@ func loadDefaults() Config {
 	c.AntiAliasing.Mode = string(AntiAliasing)
 	c.AntiAliasing.Samples = MSAASamples
 	c.Textures.Anisotropy = Anisotropy
+	c.Debug.Validation = Validation
+	c.Debug.LockCamera = LockCamera
+	c.Debug.NoShadows = NoShadows
 	return c
 }
 
@@ -84,13 +94,15 @@ func apply(c Config) error {
 	if err := checkAnisotropy(c.Textures.Anisotropy); err != nil {
 		return err
 	}
-
 	WindowWidth, WindowHeight = c.Window.Width, c.Window.Height
 	ShadowWidth, ShadowHeight = c.Shadows.Width, c.Shadows.Height
 	Backend = backend
 	AntiAliasing = mode
 	MSAASamples = c.AntiAliasing.Samples
 	Anisotropy = c.Textures.Anisotropy
+	Validation = c.Debug.Validation
+	LockCamera = c.Debug.LockCamera
+	NoShadows = c.Debug.NoShadows
 	return nil
 }
 

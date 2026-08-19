@@ -27,6 +27,25 @@ var (
 	Anisotropy int = 8
 )
 
+// The [debug] section: switches that change how a run is inspected, never what
+// it renders — except NoShadows, which is an A/B and says so.
+//
+// These were environment variables until 2026-08-16. They are settings like any
+// other now, so a run's whole configuration is readable from the one file it was
+// given rather than from the shell history that launched it.
+var (
+	// Vulkan validation layers. Costs frame rate, reports API misuse
+	Validation bool = false
+	// Freeze the camera where the scene put it: no mouse look, no WASD.
+	// Reproducible captures need it, the compositor otherwise delivering a
+	// cursor event of its own choosing on the first frames
+	LockCamera bool = false
+	// Light every light unshadowed, while still baking every tile.
+	// The A/B that separates "the scene is dark" from "every light is wrongly
+	// occluded" — two failures that render identically and share no code
+	NoShadows bool = false
+)
+
 // Reports whether material textures are sampled anisotropically, 1 meaning plain isotropic filtering
 func AnisotropyEnabled() bool {
 	return Anisotropy > 1

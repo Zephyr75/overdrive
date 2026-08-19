@@ -7,7 +7,7 @@ package free of graphics calls.
 You build scenes in Blender and export them to the engine's XML format with a
 custom add-on. The export covers meshes, camera, lights and materials.
 
-![Overdrive showcase scene](demo.png)
+![Overdrive showcase scene: three props under nine shadow-casting lights, their coloured shadows overlapping on the ground](demo.png)
 
 ## Features
 
@@ -22,11 +22,17 @@ custom add-on. The export covers meshes, camera, lights and materials.
 * Physically based shading. A metallic-roughness Cook-Torrance BRDF with
   GGX distribution, Smith geometry and Fresnel-Schlick, energy conserving, with
   Reinhard tone mapping.
-* Directional and point lights, up to 8 at once, each with its own colour,
-  intensity and falloff.
-* Shadows for both light types. Directional lights use a 2D shadow map and point
-  lights use a cube map for shadows in all directions. Both are softened with
-  PCF and use a normal-offset bias so contact shadows stay attached.
+* Directional, point and spot lights, up to 64 at once, each with its own
+  colour, intensity, falloff and cone. A per-light radius lets the shader skip a
+  light before the BRDF, which is what makes that count affordable.
+* Shadows for all three types, out of **one 4096² atlas**: a sun or a spot takes
+  one tile of it, a point light six 90° tiles instead of a cubemap, so the pass
+  count does not grow with the light count. A quadtree allocator scores every
+  light per frame by its screen-space footprint and hands out tiles from 2048
+  down to 128 — walk toward a light and its shadow sharpens; run out of atlas and
+  the least important light loses resolution rather than the frame losing time.
+  Softened with early-bail PCF and a normal-offset bias so contact shadows stay
+  attached.
 * Normal mapping in tangent space, worked out per pixel so meshes need no extra
   tangent data.
 * Materials and textures, with colour and normal maps and bindless texture
@@ -72,7 +78,7 @@ Tested on Arch Linux. You need Go 1.26 or newer, plus:
 ```sh
 sudo pacman -S base-devel glfw
 sudo pacman -S vulkan-icd-loader
-sudo pacman -S vulkan-validation-layers   # optional, for OVERDRIVE_VK_VALIDATION=1
+sudo pacman -S vulkan-validation-layers   # optional, for [debug] validation = true
 ```
 
 You also need the Slang shader compiler (`slangc`) to build the shaders. It is
@@ -121,10 +127,15 @@ backend = "vulkan"
 
 [antialiasing]
 mode = "msaa"         # or "none"
-samples = 4           # 2, 4 or 8
+samples = 4           # 1, 2, 4 or 8
 
 [textures]
 anisotropy = 8        # 1 (off), 2, 4, 8 or 16
+
+[debug]
+validation = false    # Vulkan validation layers
+lockCamera = false    # freeze the camera where the scene put it
+noShadows  = false    # light everything unshadowed, tiles still baked
 ```
 
 Every key is optional, an absent one keeping its default. An unknown key or
@@ -137,13 +148,21 @@ the file it was given.
 another backend fails with an explanation, and so a second one has somewhere to
 be named later.
 
-### Validation layers
+### Debugging
 
-```sh
-OVERDRIVE_VK_VALIDATION=1 go run .
-```
+There are **no environment variables**. Every knob, including the debugging ones,
+is a key in the settings file, so what a run was configured with is always
+readable from the file it was given. The one exception is `OVERDRIVE_ROOT`, which
+overrides project-root discovery and cannot be a setting — it is what locates the
+settings file.
 
-A debugging switch, not a setting: it changes nothing about what is rendered.
+`[debug]` covers the Vulkan validation layers, a camera lock that makes a capture
+reproducible, and an unshadowed A/B. Nothing in it changes what is rendered,
+except `noShadows`, which is deliberately an A/B.
+
+Images are inspected in **RenderDoc**. The engine has no readback path of its
+own: capture a frame and read the swapchain image or the shadow atlas out of the
+capture, with `lockCamera = true` so two captures are of the same view.
 
 ### Shaders
 

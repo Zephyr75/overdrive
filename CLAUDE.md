@@ -53,10 +53,28 @@ go test ./...        # uniform layout + showcase-scene checks; no GPU needed
 go run .             # reads configs/vulkan.toml
 
 go run . -config configs/vulkan.toml     # the same, named explicitly
-OVERDRIVE_VK_VALIDATION=1 go run .       # validation layers
+go run . -scene stress.xml               # 64 lights (MaxLights), all casting: the allocator scene
 
 go test ./scene/ -run TestShowcaseLoads   # single test
 ```
+
+**Every runtime knob is in the TOML file, including the debug ones.** There are
+no environment variables — `OVERDRIVE_ROOT` is the single exception and cannot be
+otherwise, since it is what locates the settings file. So what a run was
+configured with is always readable from the file it was given.
+
+`configs/vulkan.toml` `[debug]`, all off by default:
+
+| key | what it does |
+| --- | --- |
+| `lockCamera` | freezes the camera where the scene put it, so a capture is reproducible |
+| `noShadows` | lights everything unshadowed, tiles still baked. The A/B that separates "the scene is dark" from "every light is wrongly occluded" |
+| `validation` | Vulkan validation layers |
+
+**Images are inspected in RenderDoc, not by the engine.** There is no readback
+path and no PNG dump: capture a frame and read the swapchain image and the
+shadow atlas out of the capture. `lockCamera = true` is what makes two captures
+comparable.
 
 `go vet ./...` reports two pre-existing `possible misuse of unsafe.Pointer` in
 `vulkan/backend.go`; they are the device-address arithmetic and are not new.
@@ -103,7 +121,7 @@ Four invariants hold the engine together. Breaking any of them is how it goes wr
 
 Frame shape (`core/App.Run`): physics + mesh re-upload → input → `BeginFrame` → tile allocation + records → one shadow-atlas pass (depth-only, no color clear, one viewport per tile) → main backbuffer pass (skybox with LEQUAL depth, scene forward, UI fullscreen quad) → `EndFrame`.
 
-**Every shadow in the scene is a sub-rect of one 4096² depth texture** — a sun or spot takes one tile, a point light six 90° tiles rather than a cubemap — so the pass count does not grow with the light count. Each tile is described by a `ShadowRecord` whose `LightSpace` matrix both bakes it and samples it. Two rules are silent corruption if broken: **clamp every PCF tap to the tile inset by one texel** (an atlas has no border; the neighbour is another light's shadow), and **widen each cube face to `90° + 2 texels`** (no cross-face filtering, so the kernel must stay inside its own tile). Shadow budget is still fixed at load: `Scene.pickShadowCasters` picks the first directional and first point light; other lights still light the scene, they just cast nothing.
+**Every shadow in the scene is a sub-rect of one 4096² depth texture** — a sun or spot takes one tile, a point light six 90° tiles rather than a cubemap — so the pass count does not grow with the light count. Each tile is described by a `ShadowRecord` whose `LightSpace` matrix both bakes it and samples it. Two rules are silent corruption if broken: **clamp every PCF tap to the tile inset by one texel** (an atlas has no border; the neighbour is another light's shadow), and **widen each cube face to `90° + 2 texels`** (no cross-face filtering, so the kernel must stay inside its own tile). The atlas is carved into a **fixed slot layout** at load (`slotLayout` / `buildLayout` in `scene/shadowatlas.go`) — so many slots at 2048, 512, 256 and 128, which is `notes/tmp/LIGHTING_PLAN.md` §4.1's partition quadrant for quadrant — and those rects never move again, which is what lets Part E cache a baked tile. Every size is a division of `atlasSize` rather than a pixel count, so the atlas size buys sharpness and the slot counts buy light budget: two separate knobs. Slots are typeless, only size matters, because a point light's six faces each carry their own rect and are never filtered across, so they need not be adjacent. Who occupies a slot is decided **per frame**: every light scores `radius / distance to camera`, lights sort by score, and each takes the best free slot no larger than the ceiling its score earns (512 / 256 / 128, a sun capped at 2048; a point light's six faces each take a slot of that size, not a smaller one — the pool bounds it, so no extra rationing is needed). **Rank picks the slot, the tier caps it** — the ceiling stops an unimportant light claiming a slot it would waste, and phase 1b then re-offers whatever is spare to whoever ended up under their ceiling, so an idle slot size is never wasted on a scene whose light mix differs from the layout's. Running out of slots costs the least important light its resolution and never costs frame time — it walks down a pool at a time and finally leaves `ShadowIndex = -1`, which lights it unshadowed. Two hysteresis margins guard two different axes: `nextTierThreshold` (20%) keeps a boundary score from changing a light's ceiling every frame, and `slotStickiness` (20%) keeps two near-equal lights from trading a contended pool's last slot every frame — a failure fixed pools have and a splitting tree does not.
 
 Conventions that would silently produce a mirrored or inside-out image: the main pass uses a **negative-height viewport** so clip space comes out y-up, which is what the projection matrices in `scene/` assume; that also flips winding, so it keeps CCW front faces. The shadow pass uses a positive viewport and declares `FrontFace = Clockwise`. Projections are the OpenGL convention (clip z in `[-w, w]`), so every vertex stage calls `TO_VK_DEPTH`. `notes/ENGINE_FLOW.md` §5 is the full list, §6 is a symptom→file table.
 

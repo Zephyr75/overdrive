@@ -68,12 +68,18 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	// Wire the input callbacks, falling back to the built-in handlers
 	window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
 	window.SetScrollCallback(input.ScrollCallback)
-	if app.MouseCallback != nil {
-		window.SetCursorPosCallback(app.MouseCallback)
-	} else {
-		window.SetCursorPosCallback(input.DefaultMouseCallback)
+	// A locked camera stays exactly where the scene put it, which is what makes a
+	// capture reproducible: with the cursor captured, the compositor delivers a
+	// position event of its own choosing on the first frames and the view drifts
+	// differently every run
+	if !settings.LockCamera {
+		if app.MouseCallback != nil {
+			window.SetCursorPosCallback(app.MouseCallback)
+		} else {
+			window.SetCursorPosCallback(input.DefaultMouseCallback)
+		}
+		window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 	}
-	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
 	utils.HandleError(app.Backend.Init(window))
 
@@ -122,7 +128,9 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		s.UpdateMeshes()
 
 		// Process input before anything is recorded, so the camera is current
-		if app.InputHandler != nil {
+		if settings.LockCamera {
+			// nothing moves the camera
+		} else if app.InputHandler != nil {
 			app.InputHandler(app.Window, deltaTime)
 		} else {
 			input.DefaultInput(app.Window, deltaTime)

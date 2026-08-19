@@ -1,14 +1,14 @@
 # Lighting implementation — Parts A–H
 
-**Status: A, B and C landed.** The build order for `LIGHTING_PLAN.md`, split so
+**Status: A, B, C and D landed.** The build order for `LIGHTING_PLAN.md`, split so
 each part is a session's work that leaves the tree running.
 
-The "As each part lands" sync below **has been done through C**:
+The "As each part lands" sync below **has been done through D**:
 `../FEATURES.md`, `../ENGINE_FLOW.md`, `../ARCHITECTURE.md`, `../OVERVIEW.md`,
-`../TODO.md` and `../../CLAUDE.md` describe the atlas rather than per-light
-shadow targets. A–C are not struck from this file yet, since the deviations
-recorded under each are the only account of _why_ the shipped shape differs from
-`LIGHTING_PLAN.md`.
+`../TODO.md` and `../../CLAUDE.md` describe the atlas and its per-frame allocator
+rather than per-light shadow targets and a fixed caster pick. A–D are not struck
+from this file yet, since the deviations recorded under each are the only account
+of _why_ the shipped shape differs from `LIGHTING_PLAN.md`.
 
 Scope: what to edit, in what order, and how to know each part landed. Every
 `§n` below points into `LIGHTING_PLAN.md`.
@@ -26,7 +26,7 @@ the capacity arithmetic and the rejected alternatives all live in
 | [A](#part-a--light-model) _(landed)_                | light model, spot lights | struct layout  | ~64 lights           |
 | [B](#part-b--atlas-plumbing) _(landed)_             | atlas plumbing           | image layouts  | tiles drawable       |
 | [C](#part-c--records-and-atlas-sampling) _(landed)_ | records, atlas sampling  | tile bleeding  | one sampler, N tiles |
-| [D](#part-d--the-allocator)                         | quadtree allocator       | fragmentation  | variable resolution  |
+| [D](#part-d--the-allocator) _(landed)_              | slot-layout allocator    | contention thrash | variable resolution  |
 | [E](#part-e--staticdynamic-split)                   | static/dynamic, caching  | classification | the shadow budget    |
 | [F](#part-f--depth-prepass)                         | depth prepass            | MSAA + `EQUAL` | overdraw, AO input   |
 | [G](#part-g--clustered-forward)                     | clustered forward        | Z distribution | 1000s of lights      |
@@ -64,7 +64,7 @@ Every part ends with the same check, from `src/`:
 SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh
 go build ./... && go test ./...
 go run .                                       # eyeball the showcase scene
-OVERDRIVE_VK_VALIDATION=1 go run .             # clean log
+go run . -config <a copy with [debug] validation = true>   # clean log
 ```
 
 The eyeball step is not optional for any part touching `common.slang` or
@@ -235,7 +235,7 @@ so "the shadow still looks right" is unconfirmed. Re-apply with `git apply` to
 check that by hand.
 
 **Risk.** Image layout transitions around `vkCmdCopyImage` are the usual
-validation trap. Run with `OVERDRIVE_VK_VALIDATION=1` throughout this part, not
+validation trap. Run with `[debug] validation = true` throughout this part, not
 only at the end.
 
 ---
@@ -333,7 +333,7 @@ only at the end.
 
 **Gate.** Standard gate: builds, `go test ./...` green, `spirv-val
 --scalar-block-layout` clean on all ten modules, and
-`OVERDRIVE_VK_VALIDATION=1 go run .` runs silent at ~180 FPS on the 5070 Ti.
+`go run .` with `[debug] validation = true` runs silent at ~180 FPS on the 5070 Ti.
 
 **The eyeball step has not been done** — no screenshot path on this Wayland
 session — so "the showcase's shadows are indistinguishable" is _unverified_.
@@ -358,33 +358,134 @@ against a wall corner deliberately.
 
 ---
 
-## Part D — The allocator
+## Part D — The allocator _(landed)_
 
 **Goal.** Tile sizes chosen per frame from screen-space importance.
 
-**Touches.** new `scene/shadowatlas.go`, `scene/scene.go`.
+**Touches.** `scene/shadowatlas.go`, `scene/scene.go`, and — not in the plan —
+`shaders/slang/forward.slang`, `assets/showcase.xml`, plus the atlas readback in
+`renderer/backend.go`, `vulkan/texture.go`, `scene/shadowdebug.go`,
+`core/app.go` and `go-vulkan`.
 
 **Steps.**
 
-1. Quadtree allocator over the atlas: split 4096 → 2048 → … → 128, with
-   `Alloc(size)` and `Free(rect)` coalescing freed siblings.
-2. Per-light score and tier, thresholds from §4.3.
-3. Hysteresis: a tier change requires the score to cross its threshold by more
-   than 20%. Without it a light on a boundary reallocates every frame and forces
-   a full re-bake every frame — the exact opposite of Part E's goal.
-4. Sort by score, allocate greedily, demote what does not fit to
-   `ShadowIndex = -1`. Running out of budget must cost shadow quality and never
-   frame time.
-5. Delete `Scene.pickShadowCasters`, `Scene.casts` and `Scene.ShadowCasters` —
-   the fixed 1-dir + 1-point budget they encode is what this part replaces.
+1. ~~Quadtree allocator over the atlas.~~ **Done**, then **superseded**: the
+   per-frame tree became a fixed slot layout (`slotLayout` / `buildLayout`),
+   carved once at load. `quadNode` still places the slots — largest size first,
+   which cannot fragment — but `release`, `free` and the sibling coalescing are
+   gone with the per-frame use that needed them.
+2. ~~Per-light score and tier.~~ **Done**, `lightScore` and `shadowTiers`, at
+   §4.3's thresholds exactly. The tier is now the **ceiling** on what a light may
+   hold rather than the size it is handed: rank picks the slot, the tier caps it.
+3. ~~Hysteresis.~~ **Done**, now `nextTierThreshold = 1.2` in `tierFor`, plus a
+   second margin `slotStickiness = 1.2` on the ranking — fixed pools let two
+   near-equal lights trade a contended pool's last slot, which the tier margin
+   cannot damp because it guards a threshold rather than a comparison.
+4. ~~Sort by score, allocate greedily, demote what does not fit.~~ **Done**, in
+   three phases rather than one; see below.
+5. ~~Delete `Scene.pickShadowCasters`, `Scene.casts` and `Scene.ShadowCasters`.~~
+   **Done.**
 
-**Gate.** Standard gate, plus: walking the camera toward a light visibly
-sharpens its shadow and walking away coarsens it, without popping every frame.
-Log one frame's allocation map and check it against §4.1.
+**Six things the plan did not say.**
 
-**Risk.** Quadtree fragmentation over a long session — many alloc/free cycles at
-mixed sizes leaving no contiguous slot. Coalescing on free is what prevents it;
-write that unit test specifically, it is cheap and CPU-only.
+- **The tree persists across frames**, and it has to. §4.3's hysteresis is
+  pointless against an allocator that resets every frame — the whole point of not
+  changing tier is not changing _pixels_, which only means something if the tiles
+  survive. So `shadowAtlas` carries `allocs map[int32]*lightAlloc` and only
+  touches a light whose tier actually moved.
+
+- **Two tier states, not one.** A point light takes one step below its scored
+  tier, because six faces cost 6× the texels of a spot at the same size. Feeding
+  that halved size back in as `cur` next frame reads as a demotion and the light
+  oscillates, so `lightAlloc` keeps `tier` (the hysteresis state, in
+  `shadowTiers`' units) separate from `want` (the per-face size it buys) and
+  `size` (what it actually got).
+
+- **Allocation is three passes.** Free everything whose tier moved _before_
+  allocating anything, so a promoting light can be served out of what a demoting
+  one just gave back; then allocate in score order, degrading a step at a time;
+  then retry the degraded ones at full size. Without the third pass a light that
+  lost a tier during one crowded frame stays coarse for the rest of the session.
+  That retry takes the new tiles before releasing the old, so a failed upgrade
+  leaves what it has alone.
+
+- **A sun is not scored at all.** It has no `Radius` — Part A step 4 gives a
+  directional light 0 — so `radius / distance` is 0 and the sun would be the
+  first light demoted to unshadowed. It takes a fixed 2048, which is also §4.1's
+  drawing.
+
+- **A spot needed its own projection.** `shadowRecord` had two branches, a cube
+  face and "everything else = the sun's ortho box". Nothing noticed because
+  `pickShadowCasters` never picked a spot. Now that every light is a candidate,
+  a spot bakes through `mgl32.Perspective` at `2·acos(outerCutoff)`, widened by
+  two texels for the same reason a cube face is, with `spotUp` avoiding the
+  degenerate `LookAtV` when the cone points straight down.
+
+- **The ×5 point-shadow scale had to go here**, not in Part E. Part C preserved
+  it deliberately so its gate was an unchanged image; with every point light
+  shadowed, `Lo += contrib * (1 - shadow)` going negative is black blotches
+  rather than an invisible bug.
+
+- **A caster flag was needed, and front-face culling is not a substitute.** With
+  every light casting, the ground plane baked into every point light's map and
+  shaded against itself — acne over the whole plane, which renders as a black
+  scene. Making every tile `CullFront` cures that (a single-sided plane has no
+  back face) and immediately peter-pans every closed caster by its own thickness.
+  `Mesh.CastsShadow` / `<castsShadow>` is the fix; the cull mode stays `CullBack`.
+
+**The atlas dump.** The eyeball step has had no answer since the OpenGL backend
+went — this session has no screenshot path at all, and the atlas is a target
+nothing draws to the screen anyway. So Part D also built one:
+`renderer.DepthReader` (optional, outside `Backend`, because it blocks on an idle
+queue), `VKBackend.ReadDepthTarget` on top of a new `vk.CmdCopyImageToBuffer`
+binding, and `Scene.DumpShadowAtlas` / `ShadowAllocationMap`. `F9` or
+`[debug] dumpAtlas = N` writes `shadow_atlas.png` with each tile
+contrast-stretched to its own range — the three bakes do not share an encoding —
+and outlined by light type.
+>
+> **Removed on 2026-08-17.** All of it: the two reader interfaces, the readback
+> in `vulkan/texture.go`, `scene/shadowdebug.go`, the `dumpFrame`/`dumpAtlas`
+> settings and the `F9`/`F10` keys. Images are inspected in RenderDoc instead,
+> which needs no engine code and does not put a pipeline stall in the
+> abstraction. `lockCamera` and `noShadows` stayed.
+
+**Gate.** Standard gate: builds, `go test ./...` green, `spirv-val
+--scalar-block-layout` clean, `go run .` with `[debug] validation = true` silent at
+~181 FPS on the 5070 Ti — **the same rate as Part C's two casters**, with six
+lights shadowed instead of two, which is the early-out and the tile budget both
+doing their job.
+
+The allocation map on the showcase, which is §4.1's shape at showcase scale:
+
+```
+  PointWarm    point score  0.875  tier 1024  6 tiles of 512
+  PointRed     point score  7.709  tier 1024  6 tiles of 512
+  PointGreen   point score  9.442  tier 1024  6 tiles of 512
+  PointBlue    point score 11.398  tier 1024  6 tiles of 512
+  SpotViolet   spot  score  9.927  tier 1024  1 tile  of 1024
+  Sun          sun                 tier 2048  1 tile  of 2048
+  11534336 texels of 16777216 used (68.8%)
+```
+
+**And the eyeball was actually done**, for the first time since Part B: the dump
+shows the sun's ortho tile with the props silhouetted, the spot's cone looking
+down at the chrome sphere, and 24 point-light faces each with the ground's
+radial-distance horizon. Tests standing in for the rest:
+`TestAtlasCoalescesFreedSiblings` (the Risk note's fragmentation case, an
+alloc/free cycle repeated eight times finding the same capacity),
+`TestTierHysteresis`, `TestTileSizeTracksCameraDistance` and
+`TestShowcaseLightsAllFitTheAtlas` (no two tiles overlap, and a point light holds
+six or none).
+
+**One showcase change.** `SpotViolet` moved from GL (-2, 6, 4.5) to (-3.8, 6,
+0.4) and widened 40° → 50°. Where it was, its cone covered bare ground, and the
+2D bake culls front faces — so its atlas tile baked **completely empty** and the
+spot shadow path was untested. Aimed at the chrome sphere the tile is 30%
+geometry. The dump is what caught that; nothing else would have.
+
+**Risk.** ~~Quadtree fragmentation over a long session.~~ Covered by
+`TestAtlasCoalescesFreedSiblings`. Still open: the score ignores whether a light
+is on screen at all, which is §2.2's cluster gate and belongs to Part G.
 
 ---
 

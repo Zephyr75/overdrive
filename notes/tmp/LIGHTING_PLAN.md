@@ -1,14 +1,26 @@
 # Lighting plan — shadow atlas + clustered forward
 
-**Status: design decided, nothing implemented yet.** `LIGHTING_IMPL.md` is the
-build order.
+**Status: Parts A–D of `LIGHTING_IMPL.md` are built** — spot lights, the atlas
+and its plumbing, the records, and the allocator. E–H (static/dynamic caching,
+depth prepass, clustering, quality tiers) are not. `LIGHTING_IMPL.md` is the
+build order and records where the shipped shape deviates from this document;
+§4.1 and §4.3 below carry the largest such notes.
+
+**Part D's per-frame buddy quadtree has since been replaced** by a slot layout
+carved once at load (`slotLayout` / `buildLayout` in `scene/shadowatlas.go`), and
+that layout **is §4.1's partition** — the drawing there is now what the engine
+builds, quadrant for quadrant, rather than an illustration. The tier is a ceiling
+rather than an allocation, the rects never move (which is what Part E's caching
+needs), and the atlas size became a pure resolution knob since every slot size is
+a division of it. §4.1, §4.3 and §4.5 carry the notes; §4.3's tier sizes are the
+one place this document is now stale on purpose, and §4.1 says why.
 
 Scope: many shadowed lights, static and dynamic, scaling from a discrete GPU
 down to an integrated laptop one. The decisions taken, the atlas that was
 designed, and the numbers they imply.
 
-Not here: the build order and per-step instructions (`LIGHTING_IMPL.md`), the
-current fixed 1-directional + 1-point shadow budget (`../FEATURES.md` Part 1),
+Not here: the build order and per-step instructions (`LIGHTING_IMPL.md`), what
+the shadow system does today (`../FEATURES.md` Part 1),
 the `Backend` contract as it stands (`../ENGINE_FLOW.md` §0), technique
 background (`../cheatsheets/GRAPHICS.md`).
 
@@ -203,8 +215,11 @@ bandwidth, cache and pass-count argument now, not a capacity one: N tile bakes
 become one pass with N viewport changes, and a viewport change is nearly free
 where a target bind is a render-pass boundary.
 
-Each atlas is one 2D depth target carved into power-of-two tiles by a quadtree
-allocator (4096 → 2048 → … → 128). Tiles per light:
+Each atlas is one 2D depth target carved into power-of-two tiles (4096 → 2048 →
+… → 128). As shipped the carve happens **once at load**, into the fixed slot
+counts `slotLayout` declares, and only occupancy is decided per frame; the plan
+below assumed a quadtree repartitioning every frame, and §4.3's note records why
+that changed. Tiles per light:
 
 | light type | tiles | why |
 |---|---|---|
@@ -241,8 +256,42 @@ staticAtlas — ONE 4096x4096 depth texture, ONE handle, ONE framebuffer
    1 sun  +  52 point  +  24 spot   =   77 shadowed lights, 337 tiles
 ```
 
-The partition is not fixed in code — the allocator rebalances it per frame from
-the score in §4.3. It is drawn here to make the capacity concrete.
+It is drawn here to make the capacity concrete, and **the engine implements it**:
+`slotLayout` in `scene/shadowatlas.go` declares exactly these counts, and
+`buildLayout` carves them at scene load.
+
+> **What the allocator produces against this drawing.** Measured on
+> `go run . -scene stress.xml` (from the atlas dump that existed at the time,
+> since removed in favour of RenderDoc): 64 lights, 259
+> tiles, nothing degraded, nothing unshadowed. **The partition matches
+> quadrant for quadrant** — 1 slot of 2048, 16 of 512, 64 of 256, 256 of 128,
+> which is 4 + 4 + 4 + 4 of the atlas's 16 cells of 1024² and so exactly 100% of
+> it. Two things still differ, and neither is the partition:
+>
+> - **Occupancy is 74.2%, not 100%.** This drawing is a 77-light spend and
+>   `MaxLights` is 64, so the last quarter is unreachable until Part G moves the
+>   light array to a storage buffer — §4.5 flags exactly this. Filling the gap
+>   instead by letting lights climb above the ceiling their score earns
+>   was tried and reverted: with this much spare every light reaches the largest
+>   pool there is, the score stops selecting a resolution, and a lone spot ends up
+>   holding the *sun's* 2048 slot at every distance.
+>   `TestTileSizeTracksCameraDistance` is the guard.
+> - **Point lights sit where this drawing puts them.** They briefly did not: a
+>   point light was capped a tier below its score so six faces would not cost 6× a
+>   spot's texels, which meant no point light could enter the 512 quadrant and it
+>   stood 4/16 full while the 256 and 128 pools saturated. The cap was rationing
+>   against the old repartitioning tree and is redundant here — a pool bounds what
+>   it can hand out — so it went, and the quadrant fills 2 point lights + 4 spots
+>   exactly as drawn.
+>
+> **§4.3 disagrees with this drawing, and the drawing wins.** §4.3 writes the
+> tiers as 1024 / 512 / 256; the partition here steps 2048 → 512 → 256 → 128 and
+> has no 1024 at all. Both cannot hold: a 1024 row of four slots costs 4 cells, a
+> whole quadrant, and the only quadrant it could come from is the 128 row. So a
+> 4096² atlas buys §4.3's high tier *or* the 40 far point lights drawn bottom
+> right, never both. `shadowTiers` is set to 512 / 256 / 128 to follow the
+> drawing. An 8192 atlas is what buys both, and `atlasSize` is the one knob that
+> rescales the whole layout — see `../FEATURES.md` "Retuning the layout".
 
 **Why a rect and not a texture-array layer.** A `sampler2DArray` requires every
 layer to be the same size, so variable resolution would need one array per tier
@@ -295,6 +344,24 @@ Two details that matter in practice:
   what the caching is for.
 - **Cluster gate.** A light touching zero clusters (§2.2) skips allocation
   entirely, whatever its score.
+
+> **How this shipped, and the one thing the plan did not anticipate.** The tier
+> above is now a **ceiling**, not an allocation: `slotLayout` fixes the partition
+> at load and lights take the best free slot no larger than the tier their score
+> earns. Rank picks the slot, the tier caps it.
+>
+> What the plan missed is that a fixed pool has a failure a repartitioning tree
+> does not. Once a pool is empty, two lights with near-equal scores trade its last
+> slot every frame, and the loser cannot be served a step smaller out of the same
+> space — a forced re-bake plus a visible flicker. The 20% margin above does not
+> damp it, because that margin is against a *fixed threshold* and this contention
+> is *between lights*. So there are two margins now, on two axes:
+> `nextTierThreshold` for the tier, `slotStickiness` for the ranking.
+>
+> A second correction: a ceiling that stops a light *competing* for a big slot
+> must not stop it *using* an idle one. Without that re-offer pass, a layout tuned
+> for one light mix wasted its unused sizes on a scene with another — measured at
+> 11 points of occupancy on `stress.xml`, which has no near point lights.
 
 ### 4.4 Bake scheduling
 
@@ -362,6 +429,20 @@ count or a *count* knob at fixed resolution — not both at once.
 
 Mixed, as in §4.1: **1 sun + 52 point + 24 spot = 77 shadowed lights** in one
 4096² atlas. That is the realistic number to design against.
+
+> **The engine builds this partition, and runs it under-filled.** `slotLayout` is
+> these four rows exactly — 337 slots, 100% of a 4096². What a scene actually
+> claims is another matter: `stress.xml` fills 74.2% with 64 lights and cannot go
+> further, because 64 is `MaxLights` and this is a 77-light spend. The last
+> quarter is unreachable until Part G, exactly as the trap below this table says.
+> The gap is deliberately not redistributed either — see §4.1 for why handing the
+> surplus out breaks the score's control of resolution.
+>
+> The thing to watch before authoring toward 77 is not texels. Every tile
+> re-bakes every frame until Part E lands, and a tile re-draws every casting
+> mesh, so 337 tiles is 337 × casters draws per frame — comfortable against
+> `stress.xml`'s 4 casting meshes, ruinous against 200. **Part E is the
+> prerequisite for actually filling this drawing**, not a bigger atlas.
 
 **Static versus dynamic.** Everything above is the *static* budget, bounded by
 VRAM alone — all 77 can be static, baked at load, costing nothing per frame. The
@@ -529,7 +610,7 @@ world.Update, Scene.UpdateMeshes
 input
 BeginFrame
 ▸ cluster build          CPU: light spheres vs froxels, upload both arrays
-▸ tile allocation        score, hysteresis, quadtree; cluster-gated
+▸ tile allocation        score, hysteresis, slot pools; cluster-gated
 ▸ static atlas bakes     only on load, or on reallocation
 ▸ dynamic atlas tiles    per dirty light: copy static tile, draw movable casters
 ▸ depth prepass          backbuffer, depth only (§10)

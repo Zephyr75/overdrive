@@ -151,7 +151,7 @@ every method table was a two-column comparison), `../ARCHITECTURE.md`,
 floor.
 
 Verified: `go build ./...` and `go test ./...` clean, shaders recompile, and the
-engine runs with `OVERDRIVE_VK_VALIDATION=1` without a validation message.
+engine runs with `[debug] validation = true` without a validation message.
 `go vet` still reports two pre-existing `possible misuse of unsafe.Pointer` in
 `vulkan/backend.go` — the device-address arithmetic, untouched by this.
 

@@ -187,6 +187,14 @@ class OverdriveWriter:
         mtl_element = self.create_xml_element("mtl", {})
         mtl_element.appendChild(self.doc.createTextNode(mtl_name))
         mesh_element.appendChild(mtl_element)
+
+        # Blender's own "Shadow" ray visibility. Written only when it is off, the
+        # engine defaulting to true, so existing scenes keep meaning what they did
+        if not mesh.visible_shadow:
+            casts_element = self.create_xml_element("castsShadow", {})
+            casts_element.appendChild(self.doc.createTextNode("false"))
+            mesh_element.appendChild(casts_element)
+
         self.scene.appendChild(mesh_element)
 
 

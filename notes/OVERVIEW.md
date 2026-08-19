@@ -120,8 +120,15 @@ spot takes one tile, a point light six 90° tiles instead of a cubemap. So the
 pass count no longer grows with the light count — one `BeginPass`, then a
 `SetViewportScissor` per tile.
 
-The budget is still fixed at load: the first directional and the first point
-light get tiles. Other lights still light the scene, they just cast nothing.
+The image is carved into a **fixed slot layout** at load — so many slots at 2048,
+512, 256 and 128 — and those rects never move. Who occupies them is scored
+**per frame** from `radius / distance to camera`: lights sort by score and take
+the best free slot no larger than the ceiling their score earns. Running out of
+slots degrades a light a pool at a time and finally leaves it unshadowed — it
+still lights the scene, it just casts nothing. Because the layout is declared in
+divisions of the atlas rather than in pixels, changing the atlas size changes how
+sharp the shadows are and not how many lights cast them. The atlas is a render
+target nothing puts on screen, so it is read out of a RenderDoc capture.
 
 → `ENGINE_FLOW.md` §3.
 

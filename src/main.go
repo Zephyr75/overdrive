@@ -62,6 +62,7 @@ func (s *Sphere2) Collider() physics.Collider { return s.Sphere }
 func main() {
 	// Must load before NewApp, which is where the window and backend read them
 	configName := flag.String("config", "vulkan.toml", "settings file: a bare name resolves under configs/, a path is used as given")
+	sceneName := flag.String("scene", "showcase.xml", "scene file, resolved under assets/")
 	flag.Parse()
 	// A bad settings file is the user's mistake, not a crash, so it gets a line
 	// on stderr rather than utils.HandleError's stack
@@ -72,7 +73,7 @@ func main() {
 
 	app := core.NewApp("Gutter", settings.WindowWidth, settings.WindowHeight, true, nil, nil)
 
-	scene := scene.NewScene(paths.Asset("showcase.xml"), app.Backend)
+	scene := scene.NewScene(paths.Asset(*sceneName), app.Backend)
 
 	world := createWorld(&scene)
 

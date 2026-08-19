@@ -232,12 +232,50 @@ per tile, which is why it is _pass_-scoped rather than strictly per frame — in
 the atlas pass it is closer to per draw call; the skybox does the same with a
 stripped-translation view of its own.
 
-Shadow budget is still fixed and resolved once at load: `pickShadowCasters` picks
-the first directional and the first point light. What changed is where the result
-goes — one tile of the atlas for the sun, six for the point light, rather than
-two textures of their own. Every other light is still lit in the forward pass, it
-just gets no tile. `tmp/LIGHTING_IMPL.md` Part D replaces the fixed pick with a
-per-frame score over the atlas's 16 tiles.
+The atlas is carved into a **fixed slot layout** once at scene load — `slotLayout`
+declares the count at each size, `buildLayout` places the rects, and they never
+move again. The shadow budget is then resolved **per frame** in
+`shadowAtlas.allocate` (`scene/shadowatlas.go`), which `UpdateShadows` calls
+first: every light scores `Radius / distance to camera`, lights sort by score,
+and each takes the best free slot no larger than the ceiling its score earns
+(512 / 256 / 128, a sun capped at 2048; a point light takes six slots at that
+same size). Four properties are worth knowing before touching it:
+
+- **The rects never move.** A light that keeps its slot keeps its exact pixels,
+  which is the precondition for Part E baking a tile once — validity becomes one
+  dirty flag per slot rather than a comparison of rects.
+- **Rank picks the slot, the tier caps it.** The ceiling stops an unimportant
+  light claiming a big slot it would only spend bake time on; rank decides who
+  wins when a pool is contended. Phase 1b then re-offers whatever is still spare
+  to whoever ended up under their ceiling, so an unused slot size is never left
+  idle just because the scene's light mix differs from the layout's.
+- **Running out of slots costs quality, never time.** A light that does not fit
+  walks down a pool at a time and only then falls to `ShadowIndex = -1` and lights
+  unshadowed. Nothing about the frame gets slower.
+- **A point light's six tiles are all-or-nothing**, but they need not be adjacent
+  — each face carries its own rect and nothing filters across faces, so a point
+  light takes any six slots of one size. Five faces would leave a lit wedge, which
+  reads as a hole in the shadow rather than as a coarser one.
+
+Two hysteresis margins, on two different axes: `nextTierThreshold` keeps a light
+hovering on a score threshold from changing its ceiling, and `slotStickiness`
+keeps two lights with near-equal scores from trading a contended pool's last slot
+every frame. The second is specific to fixed pools — a splitting tree could serve
+the loser a step smaller out of the same space, and a pool cannot.
+
+To see what it decided: capture a frame in RenderDoc and read the atlas out of
+the shadow pass — the engine has no readback path of its own. `[debug]
+lockCamera` freezes the view, so two captures are comparable.
+
+Every tile bakes with `CullBack`, the scene default, so the surface facing the
+light is what lands in the map and a shadow stays welded to its caster's base.
+Front-face culling was tried as the acne fix and reverted: it bakes the far side
+of a closed mesh, which floats a sphere above a lit disc of its own diameter.
+
+What handles acne instead is `Mesh.CastsShadow` (`<castsShadow>` in the XML,
+default true). A single-sided plane with the whole scene above it can only occlude
+itself, so it opts out — and its acne does not look like acne, it looks like the
+lights stopped working.
 
 ---
 
@@ -643,14 +681,20 @@ not check order — see §4.5 for how to verify it.
 | `spirv-val` rejects every module                                      | Missing `--scalar-block-layout`; `LightData`'s 72-byte stride is legal only under it (§4.5)                                                                                |
 | Validation complains about image layouts                              | `imageBarrier` call sites in `BeginPass` / `EndPass` / `recordImageUpload`                                                                                                 |
 | A resource is destroyed while in use                                  | `waitAllFrames`, `retire`, `drainRetired` (§7)                                                                                                                             |
-| Shadows missing on one light                                          | `Scene.pickShadowCasters` — only the first sun and first point light get tiles                                                                                             |
+| Shadows missing on one light                                          | `shadowAtlas.allocate` — its score fell under the last tier, or every pool was full. Its `shadowIndex` is -1; the atlas in a RenderDoc capture shows which tiles were baked |
+| A shadow pops coarse/sharp as the camera moves                        | `nextTierThreshold` in `scene/shadowatlas.go` — the 20% band is what stops a boundary score changing a light's ceiling every frame                                          |
+| Two shadows flicker against each other, neither camera nor light moving | `slotStickiness` — they are trading the last slot of a contended pool, each changing tile size or position frame to frame                                                  |
+| A whole slot size sits idle in the atlas while lights degrade          | the scene's light mix does not match `slotLayout`. Phase 1b should have re-offered the spare slots; if it did not, that is the bug. Otherwise retune the layout             |
+| The whole scene is near black, and bright with `[debug] noShadows` | Every light is self-shadowing. A single-sided plane baked into its own shadow map shades against itself, and acne over the whole plane reads as a scene with no lights. Set `<castsShadow>false</castsShadow>` on it — `Mesh.CastsShadow`, checked in `BakeShadows` |
+| A lit disc under a round object, its shadow starting a diameter away | Peter-panning. The bake is culling front faces somewhere, so the *far* surface of a closed caster is what landed in the map. `BakeShadows` must leave the cull mode at `CullBack` |
+| A light is bright but casts nothing you can see                       | Usually placement, not code. A light needs to be well above its caster and off to one side, or the shadow lands where no visible ground catches it. Look at its tile in a capture: an empty tile means the bake saw nothing, a full tile means the shadow is off-screen |
 | Shadows from the wrong light, or a hairline crack at a cube-face edge | `forward.slang` `shadowLookup` — the tap clamp and the `+2 texel` FOV widening in `scene/shadowatlas.go` `cubeFaceFov` are what prevent each (`tmp/LIGHTING_PLAN.md` §4.2) |
 | A point shadow lands on the wrong face                                | `cubeFaceDirs` (`scene/shadowatlas.go`) and `cubeFace()` (`forward.slang`) are two lists that must agree; `scene/shadowatlas_test.go` is what checks it                    |
 | UI overlay lags by a frame                                            | Expected: `UpdateTexture2D` stages, `BeginFrame` copies                                                                                                                    |
 | Nothing starts                                                        | `./build_shaders.sh` — the generated shaders are git-ignored                                                                                                               |
 | Pipeline creation fails after a pass change                           | Sample count or attachment formats disagreeing with the pass (§5, MSAA)                                                                                                    |
 
-Set `OVERDRIVE_VK_VALIDATION=1` while developing. It is the main reason a wrong
+Set `[debug] validation = true` while developing. It is the main reason a wrong
 image gets diagnosed rather than guessed at.
 
 ---

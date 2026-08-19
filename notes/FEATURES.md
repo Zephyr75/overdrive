@@ -75,8 +75,10 @@ different image:
   `depth_point.slang`, holding **linear radial distance / `farPlane`**. Radial
   distance is face-independent, so depth stays continuous across a face boundary
   and one bias covers all six
-- **Spot → one tile**, structurally; no spot is given one until Part D's
-  allocator
+- **Spot → one tile.** A perspective frustum at the cone's own full angle,
+  widened by two texels like a cube face is, baked with `depth.slang`. It shared
+  the sun's ortho branch until Part D, which nothing noticed because no spot was
+  ever picked as a caster
 - **One `shadowLookup`** in `forward.slang` serves all of them. It projects
   through the tile's own matrix, maps tile-local uv through `AtlasRect`, and
   forks only on `Face` (`-1` projected depth, `0..5` radial)
@@ -118,14 +120,16 @@ the residual constant depth bias is tiny and contact shadows stay attached.
 The offsets are tuned for the showcase's ~10-unit scene scale — rescale them if
 the scene scale changes. Alternatives if this needs revisiting:
 
-- **Front-face culling in the shadow pass.** The cleanest fix for _closed_ meshes
-  (the bias hides inside the geometry), but a single-sided ground plane has no
-  back face, so it cannot cover the showcase ground alone. A sun tile already
-  does this via `SetCullMode(CullFront)`, face tiles do not
-- **Slope-scaled depth bias** (`glPolygonOffset`) — cheap, but on its own it is
-  what caused the original peter-panning
-- A production setup usually pairs **front-face culling (solids) + normal-offset
-  (everything, including flat receivers)**, which is the natural next step
+- **Front-face culling in the shadow pass.** Tried, and **rejected**. It escapes
+  acne by hiding the bias inside the geometry, but it bakes the _far_ side of a
+  closed mesh, so the depth stored is a whole thickness too far: a sphere floats
+  above a lit disc of its own diameter. Textbook peter-panning, and severe on
+  anything round. Every tile bakes `CullBack`, and `Mesh.CastsShadow` handles the
+  case front-face culling was reached for — see below
+- **Slope-scaled depth bias** (`vkCmdSetDepthBias`) — the missing piece, and the
+  one that would cover a flat surface which legitimately must cast. It scales the
+  bias by the depth gradient, which is exactly the quantity that blows up at
+  grazing incidence. Not bound in `go-vulkan` yet
 
 #### Early-bail PCF
 
@@ -153,18 +157,236 @@ The forward pass evaluates up to `MAX_LIGHTS` (64) lights per fragment in any mi
   array — `-1` means unshadowed — so the shader needs no side table of which
   light owns which map. A point light's six records are consecutive, and the
   face is picked from the major axis of `fragPos - light.position`
-- **Who casts.** `Scene.pickShadowCasters` still selects the first directional and
-  the first point light at load, so 7 of the atlas's 16 tiles are in use. Part D
-  replaces that with a per-frame score
+- **The atlas is carved once, not repartitioned per frame.** `slotLayout` in
+  `scene/shadowatlas.go` declares how many slots exist at each size, `buildLayout`
+  places them at scene load, and those rects never move again. Every size is a
+  division of `atlasSize` rather than a pixel count, so changing the atlas
+  rescales the whole layout instead of changing how many lights fit — **atlas
+  size buys sharpness, the slot counts buy light budget**, and they are separate
+  knobs. That is what a quality setting wants: turning shadows down must not stop
+  lights casting
 
-> **Gap.** The atlas has room for 16 tiles and the allocator hands out 7, because
-> the caster pick is still the fixed load-time one. That is Part D, not a bug.
+- **Slots are typeless; only size matters.** A point light's six faces each carry
+  their own `atlasRect` and are never filtered across, so they need not be
+  adjacent — a point light takes any six slots of one size, from wherever they
+  are. That is what stops a fixed layout from being rigid, and it is visible in
+  the atlas: a point light's tiles are scattered across it rather than adjacent
 
-> **Bug, preserved deliberately.** The point-light branch scales its shadow by
-> **5.0**, so `Lo += contrib * (1 - shadow)` goes negative on a fully shadowed
-> fragment and _subtracts_ light other lights contributed. It predates the atlas
-> and was carried across unchanged so Part C's image would be comparable; it
-> should be deleted and the shadows re-tuned.
+- **Who casts is decided per frame**, by `shadowAtlas.allocate`. Every light
+  scores `Radius / distance to camera` — its rough screen-space footprint, which
+  is why Part A's `Radius` had to exist first. **Rank picks the slot, the tier
+  caps it**: lights sort by score and take the best free slot no larger than
+  their ceiling, where `shadowTiers` sets that ceiling at 512 above 0.50, 256
+  above 0.20, 128 above 0.08 and nothing below. A sun skips the score entirely
+  and is capped at 2048: it has no radius, and it is the one light every pixel
+  sees. The 2048 slot is the sun's by construction, nothing else being capped
+  that high, so a scene with no sun should trade that row for four 1024s
+
+- **A point light takes six slots at its tier's size, not a smaller one.** It was
+  capped a tier below for a while, so six faces would not cost 6× a spot's texels
+  at the same score — rationing that made sense against an allocator which could
+  hand the whole atlas to whoever asked first, and is redundant against fixed
+  pools, where a pool holds only the slots it holds. Keeping it had a cost no
+  reasoning surfaced and one atlas dump did: **the largest scored tier and the
+  largest scored pool are the same size**, so halving locked every point light out
+  of that pool, which then stood empty behind lights entitled to it while
+  everything below shuffled a tier down. Removing it took `stress.xml` from 74.2%
+  to 91.8% and filled the 512 quadrant 16/16. Its six tiles stay all-or-nothing —
+  five would leave a lit wedge, which reads as a hole rather than a coarser shadow
+
+- **The ceiling stops a light competing for a slot, not using an idle one.**
+  Phase 1b re-offers whatever is still spare to whoever ended up under their
+  ceiling, largest first and still in rank order. Without it, a layout tuned for
+  one light mix wastes its unused sizes on a scene with a different one — the
+  measured cost on `stress.xml`, which has no near point lights, was 11 points of
+  occupancy and six far spots stuck at 128. Only degraded lights move, so a light
+  already at its ceiling never churns
+
+- **Degradation is the failure mode, never frame time.** A light that finds no
+  slot at its ceiling walks down a pool at a time and finally holds nothing,
+  which leaves `ShadowIndex = -1` and lights it unshadowed. Nothing gets slower
+
+- **Two hysteresis margins, on two different axes.** `nextTierThreshold` (20%) is
+  the margin against a fixed score threshold, so a light hovering on a tier
+  boundary keeps its ceiling. `slotStickiness` (20%) is the margin on the ranking
+  itself, and it exists because a fixed pool has a failure a splitting tree does
+  not: once a pool is empty, two lights with near-equal scores trade its last slot
+  every frame, and the loser cannot be served a step smaller out of the same
+  space. That is a forced re-bake plus a visible flicker.
+  `TestSlotStickinessSurvivesContention` is the guard
+
+- **The layout quadtree survives, halved.** `quadNode` still places the slots,
+  because filling largest size first can never fragment and there is no packing
+  heuristic to get wrong. But it runs once at load and never frees, so `release`
+  and the sibling coalescing went with the per-frame allocator — that was the
+  subtle half, and the half that failed silently
+
+Measured on `stress.xml` — 64 lights, which is `MaxLights` exactly: 1 sun, 24
+spots and 16 point lights in coloured rings, plus 23 dim white point lights as
+fill. All 64 shadowed, 11 of them degraded a step, **259 tiles filling 91.8% of the atlas**.
+The remaining 25.8% cannot be claimed by this scene: `MaxLights` runs out before
+the atlas does, which is `tmp/LIGHTING_PLAN.md` §4.5's "77 against 64" arriving
+in practice. See §"Reading the shadow atlas" below for how those numbers were
+read off a capture.
+
+No frame-rate figure goes with that, and none can: the swapchain is
+`PresentModeFifoKHR` and this machine's display is 180.03 Hz, so 9 lights and 64
+lights both read ~181 FPS. See "Measuring by FPS subtraction does not work here"
+under Performance notes — GPU timestamp queries are the instrument, and they are
+blocked on query-pool bindings.
+
+Filling that headroom by letting lights climb above their ceiling was tried and
+reverted. With this much spare, every light reaches the largest pool there is and
+the score stops selecting a resolution at all — a lone spot held the *sun's* 2048
+slot at every distance. `TestTileSizeTracksCameraDistance` is the guard, and the
+surplus pass stays restricted to genuinely degraded lights.
+
+#### Retuning the layout
+
+The atlas is 16 cells of 1024², and §4.1's partition spends all 16: the sun's
+2048 is one quadrant, and the 512, 256 and 128 rows are one quadrant each. Cost
+per light, in cells:
+
+| light | cells |
+| --- | --- |
+| spot @1024 | 1.0 |
+| spot @512 | 0.25 |
+| spot @256 | 0.0625 |
+| spot @128 | 0.015625 |
+| point @512/face | 1.5 |
+| point @256/face | 0.375 |
+| point @128/face | 0.09375 |
+
+**Why there is no 1024 tier.** A 1024 row of four slots costs 4 cells — a whole
+quadrant — and the only quadrant available is the 128 row. So a 4096² atlas can
+have §4.3's high tier *or* the 40 far point lights §4.1 puts in the bottom right,
+never both. The drawing chose light count; the engine follows it. An 8192 atlas
+is what buys both.
+
+Pure-population capacity after a sun, everything at one tier:
+
+| tier | spots | point lights |
+| --- | --- | --- |
+| top (score > 0.50, i.e. distance < 2× radius) | 48 | 32 |
+| mid (> 0.20) | 192 | 128 |
+| far (> 0.08) | 768 | 512 |
+
+Those numbers are **resolution-independent** — halving `atlasSize` halves every
+slot uniformly and the same lights still cast, which is the whole point of
+declaring the layout in divisions. What the atlas size does decide is texels per
+face: at 4096 a far point light's face is 128², at 2048 it is 64².
+
+**The real ceiling is draw calls, not atlas space.** Every tile re-draws every
+casting mesh, so `stress.xml`'s 121 tiles against 4 casting meshes is 484 draws —
+nothing — but the same layout in a scene with 200 casting meshes is 26,600. That
+is what stops the slot counts simply being raised, and Part E's static/dynamic
+split is the answer to it.
+
+**Lighting a scene so its shadows are visible turned out to be its own problem**,
+and the showcase's comment block records the three rules it took to get right:
+a light must be high and off to one side or its shadow lands where no visible
+ground catches it; a spot beats a point light because it contributes exactly zero
+outside its cone, where a point light lights everything a little and that pedestal
+is what a shadow cannot cut through; and with several lights on one fragment the
+Reinhard curve compresses hard enough that the shadow has to be read by **hue**
+rather than by brightness, which is why the six spots are near-primaries.
+
+#### `Mesh.CastsShadow` — the acne fix that is not a bias
+
+A mesh with `<castsShadow>false</castsShadow>` is skipped by `BakeShadows`.
+Default true; the exporter writes it only when Blender's own "Shadow" ray
+visibility is off.
+
+The showcase ground uses it, and the reasoning generalises: **a single-sided
+plane with the whole scene above it can only ever occlude itself.** Nothing is
+below it to receive its shadow, so every texel it writes into a shadow map is a
+chance to shade against itself — and at the grazing angles a high light gives a
+large plane, the depth gradient across one texel dwarfs any constant or
+normal-offset bias. That is acne over the entire surface.
+
+This was found the expensive way. `BakeShadows` originally set `CullFront` for
+the 2D tiles only, so cube faces baked `CullBack` and the ground went into every
+point light's map. With one point light casting it was a slight darkening nobody
+noticed; with every light casting, the showcase rendered **almost black** — which
+reads as "the lights broke", not "the bias is wrong". The first fix was
+`CullFront` everywhere, which cured the acne and introduced peter-panning: a lit
+disc under every sphere, the size of the sphere. Excluding the caster is what
+fixes the actual problem, and it leaves `CullBack` free to keep contact shadows
+welded to their objects.
+
+The remaining general gap is a flat surface that legitimately must cast — a wall,
+a floor with a room below. That wants slope-scaled depth bias
+(`vkCmdSetDepthBias`), which `go-vulkan` does not bind yet.
+
+> **Bug, now fixed.** The point-light branch used to scale its shadow by **5.0**,
+> so `Lo += contrib * (1 - shadow)` went negative on a fully shadowed fragment
+> and _subtracted_ light other lights contributed. Harmless while one point light
+> cast; with every point light shadowed it is black blotches, so the factor came
+> out here rather than in Part E.
+
+### Reading the shadow atlas
+
+The atlas is the one render target nothing ever puts on screen, so a wrong tile
+rect, a missing bake or a light baking into another's pixels stays invisible
+until it shows up as a shadow in the wrong place. It is read out of a **RenderDoc
+capture** — the engine has no readback path, deliberately: the only call that
+could provide one blocks on an idle queue, and nothing that stalls the pipeline
+belongs in the abstraction for a debug feature's sake.
+
+Two things about the image that are not obvious when reading it:
+
+- **The three bakes do not share a depth encoding**, so no single contrast range
+  reads all of them: an ortho sun tile is linear in z, a cube face is radial
+  distance over the far plane, and a spot is projected perspective depth crowded
+  against 1. A range that shows the sun renders every spot tile white.
+- **A tile's depth looks plausible whatever rect the record claims**, so a rect
+  bug shows up only by holding the tile positions in the image against the
+  `AtlasCoords` in the `ShadowRecord` array.
+
+### Two scenes, and why the showcase is not enough
+
+`assets/showcase.xml` is the beauty shot. `assets/stress.xml`
+(`go run . -scene stress.xml`) is the allocator's.
+
+The showcase **saturates the top tier**: its nine lights all sit within ~15 units
+of the camera with radii over 100, so every score lands between 4.7 and 62
+against a 0.50 threshold, and every one of them is entitled to the largest tile a
+scored light can hold — 512, the point lights six of them each — so the 512 pool
+saturates and the 256/128 pools stay empty for want of anything far enough away.
+Variable resolution goes untested here.
+
+The stress scene derives each light's intensity **from the tier it should land
+in** — `scene.lightRadius` inverts the shader falloff, so solving it backwards
+gives the intensity that puts a light at a chosen distance into a chosen tier.
+41 coloured lights in rings at scores 0.75 / 0.30 / 0.13 occupy 121 tiles and
+44.9% of the atlas. A further 23 dim white point lights — the whole remaining
+`MaxLights` budget — take it to **64 lights, 259 tiles, 91.8%**, nothing
+unshadowed and 11 degraded a step. Point lights rather than spots for the fill, because six
+faces each means 23 lights buy 138 tiles where spots would buy 23, and tile count
+is the bake cost. What stops it reaching 100% is `MaxLights`, not the atlas.
+
+The frame rate is ~181 either way and that is the vsync ceiling, not a result;
+the per-frame quadtree this layout replaced packed the 41-light version into
+87.1% of a partition it rebalanced to fit.
+
+That is the same gap Part A recorded about the attenuation early-out ("the
+showcase cannot show that") and it has the same fix: a scene of many dim,
+localised lights.
+
+### Seeing the frame itself
+
+The presented frame is inspected in RenderDoc too. Two `[debug]` switches exist
+because the frame alone is ambiguous:
+
+- **`[debug] lockCamera`** skips the input handler and never installs the
+  cursor callback. With the cursor captured, the compositor delivers a position
+  event of its own choosing during the first frames and the view drifts
+  differently every run, which makes two captures incomparable.
+- **`[debug] noShadows`** forces every `ShadowIndex` to -1 while still
+  baking every tile. A scene that is dark because its lights are dim and a scene
+  that is dark because every light is wrongly occluded are the same picture and
+  have nothing in common in the code; this is the A/B that tells them apart. It
+  is what found the self-shadowing bug below in one run.
 
 ### PBR materials — metallic-roughness Cook-Torrance
 
@@ -319,8 +541,10 @@ Smaller items, all of them deliberate for now:
 
 | Gap                                                                          | Where                                                                        |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Only 7 of the atlas's 16 tiles are ever allocated — one sun, one point light | `scene/scene.go` `pickShadowCasters`, replaced by Part D                     |
-| Atlas tiles are fixed at 1024², no variable resolution and no cascades       | `scene/shadowatlas.go`, `settings/settings.go`                               |
+| No cascades: the sun is one 2048 ortho tile over a hardcoded [-10, 10] box  | `Light.shadowRecord` in `scene/shadowatlas.go`                                |
+| Every tile re-bakes every frame, the allocator's persistence notwithstanding | the static/dynamic split is Part E                                           |
+| The score ignores whether a light is on screen at all                       | `lightScore` — the cluster gate is Part G                                    |
+| Tier thresholds and tile sizes are constants, not config                    | `shadowTiers` in `scene/shadowatlas.go`, moved to TOML by Part H             |
 | `CopyDepthRegion` and `ShadowRecord.Flags` bit 0 exist but nothing sets them | the static/dynamic split is Part E                                           |
 | `GeometryShader` and `passShadowCube` are enabled and unused                 | `depth_cube.slang` retired with the atlas                                    |
 | No mipmaps on any texture                                                    | `vulkan/texture.go` — needs `CmdBlitImage`, `go-vulkan/BINDINGS_GAP.md` §5.2 |

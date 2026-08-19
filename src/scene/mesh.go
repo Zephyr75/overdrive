@@ -20,6 +20,9 @@ type MeshXml struct {
 	Position string `xml:"position"`
 	Obj      string `xml:"obj"`
 	Mtl      string `xml:"mtl"`
+	// A pointer so an absent element is distinguishable from an explicit false,
+	// which is what lets the default be true
+	CastsShadow *bool `xml:"castsShadow"`
 }
 
 type Mesh struct {
@@ -30,6 +33,12 @@ type Mesh struct {
 	Faces         [][]uint32 // one []uint32 per material group, pos/tex/norm indices interleaved in threes
 	Materials     []Material
 	Position      mgl32.Vec3
+	// Whether the shadow bake draws this mesh, default true
+	//
+	// False is for a receiver that cannot usefully occlude anything: a
+	// single-sided ground plane with the whole scene above it contributes nothing
+	// to any shadow map except its own acne. See BakeShadows.
+	CastsShadow bool
 
 	vertexData  []float32  // Faces flattened by fillVertices into pos/normal/uv triples, interleaved
 	indexGroups [][]uint32 // one index list per material group, indexing into vertexData
@@ -128,6 +137,7 @@ func (mXml MeshXml) toMesh() Mesh {
 	m.Name = mXml.Name
 	m.Position = pos
 	m.initialPosition = pos
+	m.CastsShadow = mXml.CastsShadow == nil || *mXml.CastsShadow
 
 	m.fillVertices()
 

@@ -112,25 +112,162 @@ func TestShadowRecordRectMatchesTile(t *testing.T) {
 	}
 }
 
-// The interim partition must hand out non-overlapping tiles, and must refuse
-// rather than wrap once the atlas is full
-func TestAtlasAllocationDoesNotOverlap(t *testing.T) {
-	a := shadowAtlas{tile: 1024, perRow: atlasSize / 1024}
-	seen := map[[2]int]bool{}
-	for i := 0; i < a.perRow*a.perRow; i++ {
-		tile, ok := a.alloc(0)
-		if !ok {
-			t.Fatalf("allocation %d failed while the atlas still has room", i)
+// The fixed layout must carve every slot it declares, inside the atlas and
+// without two slots sharing a texel
+//
+// The layout is built once and trusted forever after, so a slot that overlaps
+// its neighbour is not a transient allocator bug — it is two lights writing the
+// same pixels for the whole session.
+func TestSlotLayoutPacksTheAtlas(t *testing.T) {
+	var a shadowAtlas
+	a.reset()
+
+	if len(a.pools) != len(slotLayout) {
+		t.Fatalf("the layout built %d pools, want %d", len(a.pools), len(slotLayout))
+	}
+
+	type rect struct{ x, y, size int }
+	var all []rect
+	for p, pool := range a.pools {
+		if pool.size != slotLayout[p].size || len(pool.slots) != slotLayout[p].count {
+			t.Errorf("pool %d holds %d slots of %d, want %d of %d",
+				p, len(pool.slots), pool.size, slotLayout[p].count, slotLayout[p].size)
 		}
-		if seen[[2]int{tile.x, tile.y}] {
-			t.Errorf("tile %d reuses pixels at (%d, %d)", i, tile.x, tile.y)
-		}
-		seen[[2]int{tile.x, tile.y}] = true
-		if tile.x+tile.size > atlasSize || tile.y+tile.size > atlasSize {
-			t.Errorf("tile %d at (%d, %d) runs past the atlas edge", i, tile.x, tile.y)
+		for _, s := range pool.slots {
+			if s.x < 0 || s.y < 0 || s.x+pool.size > atlasSize || s.y+pool.size > atlasSize {
+				t.Errorf("slot (%d, %d) size %d runs past the atlas edge", s.x, s.y, pool.size)
+			}
+			all = append(all, rect{s.x, s.y, pool.size})
 		}
 	}
-	if _, ok := a.alloc(0); ok {
-		t.Error("the atlas allocated a tile past its capacity")
+
+	for i, u := range all {
+		for j, v := range all {
+			if i >= j {
+				continue
+			}
+			if u.x < v.x+v.size && v.x < u.x+u.size && u.y < v.y+v.size && v.y < u.y+u.size {
+				t.Errorf("slots (%d,%d,%d) and (%d,%d,%d) overlap",
+					u.x, u.y, u.size, v.x, v.y, v.size)
+			}
+		}
+	}
+}
+
+// A light that holds a slot must keep the very same rect while its plan does not
+// change, or Part E has nothing to cache
+//
+// This is what the fixed layout buys over the quadtree it replaces: there, a
+// tier change relocated a light even when its size was unchanged.
+func TestSlotsDoNotMoveWhileHeld(t *testing.T) {
+	lights := []Light{
+		{Type: renderer.LightSpot, Pos: mgl32.Vec3{0, 0, 0}, Radius: 10},
+		{Type: renderer.LightPoint, Pos: mgl32.Vec3{5, 0, 0}, Radius: 10},
+	}
+
+	var a shadowAtlas
+	a.reset()
+
+	a.allocate(lights, mgl32.Vec3{0, 0, 12})
+	first := map[int32][]shadowTile{}
+	for idx, al := range a.allocs {
+		first[idx] = append([]shadowTile(nil), al.tiles...)
+	}
+	if len(first) != 2 {
+		t.Fatalf("%d of 2 lights got slots on the first frame", len(first))
+	}
+
+	// The camera creeps, but not far enough to change anyone's tier
+	for i := 0; i < 8; i++ {
+		a.allocate(lights, mgl32.Vec3{0, 0, 12 + float32(i)*0.01})
+		for idx, want := range first {
+			al, ok := a.allocs[idx]
+			if !ok {
+				t.Fatalf("frame %d: light %d lost its slots without its tier changing", i, idx)
+			}
+			for k := range want {
+				if al.tiles[k] != want[k] {
+					t.Fatalf("frame %d: light %d tile %d moved from (%d,%d,%d) to (%d,%d,%d)",
+						i, idx, k, want[k].x, want[k].y, want[k].size,
+						al.tiles[k].x, al.tiles[k].y, al.tiles[k].size)
+				}
+			}
+		}
+	}
+}
+
+// A score hovering on a tier boundary must not flip the tier every frame: a
+// reallocation is a forced full re-bake, which is what Part E exists to avoid
+func TestTierHysteresis(t *testing.T) {
+	// The boundary between the two lowest tiers, read out of the table so
+	// retuning slotLayout does not need this test edited
+	n := len(shadowTiers)
+	boundary := shadowTiers[n-2].minScore
+	upper, lower := shadowTiers[n-2].size, shadowTiers[n-1].size
+
+	if got := tierFor(boundary*1.01, lower); got != lower {
+		t.Errorf("a score 1%% over the boundary promoted to %d, want to stay at %d", got, lower)
+	}
+	if got := tierFor(boundary*1.25, lower); got != upper {
+		t.Errorf("a score 25%% over the boundary stayed at %d, want %d", got, upper)
+	}
+	if got := tierFor(boundary*0.99, upper); got != upper {
+		t.Errorf("a score 1%% under the boundary demoted to %d, want to stay at %d", got, upper)
+	}
+	if got := tierFor(boundary*0.8, upper); got != lower {
+		t.Errorf("a score 20%% under the boundary stayed at %d, want %d", got, lower)
+	}
+}
+
+// Walking the camera toward a light must sharpen its shadow and walking away
+// must coarsen it — the visible behaviour the whole part is for
+func TestTileSizeTracksCameraDistance(t *testing.T) {
+	lights := []Light{{Type: renderer.LightSpot, Pos: mgl32.Vec3{0, 0, 0}, Radius: 10}}
+
+	var a shadowAtlas
+	a.reset()
+
+	sizeAt := func(dist float32) int {
+		// Several frames, because hysteresis deliberately takes more than one
+		for i := 0; i < 4; i++ {
+			a.allocate(lights, mgl32.Vec3{0, 0, dist})
+		}
+		al, ok := a.allocs[0]
+		if !ok {
+			return 0
+		}
+		return al.size
+	}
+
+	near, mid, far, gone := sizeAt(10), sizeAt(30), sizeAt(80), sizeAt(200)
+	if !(near > mid && mid > far) {
+		t.Errorf("tile sizes %d, %d, %d at distances 10, 30, 80 are not monotonically coarser", near, mid, far)
+	}
+	if gone != 0 {
+		t.Errorf("a light 200 units away still holds a %d tile, want none", gone)
+	}
+}
+
+// Every point light the allocator serves must get all six faces, five leaving a
+// lit wedge no other test would catch
+func TestShowcasePointLightsGetSixFaces(t *testing.T) {
+	s := loadShowcase(t)
+
+	s.atlas.reset()
+	s.UpdateShadows(1, 50)
+
+	shadowed := 0
+	for i := range s.Lights {
+		l := &s.Lights[i]
+		if l.shadowIndex < 0 {
+			continue
+		}
+		shadowed++
+		if l.Type == renderer.LightPoint && l.shadowCount != 6 {
+			t.Errorf("point light %q holds %d tiles, want 6", l.Name, l.shadowCount)
+		}
+	}
+	if shadowed < 2 {
+		t.Errorf("%d of %d showcase lights cast a shadow, want several", shadowed, len(s.Lights))
 	}
 }
