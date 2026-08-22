@@ -67,7 +67,7 @@ func TestCubeFaceRecordsAgreeWithFaceSelection(t *testing.T) {
 	}
 	for _, d := range dirs {
 		face := cubeFaceOf(d)
-		rec := l.shadowRecord(tile, face, 6, 1, 50)
+		rec := l.shadowRecord(tile, face, 6, false, 1, 50)
 		if rec.FaceIndex != int32(face) {
 			t.Fatalf("record for face %d reports face %d", face, rec.FaceIndex)
 		}
@@ -90,7 +90,7 @@ func TestCubeFaceRecordsAgreeWithFaceSelection(t *testing.T) {
 func TestShadowRecordRectMatchesTile(t *testing.T) {
 	l := Light{Type: renderer.LightSun, Dir: mgl32.Vec3{0, -1, 0}, Pos: mgl32.Vec3{0, 8, 0}}
 	tile := shadowTile{x: 2048, y: 1024, size: 1024}
-	rec := l.shadowRecord(tile, 0, 1, 1, 50)
+	rec := l.shadowRecord(tile, 0, 1, false, 1, 50)
 
 	if rec.FaceIndex != -1 {
 		t.Errorf("a sun tile reports face %d, want -1", rec.FaceIndex)
@@ -269,5 +269,162 @@ func TestShowcasePointLightsGetSixFaces(t *testing.T) {
 	}
 	if shadowed < 2 {
 		t.Errorf("%d of %d showcase lights cast a shadow, want several", shadowed, len(s.Lights))
+	}
+}
+
+// --- Part E: the static/dynamic split ---------------------------------------
+
+// Moves a mesh and records it as UpdateMeshes would, returning false when the
+// scene has no such mesh
+//
+// Not UpdateMeshes itself: that also re-uploads the vertex buffer, which needs a
+// backend these CPU tests do not have.
+func moveMesh(s *Scene, name string, to mgl32.Vec3) bool {
+	for i := range s.Meshes {
+		if s.Meshes[i].Name != name {
+			continue
+		}
+		s.Meshes[i].MoveTo(to)
+		s.movedMeshes = append(s.movedMeshes, i)
+		return true
+	}
+	return false
+}
+
+// A scene where nothing moves must bake once and never again
+//
+// The whole point of the split: the static atlas is what a light keeps between
+// frames, so a settled scene has to cost zero bakes. A regression here is
+// invisible in the image and only shows as frame time.
+func TestStaticBakeSettles(t *testing.T) {
+	s := loadShowcase(t)
+	s.atlas.reset()
+
+	s.UpdateShadows(1, 50)
+	if len(s.staticQueue) == 0 {
+		t.Fatal("the first update queued no static bake, so nothing was ever baked")
+	}
+	shadowed := 0
+	for i := range s.Lights {
+		if s.Lights[i].shadowIndex >= 0 {
+			shadowed++
+		}
+	}
+	if len(s.staticQueue) != shadowed {
+		t.Errorf("%d lights queued but %d hold records: a static bake is all-or-nothing",
+			len(s.staticQueue), shadowed)
+	}
+
+	for i := 0; i < 4; i++ {
+		s.UpdateShadows(1, 50)
+		if len(s.staticQueue) != 0 || len(s.dynamicQueue) != 0 {
+			t.Fatalf("frame %d re-baked %d static and %d dynamic tiles with nothing moving",
+				i+2, len(s.staticQueue), len(s.dynamicQueue))
+		}
+	}
+}
+
+// With no movable caster in the scene, no record may select the dynamic atlas
+//
+// The flag is what routes a lookup to an atlas that was never written, which
+// reads as a fully lit tile rather than as a crash.
+func TestStaticSceneNeverSamplesTheDynamicAtlas(t *testing.T) {
+	s := loadShowcase(t)
+	s.atlas.reset()
+	s.UpdateShadows(1, 50)
+
+	for i, rec := range s.shadowRecords {
+		if rec.Flags&1 != 0 {
+			t.Fatalf("record %d selects the dynamic atlas in a scene with nothing movable", i)
+		}
+	}
+}
+
+// A caster that moves must rebuild the dynamic atlas and leave the static one alone
+//
+// The split's saving is exactly this: geometry that cannot move is baked once
+// and copied, never re-drawn.
+func TestMovingCasterRebuildsOnlyTheDynamicAtlas(t *testing.T) {
+	s := loadShowcase(t)
+	s.atlas.reset()
+	s.UpdateShadows(1, 50)
+
+	// Suzanne sits in the middle of the scene, so every light reaches it
+	if !moveMesh(&s, "Suzanne", mgl32.Vec3{0, 0.1, 0}) {
+		t.Skip("the showcase has no Suzanne")
+	}
+	if !s.Mesh("Suzanne").Movable {
+		t.Fatal("MoveTo left the mesh classified static, so it would bake into the static atlas")
+	}
+	s.UpdateShadows(1, 50)
+
+	if len(s.staticQueue) != 0 {
+		t.Errorf("a mesh moving re-baked %d static tiles; only the dynamic atlas should change",
+			len(s.staticQueue))
+	}
+	if len(s.dynamicQueue) == 0 {
+		t.Fatal("a mesh moved and no dynamic tile was queued")
+	}
+
+	dyn := 0
+	for _, rec := range s.shadowRecords {
+		if rec.Flags&1 != 0 {
+			dyn++
+		}
+	}
+	if dyn == 0 {
+		t.Error("dynamic tiles were baked but no record samples them")
+	}
+}
+
+// A light too far from every mover keeps sampling the static atlas
+//
+// Its dynamic tile is never built, so a record selecting it would sample a tile
+// holding another light's copy.
+func TestOutOfRangeLightStaysStatic(t *testing.T) {
+	s := loadShowcase(t)
+	s.atlas.reset()
+
+	// Far outside every point and spot radius in the showcase
+	if !moveMesh(&s, "Suzanne", mgl32.Vec3{0, 0, 10000}) {
+		t.Skip("the showcase has no Suzanne")
+	}
+	s.UpdateShadows(1, 50)
+
+	for i := range s.Lights {
+		l := &s.Lights[i]
+		al, ok := s.atlas.allocs[int32(i)]
+		if !ok || l.Type == renderer.LightSun {
+			continue // a sun reaches everything, by definition
+		}
+		if al.dynamic {
+			t.Errorf("light %q took a dynamic tile with every mover 10000 units away", l.Name)
+		}
+	}
+}
+
+// The re-bake budget must defer the least important light, not the first one it
+// reaches, and a deferred light must keep sampling what it already has
+func TestBakeBudgetDefersLeastImportant(t *testing.T) {
+	s := loadShowcase(t)
+	s.atlas.reset()
+
+	if !moveMesh(&s, "Suzanne", mgl32.Vec3{0, 0.1, 0}) {
+		t.Skip("the showcase has no Suzanne")
+	}
+	s.UpdateShadows(1, 50)
+
+	if len(s.dynamicQueue) < 2 {
+		t.Skipf("only %d lights want a dynamic tile, too few to rank", len(s.dynamicQueue))
+	}
+	// The queue is spent in rank order, so its scores must not increase
+	prev := float32(0)
+	for k, idx := range s.dynamicQueue {
+		score := lightScore(&s.Lights[idx], s.Cam.Pos)
+		if k > 0 && score > prev {
+			t.Fatalf("the budget served %q (score %.3f) after a score of %.3f",
+				s.Lights[idx].Name, score, prev)
+		}
+		prev = score
 	}
 }

@@ -113,6 +113,9 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 
 	// Init the frame timing
 	frames := 0
+	// Tiles the last frame baked into each atlas, printed beside the FPS: a
+	// static scene must settle at zero, which is what the static/dynamic split is for
+	staticBakes, dynamicBakes := 0, 0
 	curTime := glfw.GetTime()
 	var deltaTime float32 = 0.0
 	lastFrame := float64(0.0)
@@ -148,12 +151,14 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 			b.BindShadowRecords(s.ShadowRecords())
 			s.FillFrameUniforms(&f)
 
-			// One pass for every shadow in the scene, a tile at a time
+			// The static atlas when allocation moved, then the dynamic one:
+			// a settled scene bakes nothing at all
 			s.BakeShadows(depthShader, depthPointShader, &f)
+			staticBakes, dynamicBakes = s.BakeCounts()
 		}
 
 		// Run the main pass, the only one that clears color
-		b.BeginPass(0, &[4]float32{0.1, 0.1, 0.1, 1.0})
+		b.BeginPass(0, &[4]float32{0.1, 0.1, 0.1, 1.0}, false)
 
 		if s != nil {
 			s.RenderSkybox(skyboxShader, &f)
@@ -174,7 +179,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		deltaTime = float32(glfw.GetTime()) - float32(lastFrame)
 		lastFrame = glfw.GetTime()
 		if glfw.GetTime()-curTime > 1 {
-			fmt.Printf("\rFPS: %d", frames)
+			fmt.Printf("\rFPS: %d  bakes: %d static %d dynamic   ", frames, staticBakes, dynamicBakes)
 			frames = 0
 			curTime = glfw.GetTime()
 		}

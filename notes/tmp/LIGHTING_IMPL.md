@@ -1,9 +1,10 @@
 # Lighting implementation — Parts A–H
 
-**Status: A, B, C and D landed.** The build order for `LIGHTING_PLAN.md`, split so
+**Status: A, B, C, D and E landed.** The build order for `LIGHTING_PLAN.md`, split so
 each part is a session's work that leaves the tree running.
 
-The "As each part lands" sync below **has been done through D**:
+The "As each part lands" sync below **has been done through E** for
+`../../CLAUDE.md` and `../ENGINE_FLOW.md`, and **through D** for the rest:
 `../FEATURES.md`, `../ENGINE_FLOW.md`, `../ARCHITECTURE.md`, `../OVERVIEW.md`,
 `../TODO.md` and `../../CLAUDE.md` describe the atlas and its per-frame allocator
 rather than per-light shadow targets and a fixed caster pick. A–D are not struck
@@ -27,7 +28,7 @@ the capacity arithmetic and the rejected alternatives all live in
 | [B](#part-b--atlas-plumbing) _(landed)_             | atlas plumbing           | image layouts  | tiles drawable       |
 | [C](#part-c--records-and-atlas-sampling) _(landed)_ | records, atlas sampling  | tile bleeding  | one sampler, N tiles |
 | [D](#part-d--the-allocator) _(landed)_              | slot-layout allocator    | contention thrash | variable resolution  |
-| [E](#part-e--staticdynamic-split)                   | static/dynamic, caching  | classification | the shadow budget    |
+| [E](#part-e--staticdynamic-split) _(landed)_        | static/dynamic, caching  | classification | the shadow budget    |
 | [F](#part-f--depth-prepass)                         | depth prepass            | MSAA + `EQUAL` | overdraw, AO input   |
 | [G](#part-g--clustered-forward)                     | clustered forward        | Z distribution | 1000s of lights      |
 | [H](#part-h--quality-tiers)                         | quality tiers            | dead knobs     | the low-end story    |
@@ -489,7 +490,7 @@ is on screen at all, which is §2.2's cluster gate and belongs to Part G.
 
 ---
 
-## Part E — Static/dynamic split
+## Part E — Static/dynamic split _(landed)_
 
 **Goal.** The shadowed-light budget. Static lights bake once; dynamic lights
 bake within a texel allowance.
@@ -498,33 +499,102 @@ bake within a texel allowance.
 
 **Steps.**
 
-1. Two atlases, `staticAtlas` and `dynamicAtlas` (§2.1). `ShadowRecord.Flags`
-   bit 0 selects which one the shader samples.
-2. Classify meshes static vs movable — the ECS/physics entities are the movable
-   set, baked OBJ geometry is static.
-3. Bake `staticAtlas` at load from static casters only. Never re-bake unless a
-   tile is reallocated or the scene reloads.
-4. Per frame, for each light with a movable caster in range: `CopyDepthRegion`
-   its static tile into its `dynamicAtlas` tile, then draw only movable casters
-   on top with an ordinary depth test. The union falls out; one sample at
-   shading time.
-5. Dirty tracking: a light is dirty when it moved, its tile was reallocated, or
-   a movable caster in range moved. `Scene.UpdateMeshes` already knows which
-   meshes a physics step touched — feed that set in rather than adding a second
-   mechanism.
-6. Caster cull (mesh bounds vs light radius) and cube-face cull (face frustum vs
-   camera frustum), §4.4.
-7. Re-bake budget in **texels** per frame, queued by score (§4.5). Overflow
-   resolves on later frames.
+1. ~~Two atlases, `staticAtlas` and `dynamicAtlas` (§2.1). `ShadowRecord.Flags`
+   bit 0 selects which one the shader samples.~~ **Done**, as `staticTarget` /
+   `dynamicTarget` on `shadowAtlas`, over **one** `slotLayout` — so a tile's rect
+   is identical in the two and the copy needs no remap. The shader side needed no
+   edit at all: `forward.slang` has branched on the bit since Part C.
+2. ~~Classify meshes static vs movable.~~ **Done**, but not from the ECS. `Mesh.Movable`
+   is an XML `<movable>` element (the `*bool` default trick `CastsShadow` uses),
+   **and** `MoveBy`/`MoveTo` set it. The ECS route was rejected: `scene` does not
+   import `ecs`, and an entity owning a `*scene.Mesh` is a convention of `main.go`
+   rather than a rule. The two together are what defuse the Risk note below.
+3. ~~Bake `staticAtlas` at load from static casters only.~~ **Done**, though on
+   the first frame rather than at load — the bake needs a live command buffer, so
+   it runs where every other pass does.
+4. ~~Per frame, `CopyDepthRegion` then draw movable casters on top.~~ **Done.**
+5. ~~Dirty tracking.~~ **Done**, off `Scene.movedMeshes`, which `UpdateMeshes`
+   fills from the `needsUpdate` flag it was already clearing.
+6. ~~Caster cull and cube-face cull.~~ **Caster cull done**, twice over: bounding
+   sphere vs light radius decides whether a light needs a dynamic tile at all,
+   and sphere vs the tile's own six frustum planes (`frustumPlanes` /
+   `sphereInFrustum`, Gribb-Hartmann off `WorldToTile`) decides whether a tile is
+   drawn into. A face pointing at empty space now costs six plane tests and no
+   state changes. **The cube-face-vs-camera-frustum cull was not taken** — see
+   the deviations.
+7. ~~Re-bake budget in texels per frame, queued by score.~~ **Done for the
+   dynamic side**, `bakeTexelBudget` at 8 MiB, spent in `lightScore` order. The
+   static side is deliberately unbudgeted — see the deviations.
 
-**Gate.** Standard gate, plus a bake counter printed beside the FPS: a static
-showcase scene must settle at **zero** bakes per frame. Then move one physics
-entity and confirm only the lights that see it wake up.
+**Four things the plan did not say.**
 
-**Risk.** The static/dynamic classification will be wrong first — a mesh
-classified static that later moves leaves a shadow behind, with no crash and no
-log line. Make the counter and a debug atlas view part of the work, not an
-afterthought.
+- **`keepDepth` is a Part E prerequisite, not a Part F one.** `BeginPass`
+  hardcoded `LoadOp: Clear` on depth, and step 4 is impossible against it: the
+  copy must land in the dynamic atlas before the pass that draws over it, and
+  that pass would erase it. `CopyDepthRegion` refuses to run inside a pass, so no
+  ordering saves it. `BeginPass` therefore took F step 1's third parameter early.
+  Offscreen depth targets only: the backbuffer's depth image barriers from
+  `Undefined` every frame, which discards what a `Load` would read, so F still
+  owns that half. Without `keepDepth` the dynamic atlas is wiped every frame and
+  step 5's dirty tracking has nothing to cache.
+
+- **The static side is all-or-nothing, and unbudgeted.** Baking only the slots
+  whose light changed looks obviously right and is wrong: a tile whose frustum
+  holds no caster writes nothing, so a slot handed to a new light would keep its
+  old owner's depth and wear another light's shadow. Since `BeginPass` clears the
+  whole target anyway, a static re-bake clears and redraws every allocated light.
+  It is a spike, not a frame rate — the allocator's hysteresis is what keeps
+  allocation still, and the showcase does it once and never again.
+
+- **Queueing marks a tile current, not the bake.** `staticValid` / `dynamicValid`
+  are set in `UpdateShadows` where the decision is made, not in `BakeShadows`
+  which merely executes it. That is what lets the whole policy be tested on the
+  CPU, and it is safe because `BakeShadows` draws exactly what the queues hold and
+  cannot fail partway. It does mean the two must stay paired in the frame loop.
+
+- **A light waiting for its first static bake goes unshadowed**, `ShadowIndex = -1`,
+  rather than sampling a slot it has not been baked into. Same philosophy as
+  Part D's degrade path: running out of budget costs a light its shadow for a
+  frame, never the frame its time.
+
+**Gate.** Standard gate: builds, `go test ./...` green (15 tests in `scene`),
+`spirv-val --scalar-block-layout` clean, and `go run .` with
+`[debug] validation = true` silent on both `showcase.xml` and `stress.xml`.
+
+The bake counter prints beside the FPS and the showcase **settles at zero
+static, zero dynamic**, which is the gate's real question. Frame rate on the
+Intel UHD 620 this session runs on went **14 → 42 FPS** on the showcase, which is
+the per-frame bake disappearing.
+
+The second half of the gate — "move one physics entity and confirm only the
+lights that see it wake up" — was run against a temporary scene, since
+`main.go:createWorld` looks for meshes named `Sphere` / `Sphere2` that
+`showcase.xml` does not contain, so **the showcase drives no movement at all**.
+Renaming two of its spheres so the falling-ball demo picks them up gives: static
+queued on frame 1 only, dynamic re-queued every frame for 287 frames while the
+ball falls, validation clean throughout. Worth fixing the showcase or the demo
+so this is reachable without editing a scene.
+
+**Risk, as written.** The classification being wrong first. Defused two ways:
+`MoveBy`/`MoveTo` promote a mesh to movable themselves, so a mesh that moves
+without declaring it leaves a shadow behind for one frame rather than for the
+session; and `prevCenter` keeps a caster *leaving* a light's range dirtying the
+tile it is leaving, which its new position alone would not say.
+
+**Still open.**
+
+- **The cube-face-vs-camera-frustum cull (step 6's second half) was not taken.**
+  Every cheap version of it is a heuristic that silently drops a shadow, which is
+  exactly the failure mode this part's Risk note is about. The honest form of the
+  test is "can any visible fragment sample this face", which is §2.2's cluster
+  gate — Part G's, and already noted as Part D's open risk.
+- **A light that moves does not dirty its own tiles.** Nothing in the engine
+  moves a light today, so there is no path to the bug; the moment `Light.Pos`
+  becomes writable, `UpdateShadows` needs to compare it against the position the
+  tile was baked at.
+- **The debug atlas view the Risk note asks for** does not exist. It was built in
+  Part D and removed on 2026-08-17 in favour of RenderDoc; the bake counter is
+  what stands in for it.
 
 ---
 
@@ -538,9 +608,10 @@ AO work needs in place.
 
 **Steps.**
 
-1. `BeginPass` always clears depth, which would erase the prepass result at the
-   start of the main pass. Add a `keepDepth bool` (or a small `PassOptions`)
-   giving the depth attachment a `Load` op rather than `Clear`. Only interface
+1. ~~`BeginPass` always clears depth.~~ **Half done by Part E**, which needed the
+   same knob: `BeginPass` takes a `keepDepth bool` and honours it on offscreen
+   depth targets. What is left is the backbuffer, whose depth image barriers from
+   `Undefined` every frame and so discards what a `Load` would read. Only interface
    change in the part — and if `BACKEND_DECISION.md` §9 item 7 has landed, it
    belongs on the `Pass` description instead.
 2. Prepass: `BeginPass` on the backbuffer, depth only, `depth.slang`, every

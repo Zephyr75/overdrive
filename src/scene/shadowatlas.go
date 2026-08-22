@@ -131,10 +131,17 @@ func init() {
 // light that keeps its slot keeps its exact pixels, so validity is one dirty
 // flag per slot rather than a comparison of rects.
 type shadowAtlas struct {
-	target renderer.RenderTargetHandle // the depth target BakeShadows draws into
-	tex    renderer.TextureHandle      // the sampled view of the same image
-	pools  []slotPool                  // one per size, largest first
-	allocs map[int32]*lightAlloc       // by index into Scene.Lights
+	// Two atlases carved by one slotLayout, so a tile has the same rect in both
+	// and CopyDepthRegion is a straight blit with no remap. The static one holds
+	// what cannot move and is baked on demand; the dynamic one is that copy plus
+	// the movable casters, and is what a light near a moving object samples
+	staticTarget  renderer.RenderTargetHandle
+	staticTex     renderer.TextureHandle
+	dynamicTarget renderer.RenderTargetHandle
+	dynamicTex    renderer.TextureHandle
+
+	pools  []slotPool            // one per size, largest first
+	allocs map[int32]*lightAlloc // by index into Scene.Lights
 }
 
 // One slot of the fixed layout: a top-left corner that never moves
@@ -157,6 +164,16 @@ type lightAlloc struct {
 	pool  int          // index into shadowAtlas.pools
 	slots []int        // indices into that pool, so a keeper can hold its rects
 	tiles []shadowTile // 1 for a sun or a spot, 6 for a point light
+
+	// Whether each atlas holds a current bake of these tiles. staticValid lasts
+	// as long as the light keeps its slots — the point of a layout whose rects
+	// never move — and dynamicValid until a caster in range moves
+	staticValid, dynamicValid bool
+	// Whether a movable caster is in range at all, and what this frame queued
+	dynamic                     bool
+	staticQueued, dynamicQueued bool
+	// Where this light's tiles start in Scene.tiles and Scene.shadowRecords
+	first int
 }
 
 // One allocated tile, in atlas pixels: what the bake sets its viewport to
@@ -165,14 +182,16 @@ type shadowTile struct {
 	light      int32 // index into Scene.Lights, so the bake can find its Pos/Dir/Type
 }
 
-// Creates the atlas texture, once, at scene load
+// Creates both atlas textures, once, at scene load
 func (a *shadowAtlas) setup(b renderer.Backend) {
 	a.reset()
-	a.target, a.tex = b.CreateRenderTarget(renderer.RenderTargetSpec{
+	spec := renderer.RenderTargetSpec{
 		Width:  atlasSize,
 		Height: atlasSize,
 		Format: renderer.TargetDepth,
-	})
+	}
+	a.staticTarget, a.staticTex = b.CreateRenderTarget(spec)
+	a.dynamicTarget, a.dynamicTex = b.CreateRenderTarget(spec)
 }
 
 // Rebuilds the layout and forgets every allocation
@@ -481,15 +500,120 @@ func cubeFaceFov(tile int) float32 {
 	return float32(2 * math.Atan(half))
 }
 
-// Allocates a tile per casting light and builds this frame's shadow records
+// Texels a frame may spend rebuilding dynamic tiles
+//
+// A 2048 tile is 4.2M of them, so this is about two: enough to rebuild a few
+// tiles at once, low enough that a frame where everything moves spreads over
+// several rather than spiking. What does not fit waits, ranked by the same
+// score the allocator ranks by, and keeps the tile it already has meanwhile.
+const bakeTexelBudget = 8 << 20
+
+// Whether a mesh that can move is close enough to matter to this light
+//
+// A sun reaches everything; anything else is the caster's bounding sphere
+// against the radius the shading already culls by, so the two agree.
+func (s *Scene) casterInRange(l *Light, m *Mesh, center mgl32.Vec3) bool {
+	if l.Type == renderer.LightSun {
+		return true
+	}
+	return center.Sub(l.Pos).Len() <= l.Radius+m.boundsRadius
+}
+
+// Whether any movable caster is in range, which is what earns a dynamic tile
+func (s *Scene) movableCasterInRange(l *Light) bool {
+	for i := range s.Meshes {
+		m := &s.Meshes[i]
+		if m.Movable && m.CastsShadow && s.casterInRange(l, m, m.boundsCenter) {
+			return true
+		}
+	}
+	return false
+}
+
+// Whether a caster that moved since the last update is in range
+//
+// Both centres, because a caster leaving a light's range has to dirty the tile
+// it is leaving: its new position alone would say it never mattered.
+func (s *Scene) movedCasterInRange(l *Light) bool {
+	for _, i := range s.movedMeshes {
+		m := &s.Meshes[i]
+		if !m.CastsShadow {
+			continue
+		}
+		if s.casterInRange(l, m, m.boundsCenter) || s.casterInRange(l, m, m.prevCenter) {
+			return true
+		}
+	}
+	return false
+}
+
+// Allocates a tile per casting light, decides this frame's bake work and builds
+// the shadow records
 //
 // Runs before FillFrameUniforms, which copies each light's ShadowIndex into the
-// block, and before the bake, which walks the same tiles.
+// block, and before the bake, which walks the queues this leaves behind.
 func (s *Scene) UpdateShadows(nearPlane, farPlane float32) {
 	s.atlas.allocate(s.Lights, s.Cam.Pos)
 
 	s.tiles = s.tiles[:0]
 	s.shadowRecords = s.shadowRecords[:0]
+	s.staticQueue = s.staticQueue[:0]
+	s.dynamicQueue = s.dynamicQueue[:0]
+
+	// A light wanting its dynamic tile rebuilt, ranked so a budget that runs out
+	// costs the least important light its update rather than costing frame time
+	type bakeWant struct {
+		idx   int32
+		score float32
+	}
+	wants := make([]bakeWant, 0, len(s.Lights))
+	restatic := false
+
+	for i := range s.Lights {
+		al, ok := s.atlas.allocs[int32(i)]
+		if !ok {
+			continue
+		}
+		l := &s.Lights[i]
+		al.staticQueued, al.dynamicQueued = false, false
+		al.dynamic = s.movableCasterInRange(l)
+		if !al.staticValid {
+			restatic = true
+		}
+		// A dynamic tile is built from its static one, so a static re-bake forces
+		// the copy; otherwise only a caster that moved does
+		if al.dynamic && (!al.staticValid || !al.dynamicValid || s.movedCasterInRange(l)) {
+			wants = append(wants, bakeWant{idx: int32(i), score: lightScore(l, s.Cam.Pos)})
+		}
+	}
+
+	// The static side is all-or-nothing, and unbudgeted. BeginPass clears the
+	// whole target, and a tile whose frustum holds no caster writes nothing — so
+	// baking only the slots that changed would leave a slot handed to a new light
+	// wearing its old owner's depth. Rare enough to be a spike rather than a
+	// frame rate: the allocator's hysteresis is what keeps allocation still
+	if restatic {
+		for i := range s.Lights {
+			if al, ok := s.atlas.allocs[int32(i)]; ok {
+				al.staticQueued = true
+				al.dynamicValid = false
+				s.staticQueue = append(s.staticQueue, int32(i))
+			}
+		}
+	}
+
+	sort.SliceStable(wants, func(i, j int) bool { return wants[i].score > wants[j].score })
+	budget := bakeTexelBudget
+	for _, w := range wants {
+		al := s.atlas.allocs[w.idx]
+		cost := len(al.tiles) * al.size * al.size
+		if cost > budget {
+			continue
+		}
+		budget -= cost
+		al.dynamicQueued = true
+		s.dynamicQueue = append(s.dynamicQueue, w.idx)
+	}
 
 	for i := range s.Lights {
 		l := &s.Lights[i]
@@ -498,20 +622,57 @@ func (s *Scene) UpdateShadows(nearPlane, farPlane float32) {
 			l.shadowIndex, l.shadowCount = -1, 0
 			continue
 		}
-		l.shadowIndex = int32(len(s.shadowRecords))
-		l.shadowCount = int32(len(al.tiles))
+		al.first = len(s.tiles)
+
+		// A tile whose static bake has not run holds whatever its last owner left,
+		// so the light goes unshadowed until it does rather than wearing another
+		// light's shadow
+		if al.staticValid || al.staticQueued {
+			l.shadowIndex = int32(len(s.shadowRecords))
+			l.shadowCount = int32(len(al.tiles))
+		} else {
+			l.shadowIndex, l.shadowCount = -1, 0
+		}
+		// Sampling the dynamic atlas needs its copy to have happened. Until it
+		// does, the static tile is the same shadow without the moving caster,
+		// which is the right thing to fall back to
+		dyn := al.dynamic && (al.dynamicQueued || (al.dynamicValid && !al.staticQueued))
+
 		for face, tile := range al.tiles {
 			s.tiles = append(s.tiles, tile)
 			s.shadowRecords = append(s.shadowRecords, l.shadowRecord(tile, face, len(al.tiles),
-				nearPlane, farPlane))
+				dyn, nearPlane, farPlane))
 		}
 	}
+
+	// Queueing is what marks a tile current, not the bake: BakeShadows draws
+	// exactly what these queues hold and cannot fail partway, so keeping the
+	// bookkeeping here is what lets the decision be tested without a GPU
+	for _, idx := range s.staticQueue {
+		s.atlas.allocs[idx].staticValid = true
+	}
+	for _, idx := range s.dynamicQueue {
+		s.atlas.allocs[idx].dynamicValid = true
+	}
+
+	// Every mover has been accounted for; remember where they were, so one that
+	// leaves a light's range still dirties the tile it left
+	for _, i := range s.movedMeshes {
+		s.Meshes[i].prevCenter = s.Meshes[i].boundsCenter
+	}
+	s.movedMeshes = s.movedMeshes[:0]
 }
 
 // Builds one tile's record: its projection, its rect and its depth encoding
-func (l *Light) shadowRecord(tile shadowTile, face, faces int,
+func (l *Light) shadowRecord(tile shadowTile, face, faces int, dynamic bool,
 	nearPlane, farPlane float32) renderer.ShadowRecord {
 
+	// Bit 0 picks the atlas: set only once the dynamic tile actually holds this
+	// frame's copy, so a light never samples a tile that was not built for it
+	var flags int32
+	if dynamic {
+		flags = 1
+	}
 	rec := renderer.ShadowRecord{
 		AtlasCoords: [4]float32{
 			float32(tile.x) / atlasSize, float32(tile.y) / atlasSize,
@@ -520,8 +681,7 @@ func (l *Light) shadowRecord(tile shadowTile, face, faces int,
 		PCFStep:   1.0 / float32(tile.size),
 		FarPlane:  farPlane,
 		FaceIndex: -1,
-		// Part E sets bit 0 on the tiles that live in the dynamic atlas
-		Flags: 0,
+		Flags:     flags,
 	}
 
 	if faces == 6 {
@@ -556,12 +716,102 @@ func spotUp(dir mgl32.Vec3) mgl32.Vec3 {
 	return mgl32.Vec3{0, 1, 0}
 }
 
-// Bakes every allocated tile in one pass over the atlas
+// The six clip planes of a tile's frustum, as (a, b, c, d) with abc normalised
 //
-// One BeginPass for the whole atlas rather than one per light: the target bind
-// was the expensive part, and SetViewportScissor is what makes the tiles
-// separate. The depth clear covers the whole atlas once, so a tile that is not
-// re-baked this frame is cleared too — Part E is what stops that from happening.
+// Gribb-Hartmann: each plane is a row of the matrix combined with the w row.
+// These matrices are the OpenGL convention, so near is row3 + row2
+func frustumPlanes(m mgl32.Mat4) [6]mgl32.Vec4 {
+	r0, r1, r2, r3 := m.Row(0), m.Row(1), m.Row(2), m.Row(3)
+	p := [6]mgl32.Vec4{
+		r3.Add(r0), r3.Sub(r0),
+		r3.Add(r1), r3.Sub(r1),
+		r3.Add(r2), r3.Sub(r2),
+	}
+	for i := range p {
+		if n := (mgl32.Vec3{p[i][0], p[i][1], p[i][2]}).Len(); n > 0 {
+			p[i] = p[i].Mul(1 / n)
+		}
+	}
+	return p
+}
+
+// Whether a bounding sphere is inside every plane
+//
+// Conservative at the corners by design: over-including costs a draw the
+// rasteriser discards, under-including costs a shadow
+func sphereInFrustum(p *[6]mgl32.Vec4, c mgl32.Vec3, r float32) bool {
+	for _, pl := range p {
+		if pl[0]*c[0]+pl[1]*c[1]+pl[2]*c[2]+pl[3] < -r {
+			return false
+		}
+	}
+	return true
+}
+
+// Draws one light's tiles into the pass in progress, returning how many it drew into
+//
+// movable picks the half of the caster set this pass owns: the static atlas
+// holds everything that cannot move, the dynamic one only what can.
+//
+// Back-face culling, the scene default, so the surface facing the light is what
+// lands in the map and a shadow stays welded to its caster's base. Front-face
+// culling is the other classic choice and is wrong here: it bakes the far side
+// of a closed mesh, so the depth stored is a whole diameter too far and a sphere
+// floats above a lit disc of its own size. The normal offset in shadowLookup
+// does that job instead, and CastsShadow does the rest.
+func (s *Scene) bakeLight(al *lightAlloc, f *renderer.FrameUniforms,
+	depthShader, depthPointShader renderer.ShaderHandle, movable bool) int {
+
+	b := s.backend
+	// Static mesh geometry is baked into the OBJ vertices, so the depth passes
+	// draw everything with an identity model matrix and no material at all
+	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
+	drawn := 0
+
+	for k, tile := range al.tiles {
+		rec := &s.shadowRecords[al.first+k]
+		l := &s.Lights[tile.light]
+		planes := frustumPlanes(rec.WorldToTile)
+
+		// The tile's state goes out only once a caster has survived the cull, so
+		// a face pointing at empty space costs six plane tests and nothing else
+		started := false
+		for m := range s.Meshes {
+			mesh := &s.Meshes[m]
+			if !mesh.CastsShadow || mesh.Movable != movable {
+				continue
+			}
+			if !sphereInFrustum(&planes, mesh.boundsCenter, mesh.boundsRadius) {
+				continue
+			}
+			if !started {
+				// Focus on part of atlas corresponding to tile
+				b.SetViewportScissor(tile.x, tile.y, tile.size, tile.size)
+				f.CurWorldToTile = rec.WorldToTile
+				f.CurLightPos = l.Pos
+				f.CurFarPlane = rec.FarPlane
+				b.BindFrameUniforms(f)
+				// A face tile stores radial distance, which needs the fragment stage
+				if rec.FaceIndex >= 0 {
+					b.BindShader(depthPointShader)
+				} else {
+					b.BindShader(depthShader)
+				}
+				started = true
+				drawn++
+			}
+			mesh.draw(&u)
+		}
+	}
+	return drawn
+}
+
+// Bakes this frame's queued tiles: the static atlas when allocation moved, then
+// the dynamic one from a copy of it plus whatever can move
+//
+// One BeginPass per atlas rather than one per light: the target bind was the
+// expensive part, and SetViewportScissor is what makes the tiles separate. A
+// settled scene queues nothing and this does no GPU work at all.
 func (s *Scene) BakeShadows(depthShader, depthPointShader renderer.ShaderHandle,
 	f *renderer.FrameUniforms) {
 
@@ -569,48 +819,44 @@ func (s *Scene) BakeShadows(depthShader, depthPointShader renderer.ShaderHandle,
 		return
 	}
 	b := s.backend
+	s.staticBakes, s.dynamicBakes = 0, 0
 
-	// Static mesh geometry is baked into the OBJ vertices, so the depth passes
-	// draw everything with an identity model matrix and no material at all
-	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
-
-	b.BeginPass(s.atlas.target, nil)
-	for i, tile := range s.tiles {
-		rec := &s.shadowRecords[i]
-		l := &s.Lights[tile.light]
-
-		// Focus on part of atlas corresponding to tile
-		b.SetViewportScissor(tile.x, tile.y, tile.size, tile.size)
-
-		f.CurWorldToTile = rec.WorldToTile
-		f.CurLightPos = l.Pos
-		f.CurFarPlane = rec.FarPlane
-		b.BindFrameUniforms(f)
-
-		// Back-face culling, the scene default, so the surface facing the light is
-		// what lands in the map and a shadow stays welded to its caster's base.
-		//
-		// Front-face culling is the other classic choice and it is wrong here: it
-		// bakes the far side of a closed mesh, so the depth stored is a whole
-		// diameter too far and a sphere floats above a lit disc of its own size.
-		// It escapes acne by hiding the bias inside the geometry; the normal
-		// offset in shadowLookup does that job instead, and CastsShadow does the
-		// rest — see the field's comment for why a ground plane opts out.
-		if rec.FaceIndex >= 0 {
-			// A face tile stores radial distance, which needs the fragment stage
-			b.BindShader(depthPointShader)
-		} else {
-			b.BindShader(depthShader)
+	// Clears, because the queue is every allocated light whenever it is not
+	// empty — see UpdateShadows for why the static side is all-or-nothing
+	if len(s.staticQueue) > 0 {
+		b.BeginPass(s.atlas.staticTarget, nil, false)
+		for _, idx := range s.staticQueue {
+			al := s.atlas.allocs[idx]
+			s.staticBakes += s.bakeLight(al, f, depthShader, depthPointShader, false)
 		}
-		for m := range s.Meshes {
-			if !s.Meshes[m].CastsShadow {
-				continue
-			}
-			s.Meshes[m].draw(&u)
+		b.EndPass()
+	}
+
+	// The dynamic tile starts as a copy of the static one, so the movable casters
+	// draw on top of the baked scene with an ordinary depth test and the union
+	// falls out. Outside any pass: a copy inside CmdBeginRendering is invalid
+	for _, idx := range s.dynamicQueue {
+		for _, t := range s.atlas.allocs[idx].tiles {
+			b.CopyDepthRegion(s.atlas.staticTarget, s.atlas.dynamicTarget,
+				t.x, t.y, t.x, t.y, t.size, t.size)
 		}
 	}
-	b.EndPass()
+
+	if len(s.dynamicQueue) > 0 {
+		// Loads rather than clears: every queued tile was just overwritten by its
+		// copy, and every tile not queued is holding the frame it was built for.
+		// That cache is the whole point of the split
+		b.BeginPass(s.atlas.dynamicTarget, nil, true)
+		for _, idx := range s.dynamicQueue {
+			al := s.atlas.allocs[idx]
+			s.dynamicBakes += s.bakeLight(al, f, depthShader, depthPointShader, true)
+		}
+		b.EndPass()
+	}
 }
+
+// Returns how many tiles the last frame baked into each atlas
+func (s *Scene) BakeCounts() (static, dynamic int) { return s.staticBakes, s.dynamicBakes }
 
 // Returns this frame's records, for the backend to publish once per frame
 func (s *Scene) ShadowRecords() []renderer.ShadowRecord { return s.shadowRecords }

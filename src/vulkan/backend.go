@@ -740,7 +740,7 @@ func (b *VKBackend) EndFrame() {
 }
 
 // Transitions the target into attachment layout and begins dynamic rendering on it, with the viewport, scissor and dynamic state this pass needs
-func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]float32) {
+func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]float32, keepDepth bool) {
 	// The target knows its own extent, so a pass cannot be given one that
 	// disagrees with its attachments
 	w, h := int(b.swapExtent.Width), int(b.swapExtent.Height)
@@ -759,6 +759,14 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 		ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
 		LoadOp:      vk.AttachmentLoadOpClear,
 		ClearValue:  vk.ClearDepthStencil(1, 0),
+	}
+	// Only an offscreen target can carry depth in: the backbuffer's depth image
+	// barriers from Undefined every frame below, which discards it
+	if keepDepth && target != 0 {
+		depthAtt.LoadOp = vk.AttachmentLoadOpLoad
+		depthAtt.ClearValue = vk.ClearValue{}
+	} else if keepDepth {
+		fmt.Fprintln(os.Stderr, "vulkan: BeginPass keepDepth on the backbuffer, depth cleared anyway")
 	}
 	info := vk.RenderingInfo{LayerCount: 1}
 	var viewport vk.Viewport

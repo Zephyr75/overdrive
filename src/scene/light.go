@@ -44,7 +44,7 @@ type Light struct {
 	Pos       mgl32.Vec3 // shading ignores this for a sun; its shadow camera still sits here
 	Dir       mgl32.Vec3 // sun and spot only, points away from the light
 	Color     mgl32.Vec3
-	Diffuse   float32    // second radiance multiplier beside Intensity
+	Diffuse   float32 // second radiance multiplier beside Intensity
 	Intensity float32
 	// Cone cosines, not angles: the shader compares them against a dot product
 	Cutoff      float32

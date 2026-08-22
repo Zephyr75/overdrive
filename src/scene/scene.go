@@ -30,6 +30,19 @@ type Scene struct {
 	tiles         []shadowTile
 	shadowRecords []renderer.ShadowRecord
 
+	// This frame's bake work, as indices into Lights, and the tiles it drew into
+	//
+	// A light is queued whole: a point light's six faces bake together or not at
+	// all, five of them leaving a lit wedge.
+	staticQueue, dynamicQueue []int32
+	staticBakes, dynamicBakes int
+
+	// Meshes a move touched since the last shadow update, as indices into Meshes
+	//
+	// Filled by UpdateMeshes and consumed by UpdateShadows, rather than a second
+	// mechanism watching the same thing.
+	movedMeshes []int
+
 	backend renderer.Backend
 }
 
@@ -59,10 +72,14 @@ func EmptyScene() Scene {
 
 // Reuploads the vertices of every mesh a physics step moved this frame
 func (s *Scene) UpdateMeshes() {
-	if s != nil {
-		for i := range s.Meshes {
-			s.Meshes[i].updateVertices()
+	if s == nil {
+		return
+	}
+	for i := range s.Meshes {
+		if s.Meshes[i].needsUpdate {
+			s.movedMeshes = append(s.movedMeshes, i)
 		}
+		s.Meshes[i].updateVertices()
 	}
 }
 
@@ -169,10 +186,9 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 
 	u.TexSkybox = s.Skybox.Texture
 
-	// Both bindings point at the one atlas until Part E splits static from
-	// dynamic; no record sets the flag that would select the second
-	u.TexShadowStatic = s.atlas.tex
-	u.TexShadowDynamic = s.atlas.tex
+	// Which of the two a record samples is its Flags bit 0
+	u.TexShadowStatic = s.atlas.staticTex
+	u.TexShadowDynamic = s.atlas.dynamicTex
 }
 
 // Draws every mesh of the scene with the forward shader, inside the main pass

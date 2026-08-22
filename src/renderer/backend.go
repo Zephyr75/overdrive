@@ -104,8 +104,13 @@ type Backend interface {
 	// Closes the frame and presents it
 	EndFrame()
 
-	// Begins a pass on target (0 = backbuffer), sized from the target itself: always clears depth, clears color only when clear is non-nil
-	BeginPass(target RenderTargetHandle, clear *[4]float32)
+	// Begins a pass on target (0 = backbuffer), sized from the target itself: clears color only when clear is non-nil, and depth unless keepDepth
+	//
+	// keepDepth loads the target's existing depth instead of clearing it, which
+	// is what lets a bake add casters to a tile CopyDepthRegion just filled, and
+	// what lets an untouched tile keep the pixels it was baked with. Offscreen
+	// depth targets only — the backbuffer's depth is discarded every frame.
+	BeginPass(target RenderTargetHandle, clear *[4]float32, keepDepth bool)
 	// Ends the pass, after which nothing may be drawn until the next BeginPass
 	EndPass()
 

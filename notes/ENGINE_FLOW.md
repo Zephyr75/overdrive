@@ -191,19 +191,32 @@ input                       camera moves
 
 Backend.BeginFrame()
 
-  Scene.UpdateShadows      allocate a tile per caster, build one record per tile
+  Scene.UpdateShadows      allocate a tile per caster, decide what is dirty,
+                           build one record per tile
   BindShadowRecords        the whole array into the ring, once for the frame
   Scene.FillFrameUniforms  camera, lights, each light's record index
 
-  Scene.BakeShadows:                                 ← one pass, every shadow
-      BeginPass(atlasTarget, nil)                    ← no color clear, depth only
-      for each tile:
-          SetViewportScissor(tile)                   ← what makes it an atlas
-          BindFrameUniforms(BakeMatrix = tile's)
-          draw every mesh with depth / depth_point
-      EndPass()
+  Scene.BakeShadows:                                 ← nothing at all when settled
+      if allocation moved:                           ← rare, and all-or-nothing
+          BeginPass(staticTarget, nil, false)        ← clears, depth only
+          for each allocated light, each tile:
+              SetViewportScissor(tile)               ← what makes it an atlas
+              BindFrameUniforms(CurWorldToTile = tile's)
+              draw the casters that cannot move
+          EndPass()
 
-  BeginPass(0, w, h, &{0.1,0.1,0.1,1})               ← backbuffer, clears color
+      for each dirty dynamic tile:                   ← outside any pass
+          CopyDepthRegion(static → dynamic, tile)    ← the union's base layer
+
+      if any dirty:
+          BeginPass(dynamicTarget, nil, true)        ← loads: the copy, and the
+          for each dirty light, each tile:              tiles left alone
+              SetViewportScissor(tile)
+              BindFrameUniforms(CurWorldToTile = tile's)
+              draw only the casters that can move
+          EndPass()
+
+  BeginPass(0, &{0.1,0.1,0.1,1}, false)              ← backbuffer, clears color
       Scene.RenderSkybox     SetDepthCompare(LessEqual) → draw cube → back to Less
       Scene.RenderScene      every mesh, every face group, forward shader
       renderUI               rasterise widgets to RGBA → UpdateTexture2D → Draw(quad)
@@ -303,7 +316,7 @@ pipeline kind are both still there, unexercised — see `tmp/BACKEND_DECISION.md
 | Method       | What it does                                                                                                                                                                                                                                                 |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `BeginFrame` | Waits on this frame slot's fence (the CPU throttle for 2 frames in flight), acquires a swapchain image, resets the ring offset, drains retired resources, resets and begins the command buffer, binds the one descriptor set, flushes staged texture uploads |
-| `BeginPass`  | Barriers the target into attachment layout, `CmdBeginRendering` with load ops (`Clear` / `DontCare`), `CmdSetViewport`, `CmdSetScissor`, re-issues cull mode + depth compare                                                                                 |
+| `BeginPass`  | Barriers the target into attachment layout, `CmdBeginRendering` with load ops (`Clear` / `Load` / `DontCare`), `CmdSetViewport`, `CmdSetScissor`, re-issues cull mode + depth compare                                                                        |
 | `EndPass`    | `CmdEndRendering`, and for a shadow target barriers depth-attachment → shader-read-only                                                                                                                                                                      |
 | `EndFrame`   | Barriers the swapchain image to present layout, ends and submits the command buffer (wait on acquire semaphore, signal the image's render semaphore, signal the fence), presents, advances the frame slot                                                    |
 
@@ -312,7 +325,10 @@ how Vulkan spells that are worth knowing before touching it:
 
 - **Clears are a _load op_ on an attachment**, not a command. The clear is
   declared when rendering begins. That is why `BeginPass` takes the clear colour
-  as a parameter rather than exposing a `Clear` method.
+  as a parameter rather than exposing a `Clear` method, and why suppressing the
+  depth clear is the `keepDepth` parameter rather than a separate call. The
+  backbuffer ignores it: its depth image barriers from `Undefined` every frame,
+  which discards the contents a `Load` would read.
 - **Layout transitions.** An image is in a layout and must be barriered between
   "rendered into" and "sampled from". That is why `EndPass` has a shadow-map
   transition. [HTV: barriers]

@@ -23,6 +23,8 @@ type MeshXml struct {
 	// A pointer so an absent element is distinguishable from an explicit false,
 	// which is what lets the default be true
 	CastsShadow *bool `xml:"castsShadow"`
+	// Same pointer trick, but the default is false
+	Movable *bool `xml:"movable"`
 }
 
 type Mesh struct {
@@ -39,6 +41,20 @@ type Mesh struct {
 	// single-sided ground plane with the whole scene above it contributes nothing
 	// to any shadow map except its own acne. See BakeShadows.
 	CastsShadow bool
+	// Whether this mesh may move, and so belongs in the dynamic shadow atlas
+	// rather than the static one
+	//
+	// MoveBy/MoveTo also set it, so a mesh that moves without declaring itself
+	// leaves its shadow behind for one frame rather than for the session.
+	Movable bool
+
+	// World-space bounding sphere, rebuilt by fillVertices so it follows a move
+	//
+	// prevCenter is where it was before the last move: a caster leaving a light's
+	// range still has to dirty the tile it is leaving, which its new centre alone
+	// would not say.
+	boundsCenter, prevCenter mgl32.Vec3
+	boundsRadius             float32
 
 	vertexData  []float32  // Faces flattened by fillVertices into pos/normal/uv triples, interleaved
 	indexGroups [][]uint32 // one index list per material group, indexing into vertexData
@@ -53,6 +69,7 @@ type Mesh struct {
 
 // Offsets the mesh and rebuilds its vertex data for the next upload
 func (m *Mesh) MoveBy(x float32, y float32, z float32) {
+	m.Movable = true
 	m.Position[0] += x
 	m.Position[1] += y
 	m.Position[2] += z
@@ -62,6 +79,7 @@ func (m *Mesh) MoveBy(x float32, y float32, z float32) {
 
 // Moves the mesh to a position and rebuilds its vertex data for the next upload
 func (m *Mesh) MoveTo(dest mgl32.Vec3) {
+	m.Movable = true
 	m.Position = dest
 	m.fillVertices()
 	m.needsUpdate = true
@@ -138,8 +156,10 @@ func (mXml MeshXml) toMesh() Mesh {
 	m.Position = pos
 	m.initialPosition = pos
 	m.CastsShadow = mXml.CastsShadow == nil || *mXml.CastsShadow
+	m.Movable = mXml.Movable != nil && *mXml.Movable
 
 	m.fillVertices()
+	m.prevCenter = m.boundsCenter
 
 	// Fall back to the .obj basename, scenes being allowed to omit <mtl> because
 	// an OBJ file names its own material library and it conventionally matches
@@ -226,6 +246,8 @@ func (m *Mesh) fillVertices() {
 	var faces [][]uint32
 	var index uint32
 	index = 0
+	var lo, hi mgl32.Vec3
+	first := true
 	for i := 0; i < len(m.Faces); i++ {
 		var face []uint32
 		for j := 0; j < len(m.Faces[i]); j += 3 {
@@ -233,6 +255,17 @@ func (m *Mesh) fillVertices() {
 			texIndex := m.Faces[i][j+1] - 1
 			normIndex := m.Faces[i][j+2] - 1
 			position := m.Position.Sub(m.initialPosition).Add(m.Vertices[posIndex])
+			if first {
+				lo, hi, first = position, position, false
+			}
+			for k := 0; k < 3; k++ {
+				if position[k] < lo[k] {
+					lo[k] = position[k]
+				}
+				if position[k] > hi[k] {
+					hi[k] = position[k]
+				}
+			}
 			value = append(value, position[0])
 			value = append(value, position[1])
 			value = append(value, position[2])
@@ -248,6 +281,12 @@ func (m *Mesh) fillVertices() {
 	}
 	m.vertexData = value
 	m.indexGroups = faces
+
+	// The AABB's bounding sphere, not a tight one: this culls casters against a
+	// light's radius and a tile's frustum, where over-including is only a wasted
+	// draw and under-including is a missing shadow
+	m.boundsCenter = lo.Add(hi).Mul(0.5)
+	m.boundsRadius = hi.Sub(lo).Len() * 0.5
 }
 
 // Uploads the mesh's vertex buffer, one mesh handle per face group, and its material textures
