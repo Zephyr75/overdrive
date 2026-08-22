@@ -13,12 +13,11 @@ import (
 // sub-rect of it: a sun or spot one tile, a point light six 90° tiles.
 const atlasSize = 4096
 
-// The extremes of the slot layout below, as constants so the debug map can size
-// its grid with them. init() checks they still match the table
+// The extremes of the slot layout below, named so the layout and the debug map
+// can size themselves off it. init() checks they still match the table
 const (
-	sunTileSize = atlasSize / 2
-	maxTileSize = atlasSize / 2
-	minTileSize = atlasSize / 32
+	sunTileSize = atlasSize / 2  // the largest slot, and the sun's ceiling
+	minTileSize = atlasSize / 32 // the smallest, so the unit buildLayout counts in
 )
 
 // The fixed slot layout: the atlas is carved once at load and never repartitioned
@@ -107,8 +106,8 @@ func init() {
 	if atlasSize&(atlasSize-1) != 0 {
 		panic("atlasSize must be a power of two: the layout is carved by halving")
 	}
-	if slotLayout[0].size != maxTileSize || slotLayout[len(slotLayout)-1].size != minTileSize {
-		panic("slotLayout no longer spans maxTileSize..minTileSize")
+	if slotLayout[0].size != sunTileSize || slotLayout[len(slotLayout)-1].size != minTileSize {
+		panic("slotLayout no longer spans sunTileSize..minTileSize")
 	}
 	texels := 0
 	for i, s := range slotLayout {
@@ -153,9 +152,8 @@ type slotPool struct {
 
 // What one light currently holds
 type lightAlloc struct {
-	tier  int          // the scored tier ceiling, kept as the hysteresis state
-	want  int          // the per-face size that ceiling allows
-	size  int          // the per-face size it actually got, want or smaller
+	tier  int          // index into shadowTiers, the hysteresis state; -1 for a sun
+	size  int          // the per-face size it actually got, its ceiling or smaller
 	pool  int          // index into shadowAtlas.pools
 	slots []int        // indices into that pool, so a keeper can hold its rects
 	tiles []shadowTile // 1 for a sun or a spot, 6 for a point light
@@ -185,13 +183,13 @@ func (a *shadowAtlas) reset() {
 
 // Carves the fixed layout out of the atlas, once
 //
-// A buddy tree places the rects and is then thrown away: filling largest size
-// first can never fragment, so this is the one job splitting is unambiguously
-// right for. Keeping it out of the frame loop is what lets the merge half of
-// the tree — the subtle half, and the one that failed silently — go entirely.
+// Every slot is a power-of-two division and the sizes descend, so placement needs
+// no search: walk the atlas in Z order, a cursor counting cells of the smallest
+// slot. That is what a buddy tree filled largest-first emits — first-fit in
+// quadrant order is Z order — and it cannot fragment either.
 func buildLayout() []slotPool {
-	root := &quadNode{size: atlasSize}
 	pools := make([]slotPool, 0, len(slotLayout))
+	cell, side := 0, atlasSize/minTileSize
 	for _, spec := range slotLayout {
 		p := slotPool{
 			size:  spec.size,
@@ -199,90 +197,42 @@ func buildLayout() []slotPool {
 			used:  make([]bool, spec.count),
 			free:  make([]int, 0, spec.count),
 		}
+		// The cursor stays aligned without padding: each tier's cell count
+		// divides the one above, which init() enforces by ordering the sizes
+		cells := (spec.size / minTileSize) * (spec.size / minTileSize)
 		for n := 0; n < spec.count; n++ {
-			x, y, ok := root.alloc(spec.size)
-			if !ok {
-				panic("the shadow slot layout does not pack into the atlas")
-			}
+			x, y := zOrder(cell)
 			p.slots = append(p.slots, slot{x: x, y: y})
+			cell += cells
 		}
 		pools = append(pools, p)
+	}
+	if cell > side*side {
+		panic("the shadow slot layout does not pack into the atlas")
 	}
 	return pools
 }
 
-// --- the layout quadtree -----------------------------------------------------
-
-// One node of the buddy tree: free, allocated whole, or split into quadrants
-//
-// Used only by buildLayout, which allocates in descending size order and never
-// frees, so there is no release and no merge. A quadtree rather than a shelf
-// because every slot is a power of two: splitting is the whole placement rule
-// and there is no packing heuristic to get wrong.
-type quadNode struct {
-	x, y, size int
-	used       bool
-	kids       [4]*quadNode
-}
-
-// Splits a node into its four quadrants
-func (n *quadNode) split() {
-	h := n.size / 2
-	n.kids = [4]*quadNode{
-		{x: n.x, y: n.y, size: h},
-		{x: n.x + h, y: n.y, size: h},
-		{x: n.x, y: n.y + h, size: h},
-		{x: n.x + h, y: n.y + h, size: h},
+// De-interleaves a Z-order cell index into the atlas pixels of its top-left corner
+func zOrder(cell int) (int, int) {
+	x, y := 0, 0
+	for b := 0; cell != 0; b, cell = b+1, cell>>2 {
+		x |= (cell & 1) << b
+		y |= (cell >> 1 & 1) << b
 	}
-}
-
-// Takes the first free node of exactly size, splitting larger ones on the way down
-//
-// First-fit in quadrant order, not best-fit: every node of a given depth is the
-// same size, so there is no better fit to find.
-func (n *quadNode) alloc(size int) (int, int, bool) {
-	if n.used || size > n.size {
-		return 0, 0, false
-	}
-	if n.size == size {
-		// A split node still holds live descendants; only a leaf is takeable
-		if n.kids[0] != nil {
-			return 0, 0, false
-		}
-		n.used = true
-		return n.x, n.y, true
-	}
-	if n.kids[0] == nil {
-		n.split()
-	}
-	for _, k := range n.kids {
-		if x, y, ok := k.alloc(size); ok {
-			return x, y, true
-		}
-	}
-	return 0, 0, false
+	return x * minTileSize, y * minTileSize
 }
 
 // --- allocation policy -------------------------------------------------------
 
-// The tile size a raw score earns, 0 meaning no tile at all
+// The tier a raw score earns, len(shadowTiers) meaning no tile at all
 func rawTier(score float32) int {
-	for _, t := range shadowTiers {
+	for i, t := range shadowTiers {
 		if score > t.minScore {
-			return t.size
+			return i
 		}
 	}
-	return 0
-}
-
-// The threshold a tier is entered at, 0 for the unshadowed tier
-func tierThreshold(size int) float32 {
-	for _, t := range shadowTiers {
-		if t.size == size {
-			return t.minScore
-		}
-	}
-	return 0
+	return len(shadowTiers)
 }
 
 // The tier a light should hold, given what it holds now
@@ -291,18 +241,15 @@ func tierThreshold(size int) float32 {
 // margin; demotion needs it to have fallen the same margin below the threshold
 // of the tier currently held. Between the two the light keeps what it has.
 func tierFor(score float32, cur int) int {
-	want := rawTier(score)
-	if want == cur {
-		return cur
-	}
-	if want > cur {
-		if score > tierThreshold(want)*nextTierThreshold {
+	switch want := rawTier(score); {
+	case want < cur: // a smaller index is a bigger tile
+		if score > shadowTiers[want].minScore*nextTierThreshold {
 			return want
 		}
-		return cur
-	}
-	if score < tierThreshold(cur)/nextTierThreshold {
-		return want
+	case want > cur:
+		if score < shadowTiers[cur].minScore/nextTierThreshold {
+			return want
+		}
 	}
 	return cur
 }
@@ -330,48 +277,6 @@ func lightScore(l *Light, camPos mgl32.Vec3) float32 {
 	return l.Radius / dist
 }
 
-// The tier a light is entitled to this frame, given the tier it holds now
-//
-// The tier is the hysteresis state and stays in the units of shadowTiers; the
-// per-face size below is derived from it, never the other way round, or a point
-// light's halved size would read back as a demotion and oscillate.
-func tierOf(l *Light, score float32, cur int) int {
-	if l.Type == renderer.LightSun {
-		return sunTileSize
-	}
-	return tierFor(score, cur)
-}
-
-// The per-face tile size a tier buys: the ceiling on what a light may hold
-//
-// A point light used to drop one step below its tier here, so its six faces
-// would not cost 6x a spot's texels at the same score. That was rationing
-// against an allocator which could hand the whole atlas to whoever asked first;
-// a fixed layout does not need it, because a pool holds only the slots it holds
-// and the degrade path covers a light that cannot fit in one.
-//
-// What keeping it cost is invisible until an atlas dump shows it. The largest
-// scored tier and the largest scored pool are the same size, so halving locked
-// every point light out of that pool — it stood empty behind lights entitled to
-// it while everything below shuffled a tier down. §4.1 budgets that quadrant as
-// 2 point lights plus 4 spots, which is only reachable unhalved.
-func tileSizeFor(tier int) int {
-	if tier == 0 {
-		return 0
-	}
-	size := tier
-	// Max clamps last: a layout whose smallest slot exceeds its largest is a
-	// broken layout, and clamping up afterwards would hide it behind a ceiling
-	// no pool can serve
-	if size < minTileSize {
-		size = minTileSize
-	}
-	if size > maxTileSize {
-		size = maxTileSize
-	}
-	return size
-}
-
 // Gives back everything a light holds
 //
 // Only the map entry: the free lists are rebuilt wholesale from what survives,
@@ -388,10 +293,10 @@ func (a *shadowAtlas) drop(light int32) {
 // of slots costs the least important light its resolution and never costs frame
 // time — it walks down a pool at a time and finally holds nothing, which leaves
 // ShadowIndex = -1 and lights it unshadowed.
-func (a *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) {
+func (a *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) { // TODO: understand
 	type request struct {
 		idx        int32
-		score, eff float32
+		eff        float32
 		tier, want int
 		count      int
 	}
@@ -399,15 +304,20 @@ func (a *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) {
 
 	for i := range lights {
 		l := &lights[i]
-		cur, held := 0, false
+		cur, held := len(shadowTiers), false
 		if al, ok := a.allocs[int32(i)]; ok {
 			cur, held = al.tier, true
 		}
 		score := lightScore(l, camPos)
-		tier := tierOf(l, score, cur)
-		if tier == 0 {
-			a.drop(int32(i))
-			continue
+		// A sun is never scored, so it never enters shadowTiers: tier -1
+		tier, want := -1, sunTileSize
+		if l.Type != renderer.LightSun {
+			tier = tierFor(score, cur)
+			if tier == len(shadowTiers) {
+				a.drop(int32(i))
+				continue
+			}
+			want = shadowTiers[tier].size
 		}
 		// A light already holding slots ranks above an equal challenger, so the
 		// two either side of the last free slot do not trade it every frame
@@ -416,8 +326,8 @@ func (a *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) {
 			eff *= slotStickiness
 		}
 		reqs = append(reqs, request{
-			idx: int32(i), score: score, eff: eff,
-			tier: tier, want: tileSizeFor(tier), count: tileCount(l),
+			idx: int32(i), eff: eff,
+			tier: tier, want: want, count: tileCount(l),
 		})
 	}
 
@@ -486,7 +396,7 @@ func (a *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) {
 		al, ok := a.allocs[r.idx]
 		p, planned := plan[r.idx]
 		if ok && planned && al.pool == p && len(al.slots) == r.count {
-			al.tier, al.want = r.tier, r.want
+			al.tier = r.tier
 			keep[r.idx] = true
 		}
 	}
@@ -545,7 +455,7 @@ func (a *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) {
 			tiles[k] = shadowTile{x: s.x, y: s.y, size: pool.size, light: r.idx}
 		}
 		a.allocs[r.idx] = &lightAlloc{
-			tier: r.tier, want: r.want, size: pool.size,
+			tier: r.tier, size: pool.size,
 			pool: p, slots: idxs, tiles: tiles,
 		}
 	}

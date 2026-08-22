@@ -203,19 +203,19 @@ func TestTierHysteresis(t *testing.T) {
 	// retuning slotLayout does not need this test edited
 	n := len(shadowTiers)
 	boundary := shadowTiers[n-2].minScore
-	upper, lower := shadowTiers[n-2].size, shadowTiers[n-1].size
+	upper, lower := n-2, n-1
 
 	if got := tierFor(boundary*1.01, lower); got != lower {
-		t.Errorf("a score 1%% over the boundary promoted to %d, want to stay at %d", got, lower)
+		t.Errorf("a score 1%% over the boundary promoted to tier %d, want to stay at %d", got, lower)
 	}
 	if got := tierFor(boundary*1.25, lower); got != upper {
-		t.Errorf("a score 25%% over the boundary stayed at %d, want %d", got, upper)
+		t.Errorf("a score 25%% over the boundary stayed at tier %d, want %d", got, upper)
 	}
 	if got := tierFor(boundary*0.99, upper); got != upper {
-		t.Errorf("a score 1%% under the boundary demoted to %d, want to stay at %d", got, upper)
+		t.Errorf("a score 1%% under the boundary demoted to tier %d, want to stay at %d", got, upper)
 	}
 	if got := tierFor(boundary*0.8, upper); got != lower {
-		t.Errorf("a score 20%% under the boundary stayed at %d, want %d", got, lower)
+		t.Errorf("a score 20%% under the boundary stayed at tier %d, want %d", got, lower)
 	}
 }
 
