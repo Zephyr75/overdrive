@@ -52,6 +52,8 @@ const (
 	passShadow2D
 	passShadowCube
 	passOffscreenColor
+	// The depth prepass: the backbuffer's depth attachment, no colour at all
+	passDepthPrepass
 	passCount
 )
 
@@ -260,6 +262,9 @@ type VKBackend struct {
 	boundPipeline vk.Pipeline
 	cullMode      renderer.CullMode
 	depthCompare  renderer.CompareOp
+	// What the backbuffer's depth image holds, so a second pass on it can load
+	// rather than discard. Reset every frame, the image not surviving one
+	depthLayout vk.ImageLayout
 	// The shader set BindShader selected, used by every following Draw
 	boundShader renderer.ShaderHandle
 }
@@ -662,6 +667,9 @@ func (b *VKBackend) BeginFrame() {
 		return
 	}
 	f := &b.frames[b.frameIndex]
+	// The depth image is not preserved between frames, so every frame's first
+	// pass on it discards rather than loads
+	b.depthLayout = vk.ImageLayoutUndefined
 	// Throttle the CPU here, as without it frame N+2 would overwrite the ring
 	// and command buffer while the GPU still reads them
 	fatal(vk.WaitForFences(b.device, []vk.Fence{f.fence}, true, math.MaxUint64), "wait frame fence")
@@ -740,6 +748,47 @@ func (b *VKBackend) EndFrame() {
 }
 
 // Transitions the target into attachment layout and begins dynamic rendering on it, with the viewport, scissor and dynamic state this pass needs
+// Begins a depth-only pass on the backbuffer's depth attachment
+//
+// No colour attachment at all, so nothing is shaded, nothing is blended and —
+// under MSAA — nothing is resolved; the prepass costs a geometry pass and a
+// depth write, not a second pass over the framebuffer. StoreOp is Store because
+// the whole point is that the main pass loads what this leaves.
+func (b *VKBackend) BeginDepthPrepass() {
+	if !b.frameActive {
+		return
+	}
+	cb := b.frames[b.frameIndex].cb
+	b.passActive = true
+	b.currentPass = passDepthPrepass
+	b.currentTarget = 0
+
+	b.imageBarrier(cb, b.depthImage, vk.ImageAspectDepth, 1,
+		b.depthLayout, vk.ImageLayoutDepthAttachmentOptimal,
+		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite,
+		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite)
+	b.depthLayout = vk.ImageLayoutDepthAttachmentOptimal
+
+	info := vk.RenderingInfo{
+		LayerCount: 1,
+		RenderArea: vk.Rect2D{Extent: b.swapExtent},
+		DepthAttachment: &vk.RenderingAttachmentInfo{
+			ImageView:   b.depthView,
+			ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
+			LoadOp:      vk.AttachmentLoadOpClear,
+			StoreOp:     vk.AttachmentStoreOpStore,
+			ClearValue:  vk.ClearDepthStencil(1, 0),
+		},
+	}
+	viewport := b.viewportFor(passDepthPrepass, 0, 0,
+		int(b.swapExtent.Width), int(b.swapExtent.Height))
+
+	vk.CmdBeginRendering(cb, info)
+	vk.CmdSetViewport(cb, viewport)
+	vk.CmdSetScissor(cb, info.RenderArea)
+	b.applyDynamicState(cb)
+}
+
 func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]float32, keepDepth bool) {
 	// The target knows its own extent, so a pass cannot be given one that
 	// disagrees with its attachments
@@ -760,13 +809,9 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 		LoadOp:      vk.AttachmentLoadOpClear,
 		ClearValue:  vk.ClearDepthStencil(1, 0),
 	}
-	// Only an offscreen target can carry depth in: the backbuffer's depth image
-	// barriers from Undefined every frame below, which discards it
-	if keepDepth && target != 0 {
+	if keepDepth {
 		depthAtt.LoadOp = vk.AttachmentLoadOpLoad
 		depthAtt.ClearValue = vk.ClearValue{}
-	} else if keepDepth {
-		fmt.Fprintln(os.Stderr, "vulkan: BeginPass keepDepth on the backbuffer, depth cleared anyway")
 	}
 	info := vk.RenderingInfo{LayerCount: 1}
 	var viewport vk.Viewport
@@ -776,10 +821,13 @@ func (b *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]floa
 			vk.ImageLayoutUndefined, vk.ImageLayoutColorAttachmentOptimal,
 			vk.PipelineStage2ColorAttachmentOutput, vk.Access2None,
 			vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
+		// From whatever the prepass left, not from Undefined: Undefined is a
+		// discard, and keepDepth on the backbuffer exists to read it back
 		b.imageBarrier(cb, b.depthImage, vk.ImageAspectDepth, 1,
-			vk.ImageLayoutUndefined, vk.ImageLayoutDepthAttachmentOptimal,
+			b.depthLayout, vk.ImageLayoutDepthAttachmentOptimal,
 			vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite,
 			vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite)
+		b.depthLayout = vk.ImageLayoutDepthAttachmentOptimal
 
 		colorAtt := vk.RenderingAttachmentInfo{
 			ImageView:   b.swapViews[b.imageIndex],
@@ -1052,6 +1100,8 @@ func compareOp(op renderer.CompareOp) vk.CompareOp {
 	switch op {
 	case renderer.CompareLessEqual:
 		return vk.CompareOpLessOrEqual
+	case renderer.CompareEqual:
+		return vk.CompareOpEqual
 	case renderer.CompareAlways:
 		return vk.CompareOpAlways
 	default:

@@ -96,6 +96,8 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 	utils.HandleError(err)
 	depthPointShader, err := b.CreateShader("depth_point")
 	utils.HandleError(err)
+	prepassShader, err := b.CreateShader("prepass")
+	utils.HandleError(err)
 	uiShader, err := b.CreateShader("ui")
 	utils.HandleError(err)
 	skyboxShader, err := b.CreateShader("skybox")
@@ -157,8 +159,18 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 			staticBakes, dynamicBakes = s.BakeCounts()
 		}
 
-		// Run the main pass, the only one that clears color
-		b.BeginPass(0, &[4]float32{0.1, 0.1, 0.1, 1.0}, false)
+		// Depth first, so the forward pass shades each visible fragment once
+		// rather than once per surface drawn over it
+		prepass := s != nil && settings.DepthPrepass
+		if prepass {
+			b.BeginDepthPrepass()
+			s.RenderDepthPrepass(prepassShader, &f)
+			b.EndPass()
+		}
+
+		// Run the main pass, the only one that clears color. It keeps the depth
+		// the prepass left, which is what the EQUAL test in RenderScene compares
+		b.BeginPass(0, &[4]float32{0.1, 0.1, 0.1, 1.0}, prepass)
 
 		if s != nil {
 			s.RenderSkybox(skyboxShader, &f)

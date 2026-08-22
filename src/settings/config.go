@@ -17,7 +17,8 @@ type Config struct {
 		Height int
 	}
 	Renderer struct {
-		Backend string
+		Backend      string
+		DepthPrepass bool
 	}
 	AntiAliasing struct {
 		Mode    string
@@ -59,6 +60,7 @@ func loadDefaults() Config {
 	c.Window.Width, c.Window.Height = WindowWidth, WindowHeight
 	c.Shadows.Width, c.Shadows.Height = ShadowWidth, ShadowHeight
 	c.Renderer.Backend = Backend
+	c.Renderer.DepthPrepass = DepthPrepass
 	c.AntiAliasing.Mode = string(AntiAliasing)
 	c.AntiAliasing.Samples = MSAASamples
 	c.Textures.Anisotropy = Anisotropy
@@ -97,6 +99,7 @@ func apply(c Config) error {
 	WindowWidth, WindowHeight = c.Window.Width, c.Window.Height
 	ShadowWidth, ShadowHeight = c.Shadows.Width, c.Shadows.Height
 	Backend = backend
+	DepthPrepass = c.Renderer.DepthPrepass
 	AntiAliasing = mode
 	MSAASamples = c.AntiAliasing.Samples
 	Anisotropy = c.Textures.Anisotropy

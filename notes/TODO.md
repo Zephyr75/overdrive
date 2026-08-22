@@ -49,7 +49,9 @@ The ordered plan is `tmp/BACKEND_DECISION.md` §9. These are its first items.
 - [x] Normal mapping (tangent-space, per-fragment TBN)
 - [ ] HDR + tone mapping + bloom — needs a half-float format binding, `go-vulkan/BINDINGS_GAP.md` §7 batch 1. See `FEATURES.md` §2
 - [ ] Ambient occlusion (SSAO)
-- [ ] Blending / transparency — blocked on `PipelineSpec`, since there is no blend state in the interface
+- [x] Depth prepass — `[renderer] depthPrepass`, `BeginDepthPrepass` + `prepass.slang`, main pass shading with `CompareEqual`. `tmp/LIGHTING_IMPL.md` Part F
+- [ ] Blending / transparency — blocked on `PipelineSpec`, since there is no blend state in the interface. **Transparent geometry must be excluded from the depth prepass**, in three parts: skip it in `Scene.RenderDepthPrepass`, draw it after the opaque `CompareEqual` batch with `CompareLess` and depth write off, and sort it back-to-front. Also needs `Material.Alpha` to actually reach `DrawUniforms` (it is parsed and dropped today, and the struct is size-guarded at 128 bytes), and `DepthWriteEnable` to become dynamic state — it is baked per pipeline in `vulkan/shader.go` from the vertex layout
+- [ ] Alpha cutout, if it lands before the above — a `discard`ing material stays opaque and stays in the prepass, but `prepass.slang` must then run the identical `discard`, or the depth it writes disagrees with `forward.slang` and `EQUAL` rejects the wrong fragments. Silent, and it looks like speckled geometry
 - [ ] Instancing
 - [x] Anisotropic filtering — `[textures] anisotropy` in the config file (1/2/4/8/16), clamped to the device limit in `createSamplers`. **Does almost nothing until mipmaps land** — see the next item
 - [ ] **Mipmaps**, which is what makes anisotropy and `SamplerMipmapModeLinear` pay off. In order:

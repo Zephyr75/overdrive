@@ -216,9 +216,15 @@ Backend.BeginFrame()
               draw only the casters that can move
           EndPass()
 
-  BeginPass(0, &{0.1,0.1,0.1,1}, false)              ← backbuffer, clears color
+  if settings.DepthPrepass:
+      BeginDepthPrepass()                            ← depth only, no color at all
+          Scene.RenderDepthPrepass  every mesh, prepass shader
+      EndPass()
+
+  BeginPass(0, &{0.1,0.1,0.1,1}, prepass)            ← backbuffer, clears color,
       Scene.RenderSkybox     SetDepthCompare(LessEqual) → draw cube → back to Less
-      Scene.RenderScene      every mesh, every face group, forward shader
+      Scene.RenderScene      SetDepthCompare(Equal) → every mesh, every face
+                             group, forward shader → back to Less
       renderUI               rasterise widgets to RGBA → UpdateTexture2D → Draw(quad)
   EndPass()
 
@@ -317,6 +323,7 @@ pipeline kind are both still there, unexercised — see `tmp/BACKEND_DECISION.md
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `BeginFrame` | Waits on this frame slot's fence (the CPU throttle for 2 frames in flight), acquires a swapchain image, resets the ring offset, drains retired resources, resets and begins the command buffer, binds the one descriptor set, flushes staged texture uploads |
 | `BeginPass`  | Barriers the target into attachment layout, `CmdBeginRendering` with load ops (`Clear` / `Load` / `DontCare`), `CmdSetViewport`, `CmdSetScissor`, re-issues cull mode + depth compare                                                                        |
+| `BeginDepthPrepass` | Barriers the backbuffer depth from `b.depthLayout`, `CmdBeginRendering` with a depth attachment alone (`Clear` / `Store`), viewport, scissor, dynamic state                                                                          |
 | `EndPass`    | `CmdEndRendering`, and for a shadow target barriers depth-attachment → shader-read-only                                                                                                                                                                      |
 | `EndFrame`   | Barriers the swapchain image to present layout, ends and submits the command buffer (wait on acquire semaphore, signal the image's render semaphore, signal the fence), presents, advances the frame slot                                                    |
 

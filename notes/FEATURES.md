@@ -21,6 +21,7 @@ Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
   - [Environment and reflection](#environment-and-reflection)
   - [Scene and assets](#scene-and-assets)
   - [UI overlay](#ui-overlay)
+  - [Depth prepass](#depth-prepass--shade-each-visible-pixel-once)
   - [Anti-aliasing](#anti-aliasing--msaa-on-the-backbuffer)
 - [Part 2 — roadmap](#part-2--roadmap)
 - [Performance notes](#performance-notes)
@@ -467,6 +468,62 @@ On Vulkan the upload is _staged_ and copied at the top of the next frame, becaus
 a copy cannot be recorded inside a render pass — one frame of latency, no queue
 stall. `main.go` currently passes a nil widget, so only the debug crosshair draws.
 
+### Depth prepass — shade each visible pixel once
+
+`[renderer] depthPrepass`, on by default. `BeginDepthPrepass` draws every mesh
+through `prepass.slang` — position in, empty fragment stage — filling the
+backbuffer's depth with the nearest surface per pixel. The main pass then keeps
+that depth (`BeginPass(0, clear, true)`) and `RenderScene` shades with
+`CompareEqual`, so only the frontmost fragment survives to run `fsMain`.
+
+**Why it is worth a whole extra geometry pass.** `forward.slang`'s `fsMain` is
+the most expensive shader in the engine: per fragment it loops `lightCount`
+lights, each running Cook-Torrance plus a `shadowLookup` of 4 to 13 PCF taps. On
+`stress.xml` that is 64 lights. Without a prepass, every surface drawn over
+later pays that in full and throws the result away — the ground under Suzanne is
+shaded, then overwritten. `Scene.RenderScene` draws in XML order and sorts
+nothing, so the overdraw is whatever the scene file happened to list.
+
+**It is not buying depth testing.** Early-Z already rejects a hidden fragment
+before the shader runs — `fsMain` neither writes `SV_Depth` nor discards, so the
+hardware is free to do it. What the prepass buys is the *right draw order*
+without sorting: the depth buffer knows the final nearest surface before any
+shading starts, so rejection is exact, per pixel, and correct for
+interpenetrating geometry that no sort can order.
+
+The trade is one cheap geometry pass against `(overdraw − 1)` expensive fragment
+shaders, so it wins on depth complexity and loses on flat scenes. **The showcase
+is a flat scene** — five meshes on a plane, overdraw barely over 1.0 — and shows
+no measurable gain, which is expected rather than broken. The real payoff is
+Part G: clustered forward adds a per-cluster light loop to the same fragment
+shader, so running it on hidden fragments gets more expensive, not less. §10's
+ambient-occlusion work also wants this depth buffer.
+
+**`EQUAL` is unforgiving, and that shaped the code.** `prepass.slang` cannot
+reuse `depth.slang`: that one projects through a single premultiplied
+`FRAME.bakeMatrix`, while `forward.slang:20` does
+`mul(projection, mul(view, float4(fragPos, 1.0)))` with `fragPos` already
+through `model`. Same value mathematically, different associativity, different
+rounding — and `EQUAL` compares bits, so the difference shows as speckle along
+every edge rather than as an error. `prepass.slang` exists only to repeat that
+arithmetic operation for operation. Keep them in step.
+
+The prepass binds **no colour attachment**, which is why it is its own `Backend`
+method rather than a `BeginPass` flag: attachments are pass state, and under
+dynamic rendering a pipeline declares the formats it will be used with. So
+"backbuffer, depth only" is a fifth `passKind`. The payoff is that it writes no
+colour, blends nothing and — under MSAA — resolves nothing.
+
+**Transparency has to stay out of it.** Nothing in the engine is transparent
+today (`Material.Alpha` is parsed and dropped; `fsMain` returns alpha 1.0), but
+the constraint is structural: a transparent surface has no single nearest depth,
+and `CompareEqual` shades one fragment per pixel where blending needs several.
+Whenever transparency lands it is a third pass — opaque prepass, opaque main with
+`EQUAL`, then transparent sorted back-to-front with depth write off and
+`CompareLess`. Alpha *cutout* is the opposite case: it is opaque and belongs in
+the prepass, but `prepass.slang` must then run the same `discard` as
+`forward.slang` or the depth it writes is wrong. See `TODO.md`.
+
 ### Anti-aliasing — MSAA on the backbuffer
 
 `[antialiasing] mode` and `samples` in the config file (`none`, or `msaa` at
@@ -542,10 +599,11 @@ Smaller items, all of them deliberate for now:
 | Gap                                                                          | Where                                                                        |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | No cascades: the sun is one 2048 ortho tile over a hardcoded [-10, 10] box  | `Light.shadowRecord` in `scene/shadowatlas.go`                                |
-| Every tile re-bakes every frame, the allocator's persistence notwithstanding | the static/dynamic split is Part E                                           |
+| A static re-bake redraws every allocated tile, not the slots that changed   | `Scene.UpdateShadows` — a tile with no caster in frustum writes nothing      |
 | The score ignores whether a light is on screen at all                       | `lightScore` — the cluster gate is Part G                                    |
 | Tier thresholds and tile sizes are constants, not config                    | `shadowTiers` in `scene/shadowatlas.go`, moved to TOML by Part H             |
-| `CopyDepthRegion` and `ShadowRecord.Flags` bit 0 exist but nothing sets them | the static/dynamic split is Part E                                           |
+| A light that moves does not dirty its own tiles                             | nothing moves a light yet; `Scene.UpdateShadows` when one can                |
+| The prepass image is unverified against the prepass-off image               | no readback path; needs two RenderDoc captures                              |
 | `GeometryShader` and `passShadowCube` are enabled and unused                 | `depth_cube.slang` retired with the atlas                                    |
 | No mipmaps on any texture                                                    | `vulkan/texture.go` — needs `CmdBlitImage`, `go-vulkan/BINDINGS_GAP.md` §5.2 |
 | Physical device is `devices[0]`, not scored                                  | `vulkan/backend.go`                                                          |

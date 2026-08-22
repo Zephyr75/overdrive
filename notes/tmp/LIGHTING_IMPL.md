@@ -1,6 +1,6 @@
 # Lighting implementation — Parts A–H
 
-**Status: A, B, C, D and E landed.** The build order for `LIGHTING_PLAN.md`, split so
+**Status: A, B, C, D, E and F landed.** The build order for `LIGHTING_PLAN.md`, split so
 each part is a session's work that leaves the tree running.
 
 The "As each part lands" sync below **has been done through E** for
@@ -29,7 +29,7 @@ the capacity arithmetic and the rejected alternatives all live in
 | [C](#part-c--records-and-atlas-sampling) _(landed)_ | records, atlas sampling  | tile bleeding  | one sampler, N tiles |
 | [D](#part-d--the-allocator) _(landed)_              | slot-layout allocator    | contention thrash | variable resolution  |
 | [E](#part-e--staticdynamic-split) _(landed)_        | static/dynamic, caching  | classification | the shadow budget    |
-| [F](#part-f--depth-prepass)                         | depth prepass            | MSAA + `EQUAL` | overdraw, AO input   |
+| [F](#part-f--depth-prepass) _(landed)_              | depth prepass            | MSAA + `EQUAL` | overdraw, AO input   |
 | [G](#part-g--clustered-forward)                     | clustered forward        | Z distribution | 1000s of lights      |
 | [H](#part-h--quality-tiers)                         | quality tiers            | dead knobs     | the low-end story    |
 
@@ -598,7 +598,7 @@ tile it is leaving, which its new position alone would not say.
 
 ---
 
-## Part F — Depth prepass
+## Part F — Depth prepass _(landed)_
 
 **Goal.** Draw depth first, shade only what survives, and put the buffer §10's
 AO work needs in place.
@@ -608,34 +608,84 @@ AO work needs in place.
 
 **Steps.**
 
-1. ~~`BeginPass` always clears depth.~~ **Half done by Part E**, which needed the
-   same knob: `BeginPass` takes a `keepDepth bool` and honours it on offscreen
-   depth targets. What is left is the backbuffer, whose depth image barriers from
-   `Undefined` every frame and so discards what a `Load` would read. Only interface
-   change in the part — and if `BACKEND_DECISION.md` §9 item 7 has landed, it
-   belongs on the `Pass` description instead.
-2. Prepass: `BeginPass` on the backbuffer, depth only, `depth.slang`, every
-   scene mesh with its real model matrix.
-3. Main pass: `BeginPass(..., keepDepth: true)`, then `SetDepthCompare` to
-   `CompareEqual` for the forward scene draws. The skybox keeps `LessEqual`, the
-   UI is unchanged. `CompareEqual` is a new enum value in `renderer/` and may
-   need the matching `go-vulkan` constant.
-4. MSAA: the prepass must run at the same sample count as the main pass or the
-   `EQUAL` test fails along every geometric edge. Verify with
-   `[antialiasing] samples = 4` and again with `1`.
+1. ~~`BeginPass` always clears depth.~~ **Done**, in two halves. Part E took the
+   `keepDepth bool` for offscreen depth targets; this part finished it for the
+   backbuffer, whose depth image barriered from `Undefined` every frame and so
+   discarded what a `Load` would read. `VKBackend.depthLayout` now tracks it,
+   reset to `Undefined` in `BeginFrame` because the image genuinely does not
+   survive one. The `keepDepth`-on-the-backbuffer warning Part E left is gone.
+2. ~~Prepass: `BeginPass` on the backbuffer, depth only, `depth.slang`.~~ **Done,
+   but neither with `BeginPass` nor with `depth.slang`** — see the deviations.
+   `BeginDepthPrepass()` is a 28th `Backend` method and `prepass.slang` a new
+   shader.
+3. ~~Main pass with `CompareEqual` for the scene draws.~~ **Done**, in
+   `Scene.RenderScene`, bracketed the way `RenderSkybox` already brackets
+   `LessEqual` — and restoring `CompareLess` afterwards is load-bearing, the UI
+   testing depth and failing an EQUAL comparison against the geometry it
+   composites over. `renderer.CompareEqual` needed `vk.CompareOpEqual`, which
+   `go-vulkan` did not bind.
+4. ~~MSAA at the same sample count.~~ **Done**: `passSamples` returns `b.samples`
+   for the prepass as well as the main pass. Verified running at
+   `samples = 4` and `samples = 1`, both validation-clean.
+
+**Three things the plan did not say.**
+
+- **`depth.slang` is the wrong shader, and reusing it would z-fight.** It projects
+  through `FRAME.bakeMatrix`, a single premultiplied matrix, while
+  `forward.slang:20` does `mul(projection, mul(view, float4(fragPos, 1.0)))` with
+  `fragPos` already through `model`. Same value mathematically, different
+  associativity, different rounding — and `EQUAL` compares the bits. So
+  `prepass.slang` exists purely to repeat `forward.slang`'s vertex arithmetic
+  operation for operation. The Risk note says "the same matrices from the same
+  uniform block"; that is necessary and not sufficient. It has to be the same
+  *arithmetic*.
+
+- **The prepass binds no colour attachment**, which is why it is its own
+  `Backend` method rather than a `BeginPass` flag. Attachments are pass state:
+  under dynamic rendering a pipeline declares the formats it will be used with,
+  so "backbuffer, depth only" is a fifth `passKind` (`passDepthPrepass`) with its
+  own `renderingInfo`, not a variation on `passMain`. The payoff is that the
+  prepass writes no colour, blends nothing, and under MSAA **resolves nothing** —
+  it costs a geometry pass and a depth write, not a second pass over the
+  framebuffer. Reusing `passMain` would have cost a resolve of garbage every
+  frame.
+
+- **`StoreOp` differs between the two passes.** The prepass stores its depth,
+  the main pass still discards its own — the depth image is ordinary memory
+  rather than a transient attachment, so this works, and keeping the main pass on
+  `DontCare` means the prepass costs the write-out and nothing else does.
 
 **Not taken here.** The packed-normal attachment (§10) needs MRT in
 `RenderTargetSpec`, which nothing else in this plan requires. It belongs to the
 AO work; depth alone is what Part G benefits from, and normals can be
 reconstructed from depth in the meantime.
 
-**Gate.** Standard gate, plus: identical image with the prepass on and off, and
-a measurable FPS gain in a scene with real overdraw — the showcase may be too
-flat to show one, so build a deliberately layered test scene if needed.
+**Gate.** Standard gate: builds, `go test ./...` green, `spirv-val
+--scalar-block-layout` clean on all 12 modules, and `go run .` with
+`[debug] validation = true` silent on `showcase.xml` at `samples = 4` and
+`samples = 1`, with the prepass on and off, and on `stress.xml`.
 
-**Risk.** `EQUAL` depth is unforgiving of any difference between the two passes'
-vertex transforms. Both must use the same matrices from the same uniform block,
-not a recomputed copy.
+**Two halves of the gate are not met, and neither is a code problem.**
+
+- **"Identical image with the prepass on and off" is unverified.** There is still
+  no screenshot path — Part D's readback was removed on 2026-08-17 in favour of
+  RenderDoc — so this needs a human with two captures. The indirect evidence is
+  weak but real: a wholesale `EQUAL` failure would reject nearly every fragment
+  and the frame rate would *jump*, the expensive fragment shader having stopped
+  running. It does not.
+- **"A measurable FPS gain" is not measurable on the showcase**, exactly as the
+  plan predicted. Five meshes on a ground plane is almost no overdraw, and on the
+  Intel UHD 620 this session runs on the run-to-run spread (32–48 FPS on
+  *identical* settings) swamps any difference. The layered test scene Part A step
+  6 also wants is what would answer this; it is still unbuilt.
+
+**Risk, as written.** `EQUAL` being unforgiving. Realised immediately, in the
+form the note did not predict — see the first deviation.
+
+**One knob, added early.** `[renderer] depthPrepass`, default true. Part H is
+where knobs are supposed to land, but the gate's own A/B requires this one to
+exist, so it went in with a `settings` test (`TestDepthPrepassTurnsOff`) rather
+than as a constant to be moved later.
 
 ---
 

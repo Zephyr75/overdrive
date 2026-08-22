@@ -191,6 +191,25 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 	u.TexShadowDynamic = s.atlas.dynamicTex
 }
 
+// Draws every mesh depth-only, inside the depth prepass
+//
+// The matrices are rebuilt from the same expressions RenderScene uses, and
+// prepass.slang combines them in the same order forward.slang does. An EQUAL
+// depth test rejects any difference between the two down to the last bit, so
+// "the same value" is not good enough — it has to be the same arithmetic.
+func (s *Scene) RenderDepthPrepass(shader renderer.ShaderHandle, f *renderer.FrameUniforms) {
+	f.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
+	f.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
+		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+	s.backend.BindFrameUniforms(f)
+
+	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
+	s.backend.BindShader(shader)
+	for i := range s.Meshes {
+		s.Meshes[i].draw(&u)
+	}
+}
+
 // Draws every mesh of the scene with the forward shader, inside the main pass
 func (s *Scene) RenderScene(shader renderer.ShaderHandle, f *renderer.FrameUniforms) {
 	// Restore the full view matrix, the skybox pass having stripped its
@@ -200,11 +219,23 @@ func (s *Scene) RenderScene(shader renderer.ShaderHandle, f *renderer.FrameUnifo
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
 	s.backend.BindFrameUniforms(f)
 
+	// Shade only the fragments the prepass left, so an overdrawn pixel runs the
+	// light loop once rather than once per surface stacked behind it
+	if settings.DepthPrepass {
+		s.backend.SetDepthCompare(renderer.CompareEqual)
+	}
+
 	// Static mesh geometry is baked into the OBJ vertices, so the model matrix
 	// is identity and only the material fields vary between draws
 	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
 	s.backend.BindShader(shader)
 	for i := range s.Meshes {
 		s.Meshes[i].draw(&u)
+	}
+
+	// Back to the scene default before the UI, which tests depth and would fail
+	// an EQUAL comparison against the geometry it composites over
+	if settings.DepthPrepass {
+		s.backend.SetDepthCompare(renderer.CompareLess)
 	}
 }

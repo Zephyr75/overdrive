@@ -25,6 +25,13 @@ var (
 	// Anisotropic filtering on material textures: 1 (off), 2, 4, 8 or 16.
 	// Lowered to the device limit at sampler creation rather than rejected
 	Anisotropy int = 8
+
+	// Draw depth first and shade only what survives, with an EQUAL depth test
+	//
+	// A rendering switch rather than a debug one, but it has to be reachable
+	// from the file: the prepass is only correct if the two passes agree to the
+	// bit, and "turn it off and compare the image" is how that is checked
+	DepthPrepass bool = true
 )
 
 // The [debug] section: switches that change how a run is inspected, never what

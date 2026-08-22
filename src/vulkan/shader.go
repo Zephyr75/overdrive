@@ -157,7 +157,7 @@ func vertexInputState(pass passKind, layout renderer.VertexLayout) *vk.PipelineV
 // The passes that flip the viewport keep CCW, the flip cancelling Vulkan's
 // winding inversion. Shadow passes keep a positive viewport and pay for it here.
 func frontFace(pass passKind) vk.FrontFace {
-	if pass == passMain || pass == passOffscreenColor {
+	if pass == passMain || pass == passOffscreenColor || pass == passDepthPrepass {
 		return vk.FrontFaceCounterClockwise
 	}
 	return vk.FrontFaceClockwise
@@ -168,7 +168,9 @@ func frontFace(pass passKind) vk.FrontFace {
 // Only the backbuffer is multisampled — everything else is sampled by a later
 // pass, and these shaders cannot read a multisampled texture.
 func (b *VKBackend) passSamples(pass passKind) vk.SampleCountFlags {
-	if pass == passMain {
+	// The prepass shares the main pass's depth attachment, and a pass's
+	// attachments must all rasterise at one sample count — so must its pipelines
+	if pass == passMain || pass == passDepthPrepass {
 		return b.samples
 	}
 	return vk.SampleCount1Bit

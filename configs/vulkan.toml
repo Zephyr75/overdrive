@@ -15,6 +15,11 @@ height = 1024
 [renderer]
 backend = "vulkan"
 
+# Draw depth first, then shade only the fragments that survive, with an EQUAL
+# depth test. Turn off to compare the image: the two passes must agree to the
+# bit, and a disagreement shows as speckle along edges rather than as an error
+depthPrepass = true
+
 [antialiasing]
 mode = "msaa"         # or "none"
 samples = 4           # 1, 2, 4 or 8

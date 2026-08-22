@@ -52,6 +52,20 @@ func TestKeysReachTheirVariables(t *testing.T) {
 	if Validation || LockCamera {
 		t.Error("an absent [debug] key turned something on")
 	}
+	if !DepthPrepass {
+		t.Error("an absent renderer.depthPrepass did not keep its default of on")
+	}
+}
+
+// The depth prepass must be switchable off, since "the same image with it on and
+// off" is the only check that the two passes agree bit for bit
+func TestDepthPrepassTurnsOff(t *testing.T) {
+	if err := load(t, "[renderer]\ndepthPrepass = false\n"); err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if DepthPrepass {
+		t.Error("renderer.depthPrepass = false did not reach settings.DepthPrepass")
+	}
 }
 
 // A bad key or value rejects the file rather than being ignored or clamped

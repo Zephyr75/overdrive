@@ -79,6 +79,8 @@ const (
 	CompareLess CompareOp = iota
 	// Ties win too, so the skybox can sit exactly on the far plane
 	CompareLessEqual
+	// Only an exact match, which is what shades a depth prepass's survivors once
+	CompareEqual
 	// No depth rejection
 	CompareAlways
 )
@@ -111,6 +113,12 @@ type Backend interface {
 	// what lets an untouched tile keep the pixels it was baked with. Offscreen
 	// depth targets only — the backbuffer's depth is discarded every frame.
 	BeginPass(target RenderTargetHandle, clear *[4]float32, keepDepth bool)
+	// Begins a depth-only pass on the backbuffer, clearing and storing its depth
+	//
+	// No colour attachment is bound, so nothing is shaded and nothing is
+	// resolved. The following BeginPass(0, clear, true) reads what this left.
+	BeginDepthPrepass()
+
 	// Ends the pass, after which nothing may be drawn until the next BeginPass
 	EndPass()
 
