@@ -6,6 +6,7 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/Zephyr75/overdrive/renderer"
+	"github.com/Zephyr75/overdrive/settings"
 )
 
 // Projects a world point through a record exactly as forward.slang's
@@ -95,7 +96,8 @@ func TestShadowRecordRectMatchesTile(t *testing.T) {
 	if rec.FaceIndex != -1 {
 		t.Errorf("a sun tile reports face %d, want -1", rec.FaceIndex)
 	}
-	want := [4]float32{2048.0 / atlasSize, 1024.0 / atlasSize, 1024.0 / atlasSize, 1024.0 / atlasSize}
+	n := float32(atlasSize)
+	want := [4]float32{2048.0 / n, 1024.0 / n, 1024.0 / n, 1024.0 / n}
 	if rec.AtlasCoords != want {
 		t.Errorf("atlas rect %v, want %v", rec.AtlasCoords, want)
 	}
@@ -426,5 +428,108 @@ func TestBakeBudgetDefersLeastImportant(t *testing.T) {
 				s.Lights[idx].Name, score, prev)
 		}
 		prev = score
+	}
+}
+
+// --- Part H: the quality tiers ----------------------------------------------
+
+// Every atlas size the settings accept must still carve a layout that packs
+//
+// The slot rows are divisions of the atlas rather than pixel counts, so the
+// whole point is that turning shadows down does not stop lights casting.
+func TestLayoutPacksAtEveryAtlasSize(t *testing.T) {
+	before := settings.ShadowAtlasSize
+	t.Cleanup(func() { settings.ShadowAtlasSize = before; loadLayoutSettings() })
+
+	for _, size := range []int{1024, 2048, 4096, 8192} {
+		settings.ShadowAtlasSize = size
+		var a shadowAtlas
+		a.reset()
+
+		slots := 0
+		for _, pool := range a.pools {
+			slots += len(pool.slots)
+			for _, s := range pool.slots {
+				if s.x < 0 || s.y < 0 || s.x+pool.size > size || s.y+pool.size > size {
+					t.Fatalf("atlas %d: slot (%d, %d) of %d runs past the edge", size, s.x, s.y, pool.size)
+				}
+			}
+		}
+		if slots != 337 {
+			t.Errorf("atlas %d carved %d slots, want 337 — the light budget must not move with the size",
+				size, slots)
+		}
+	}
+}
+
+// dynamicAtlas = false must cost every light its dynamic tile, not merely skip
+// the pass: a record still selecting the second atlas would sample one nothing
+// ever wrote
+func TestDynamicAtlasOffKeepsEverythingStatic(t *testing.T) {
+	before := settings.ShadowDynamicAtlas
+	t.Cleanup(func() { settings.ShadowDynamicAtlas = before })
+	settings.ShadowDynamicAtlas = false
+
+	s := loadShowcase(t)
+	s.atlas.reset()
+	s.UpdateShadows(1, 50)
+	if !moveMesh(&s, "Suzanne", mgl32.Vec3{0, 0.1, 0}) {
+		t.Skip("the showcase has no Suzanne")
+	}
+	s.UpdateShadows(1, 50)
+
+	if len(s.dynamicQueue) != 0 {
+		t.Errorf("%d dynamic tiles queued with the dynamic atlas off", len(s.dynamicQueue))
+	}
+	for i, rec := range s.shadowRecords {
+		if rec.Flags&1 != 0 {
+			t.Fatalf("record %d selects the dynamic atlas, which was never built", i)
+		}
+	}
+}
+
+// Cheap PCF must reach the shader, which it does through the record's flags
+// rather than through a struct the layout guard would have to grow
+func TestCheapPCFReachesTheRecords(t *testing.T) {
+	before := settings.ShadowPCF
+	t.Cleanup(func() { settings.ShadowPCF = before })
+
+	s := loadShowcase(t)
+	s.atlas.reset()
+
+	settings.ShadowPCF = settings.PCFFull
+	s.UpdateShadows(1, 50)
+	for i, rec := range s.shadowRecords {
+		if rec.Flags&2 != 0 {
+			t.Fatalf("record %d asks for cheap PCF at the full setting", i)
+		}
+	}
+
+	settings.ShadowPCF = settings.PCFCheap
+	s.UpdateShadows(1, 50)
+	if len(s.shadowRecords) == 0 {
+		t.Fatal("the showcase built no records")
+	}
+	for i, rec := range s.shadowRecords {
+		if rec.Flags&2 == 0 {
+			t.Fatalf("record %d still asks for full PCF at the cheap setting", i)
+		}
+	}
+}
+
+// The tier ceilings must follow the slot rows, never name a size no pool holds
+func TestTierSizesFollowTheSlotRows(t *testing.T) {
+	var a shadowAtlas
+	a.reset()
+
+	if len(shadowTiers) != len(slotLayout)-1 {
+		t.Fatalf("%d tiers against %d slot rows; the first row is the sun's and has no score",
+			len(shadowTiers), len(slotLayout))
+	}
+	for i, tier := range shadowTiers {
+		if tier.size != slotLayout[i+1].size {
+			t.Errorf("tier %d caps at %d, which no pool holds; row %d is %d",
+				i, tier.size, i+1, slotLayout[i+1].size)
+		}
 	}
 }

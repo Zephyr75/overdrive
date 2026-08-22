@@ -1,6 +1,6 @@
 # Lighting implementation — Parts A–H
 
-**Status: A, B, C, D, E and F landed.** The build order for `LIGHTING_PLAN.md`, split so
+**Status: A–F and H landed. G is deferred to [`CLUSTERED_FORWARD.md`](CLUSTERED_FORWARD.md).** The build order for `LIGHTING_PLAN.md`, split so
 each part is a session's work that leaves the tree running.
 
 The "As each part lands" sync below **has been done through E** for
@@ -30,8 +30,8 @@ the capacity arithmetic and the rejected alternatives all live in
 | [D](#part-d--the-allocator) _(landed)_              | slot-layout allocator    | contention thrash | variable resolution  |
 | [E](#part-e--staticdynamic-split) _(landed)_        | static/dynamic, caching  | classification | the shadow budget    |
 | [F](#part-f--depth-prepass) _(landed)_              | depth prepass            | MSAA + `EQUAL` | overdraw, AO input   |
-| [G](#part-g--clustered-forward)                     | clustered forward        | Z distribution | 1000s of lights      |
-| [H](#part-h--quality-tiers)                         | quality tiers            | dead knobs     | the low-end story    |
+| [G](CLUSTERED_FORWARD.md) _(deferred)_              | clustered forward        | Z distribution | 1000s of lights      |
+| [H](#part-h--quality-tiers) _(landed)_              | quality tiers            | dead knobs     | the low-end story    |
 
 Three positions in that order are fixed:
 
@@ -689,46 +689,21 @@ than as a constant to be moved later.
 
 ---
 
-## Part G — Clustered forward
+## Part G — Clustered forward _(deferred)_
 
-**Goal.** Thousands of lights. Each fragment shades only the lights in its
-froxel.
+**Moved out to [`CLUSTERED_FORWARD.md`](CLUSTERED_FORWARD.md)** on 2026-08-22,
+unchanged, so this file could be closed out with Part H. It is the only part of
+the plan not built, and nothing else waits on it — Part F was ordered immediately
+before it and is already in place.
 
-**Touches.** `scene/`, `renderer/uniforms.go`, `forward.slang`.
-
-**Steps.**
-
-1. Froxel grid, default 16 × 9 × 24, exponential in Z. `ClusterGrid [4]int32` in
-   `FrameUniforms` carries the dimensions and `maxPerCluster`.
-2. CPU build per frame: every light's bounding sphere against every froxel,
-   producing `clusterOffsets` (offset, count per cluster) and `clusterIndices`
-   (flat light indices). Upload both into the storage buffer from Part C and
-   push a fourth pointer for them.
-3. `forward.slang`: derive the cluster from `gl_FragCoord.xy` and view depth,
-   read offset and count, loop only those lights. The Part A early-out stays as
-   the inner guard.
-4. The scene light array outgrows `MaxLights` here — move `Lights[]` out of
-   `FrameUniforms` into the same storage buffer. `MaxLights` stops being the
-   scene cap and `maxPerCluster` (16) takes over as the per-fragment cap;
-   `FrameUniforms` drops to roughly 236 bytes.
-5. Feed the cluster result into Part D's allocator: a light intersecting zero
-   clusters skips tile allocation entirely (§2.2). This is the synergy the
-   ordering was chosen for.
-
-**Follow-up, not required here.** A compute cluster build is a good first user
-of `Dispatch` (`BACKEND_DECISION.md` §9 item 8). Build on the CPU first — it is
-simpler and not obviously the bottleneck.
-
-**Gate.** Standard gate, plus a stress scene with 200+ unshadowed lights holding
-frame rate, and the froxel grid visualised as a debug overlay at least once.
-
-**Risk.** Z-slice distribution interacts with the shadow `farPlane`, still a
-hardcoded `50` in `core/app.go:114`. Fit both to the same scene bounds in this
-part or the two disagree at range.
+Three things elsewhere are waiting on it and say so where they will bite:
+`lightScore` ranking a light behind the camera as highly as one in front of it,
+Part E's untaken cube-face-vs-camera-frustum cull, and `MaxLights` still being a
+fixed 64.
 
 ---
 
-## Part H — Quality tiers
+## Part H — Quality tiers _(landed)_
 
 **Goal.** One scene, one code path, from a discrete GPU down to an integrated
 laptop one.
@@ -737,20 +712,81 @@ laptop one.
 
 **Steps.**
 
-1. Move every constant the earlier parts hardcoded into `settings`, then into
-   the TOML schema of §9.
-2. `dynamicAtlas = 0` must disable the dynamic pass entirely — every record
-   falls back to `staticAtlas`, moving objects cast nothing, per-frame shadow
-   cost goes to zero. This is the low-end switch and it is worth an explicit
-   test.
-3. Ship `configs/low.toml` beside `vulkan.toml`: 2048 atlas, no dynamic atlas,
-   8 × 5 × 12 clusters, `maxPerCluster` 16, cheap PCF.
-4. Extend `settings`' existing test coverage to the new keys and their defaults.
+1. ~~Move every constant the earlier parts hardcoded into `settings`, then into
+   the TOML schema of §9.~~ **Done**, as a rewritten `[shadows]` section:
+   `atlasSize`, `slotDivisors` / `slotCounts`, `tierScores`, `dynamicAtlas`,
+   `bakeBudgetMiB`, `pcf`, `nearPlane` / `farPlane`. `nextTierThreshold` and
+   `slotStickiness` deliberately stayed constants — see the deviations.
+2. ~~`dynamicAtlas = 0` must disable the dynamic pass entirely.~~ **Done**, as a
+   bool rather than a size. It gates `al.dynamic` in `UpdateShadows`, so no light
+   takes a dynamic tile, no record sets `Flags` bit 0 and the copy and the second
+   pass never run. `TestDynamicAtlasOffKeepsEverythingStatic` is the explicit test
+   the step asked for, and it checks the records rather than the pass: a record
+   still selecting the second atlas would sample one nothing ever wrote.
+3. ~~Ship `configs/low.toml`.~~ **Done**: 2048 atlas, no dynamic atlas, cheap PCF,
+   no MSAA, no anisotropy, 1280×720. **No cluster keys** — Part G is deferred and
+   there are none to set. `TestLowConfigTurnsThingsDown` asserts it actually turns
+   things down, including that the slot counts are *un*touched.
+4. ~~Extend `settings`' test coverage.~~ **Done**: `TestShadowKeysReachTheirVariables`
+   (every key lands), `TestShippedConfigsLoad` (both files), plus ten new
+   rejection cases in `TestInvalidConfigsAreRejected`.
 
-**Gate.** Standard gate across every config.
+**Four things the plan did not say.**
 
-**Risk.** Knobs that silently do nothing. Confirm each one's visible effect once,
-by hand, at the extremes of its range.
+- **`init()` had to move into `settings`.** `scene/shadowatlas.go` validated the
+  layout in an `init()` panic while it was compile-time. A configured layout is
+  validated in `settings.checkShadowAtlas` instead, which rejects the file — the
+  established behaviour for a bad value, and the right one here: a layout that
+  cannot be carved is not an error anywhere else. Allocation simply refuses,
+  every light ends up with `ShadowIndex = -1`, and the scene renders unshadowed
+  with nothing logged.
+
+- **Tier sizes are derived, not configured.** `shadowTiers` used to name
+  `atlasSize/8, /16, /32` in its own list beside `slotLayout`'s. Two lists that
+  had to agree is exactly the failure a config multiplies, so a tier's size is
+  now `slotLayout[i+1].size` and only the *scores* are a key. A ceiling can no
+  longer name a size no pool holds. `TestTierSizesFollowTheSlotRows` guards it.
+
+- **A smaller atlas needed a shader change, or the knob shipped broken.** This is
+  the `TODO.md` item that said so: `NORMAL_OFFSET_2D` / `NORMAL_OFFSET_CUBE` in
+  `forward.slang` are world-space constants tuned at 4096, and halving the atlas
+  halves every tile, doubling a texel's world footprint and re-introducing the
+  acne they were tuned to hide. `FrameUniforms` grew a `ShadowNormalScale`
+  (4844 → **4848** bytes) carrying `4096 / atlasSize`, and `shadowLookup`
+  multiplies by it. **1.0 at the default**, so the default image is byte-identical
+  to what Part F shipped — which is the only reason this was safe to do without an
+  eyeball. `spirv-dis` confirms the new member at offset 4844.
+
+- **Cheap PCF rides `ShadowRecord.Flags` bit 1** rather than growing a struct.
+  `Flags` had one bit in use and 31 spare, so the quality knob cost zero layout
+  risk — and it is per-tile for free, should a tier ever want to spend fewer taps
+  on a small slot than a large one. Cheap keeps the 4 corner taps and drops the
+  3×3 refinement, so a penumbra quantises to quarters instead of ninths.
+
+**Two constants that deliberately stayed constants.** `nextTierThreshold` and
+`slotStickiness` are hysteresis margins, not quality: they trade re-bakes against
+responsiveness, and a wrong value is a flicker rather than a tier. Exposing them
+would be four more keys nobody tunes and two more ways to make the allocator
+thrash. `lightConstant` and `lightCutoff` in `scene/light.go` stayed for the same
+reason — `lightCutoff` inverts the falloff that `forward.slang` hardcodes, so it
+is only meaningful in lockstep with a shader edit.
+
+**Dead keys removed.** `[shadows] width` / `height` and
+`settings.ShadowAspectRatio()` had **no callers at all** — they predate the atlas
+and drove nothing. `TODO.md` asked whether they were dead; they were.
+
+**Gate.** Standard gate across every config: builds, `go test ./...` green (19
+in `scene`, 7 in `settings`), `spirv-val --scalar-block-layout` clean on all 12
+modules, and `go run .` with `[debug] validation = true` silent on
+`configs/vulkan.toml` and on `configs/low.toml`.
+
+**Risk, as written.** Knobs that silently do nothing, "confirm each one's visible
+effect once, by hand, at the extremes of its range". Done for what a terminal can
+see: `atlasSize` runs clean at 1024 and 8192, `low.toml` runs clean end to end,
+and a bad value (`pcf = "medium"`) rejects the file with a message naming the key.
+**What a terminal cannot see is the visible half** — that a 1024 atlas looks
+coarser rather than acne-ridden, and that cheap PCF looks harder rather than
+broken. Both need RenderDoc or an eyeball; neither is asserted here.
 
 ---
 

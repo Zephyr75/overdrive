@@ -62,6 +62,10 @@ float pcfTile(Sampler2D atlas, ShadowRecord rec, float2 local, float depth,
     return 0.0; // unanimously lit
   if (early == 4.0)
     return 1.0; // unanimously shadowed
+  // Cheap PCF stops here: the corners already straddle the edge, so their mean
+  // is a penumbra quantised to quarters rather than ninths
+  if ((rec.flags & 2) != 0)
+    return early * 0.25;
 
   float shadow = 0.0;
   for (int x = -1; x <= 1; ++x) {
@@ -102,6 +106,9 @@ float shadowLookup(int recordIndex, float3 fragPos, float3 normal,
     float ndl = clamp(dot(normal, lightDir), 0.0, 1.0);
     offset = NORMAL_OFFSET_2D * (1.0 - ndl);
   }
+  // A smaller atlas means a smaller tile means a wider world footprint per
+  // texel, which is the acne these constants were tuned against. 1.0 at 4096
+  offset *= FRAME.shadowNormalScale;
   float3 offsetPos = fragPos + normal * offset;
 
   float4 clip = mul(rec.lightSpace, float4(offsetPos, 1.0));

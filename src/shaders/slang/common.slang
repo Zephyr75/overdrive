@@ -78,6 +78,7 @@ struct ShadowRecord {
   // 0..5 for a cube face, -1 for a 2D tile: also the depth encoding selector
   int face;
   // bit 0: sample the dynamic atlas rather than the static one
+  // bit 1: cheap PCF, the 4 corner taps without the 3x3 refinement
   int flags;
 };
 
@@ -113,6 +114,9 @@ struct FrameUniforms {
   int texShadowDynamic;
   // Bindless texture-array slot, an index into texturesCube
   int texSkybox;
+  // Grows the shadow normal-offset bias when the atlas is smaller than the 4096
+  // its world-space constants were tuned at
+  float shadowNormalScale;
 };
 
 // Transform and material of one face group: Update once per draw

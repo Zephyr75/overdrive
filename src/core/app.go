@@ -122,9 +122,6 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 	var deltaTime float32 = 0.0
 	lastFrame := float64(0.0)
 
-	const nearPlane = float32(1.0)
-	const farPlane = float32(50.0)
-
 	// Run one iteration per frame until the window closes
 	for !app.Window.ShouldClose() {
 
@@ -149,7 +146,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		if s != nil {
 			// Allocate this frame's tiles first: FillFrameUniforms copies each
 			// light's record index out of it, and the bake walks the same tiles
-			s.UpdateShadows(nearPlane, farPlane)
+			s.UpdateShadows(settings.ShadowNearPlane, settings.ShadowFarPlane)
 			b.BindShadowRecords(s.ShadowRecords())
 			s.FillFrameUniforms(&f)
 

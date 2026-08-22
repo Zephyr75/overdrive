@@ -12,8 +12,6 @@ const (
 var (
 	WindowWidth  int = 1920
 	WindowHeight int = 1080
-	ShadowWidth  int = 1024
-	ShadowHeight int = 1024
 
 	// The graphics API: Vulkan is the only backend implemented so far
 	Backend string = "vulkan"
@@ -53,6 +51,57 @@ var (
 	NoShadows bool = false
 )
 
+// PCF quality: how many taps a shadow lookup spends
+type PCFQuality string
+
+const (
+	// 4 corner taps, then a 3x3 kernel only where they disagree
+	PCFFull PCFQuality = "full"
+	// The 4 corner taps alone, so a penumbra quantises to quarters
+	PCFCheap PCFQuality = "cheap"
+)
+
+// The atlas size the shadow bias constants in forward.slang were tuned at
+const shadowReferenceAtlas = 4096
+
+// The [shadows] section: the shadow atlas, what it is carved into, and what a
+// frame may spend rebuilding it
+//
+// Two orthogonal knobs, deliberately: ShadowAtlasSize buys sharpness, the slot
+// counts buy light budget. Every slot size is a division of the atlas, so
+// changing the atlas rescales the whole layout rather than changing how many
+// lights fit.
+var (
+	// Side of the one shadow atlas, in texels. A power of two, 1024 to 8192
+	ShadowAtlasSize int = 4096
+
+	// The slot layout, as parallel arrays: slot i has size ShadowAtlasSize /
+	// ShadowSlotDivisors[i], and there are ShadowSlotCounts[i] of them.
+	// Divisors ascend, so the rows run largest slot first
+	ShadowSlotDivisors []int = []int{2, 8, 16, 32}
+	ShadowSlotCounts   []int = []int{1, 16, 64, 256}
+
+	// The score (radius / distance to camera) at which a light earns each
+	// non-sun row above, descending. One per row after the first
+	ShadowTierScores []float32 = []float32{0.50, 0.20, 0.08}
+
+	// Build the second atlas, so a moving object casts a moving shadow.
+	// False is the low-end switch: every record falls back to the static atlas,
+	// movers cast nothing, and the per-frame shadow cost goes to zero
+	ShadowDynamicAtlas bool = true
+
+	// Texels, in MiB, a frame may spend rebuilding dynamic tiles. What does not
+	// fit waits, ranked by score, keeping the tile it already has
+	ShadowBakeBudgetMiB int = 8
+
+	// Taps a shadow lookup spends
+	ShadowPCF PCFQuality = PCFFull
+
+	// The near and far planes every shadow projection is built with
+	ShadowNearPlane float32 = 1.0
+	ShadowFarPlane  float32 = 50.0
+)
+
 // Reports whether material textures are sampled anisotropically, 1 meaning plain isotropic filtering
 func AnisotropyEnabled() bool {
 	return Anisotropy > 1
@@ -68,7 +117,18 @@ func AspectRatio() float32 {
 	return float32(WindowWidth) / float32(WindowHeight)
 }
 
-// Returns the shadow map's aspect ratio, for the cube shadow projection
-func ShadowAspectRatio() float32 {
-	return float32(ShadowWidth) / float32(ShadowHeight)
+// Returns the texels a frame may spend rebuilding dynamic shadow tiles
+func ShadowBakeBudget() int {
+	return ShadowBakeBudgetMiB << 20
+}
+
+// Returns how much the shadow normal-offset bias must grow at this atlas size
+//
+// The offsets in forward.slang are world-space constants tuned at 4096. Halving
+// the atlas halves every tile, doubling the world footprint of a texel and
+// re-introducing exactly the acne they were tuned to hide — so the shader scales
+// them by this. 1.0 at the default, which is what keeps the default image
+// byte-identical to what Part F shipped.
+func ShadowNormalScale() float32 {
+	return float32(shadowReferenceAtlas) / float32(ShadowAtlasSize)
 }

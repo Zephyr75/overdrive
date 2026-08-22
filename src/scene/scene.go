@@ -189,6 +189,7 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 	// Which of the two a record samples is its Flags bit 0
 	u.TexShadowStatic = s.atlas.staticTex
 	u.TexShadowDynamic = s.atlas.dynamicTex
+	u.ShadowNormalScale = settings.ShadowNormalScale()
 }
 
 // Draws every mesh depth-only, inside the depth prepass

@@ -22,6 +22,7 @@ Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
   - [Scene and assets](#scene-and-assets)
   - [UI overlay](#ui-overlay)
   - [Depth prepass](#depth-prepass--shade-each-visible-pixel-once)
+  - [Quality tiers](#quality-tiers--one-code-path-from-a-discrete-gpu-down)
   - [Anti-aliasing](#anti-aliasing--msaa-on-the-backbuffer)
 - [Part 2 — roadmap](#part-2--roadmap)
 - [Performance notes](#performance-notes)
@@ -544,6 +545,39 @@ would buy.
 The cost is real and worth measuring on the target GPU: on an Intel UHD 620 at
 1920×1080 the showcase scene runs ~49 FPS off, ~44 at 4×, ~28 at 8×.
 
+### Quality tiers — one code path, from a discrete GPU down
+
+`configs/low.toml` ships beside `vulkan.toml` and sets no key the default file
+does not also have. There is no low-end code path — that is the point.
+
+The whole shadow system is `[shadows]`: `atlasSize`, the `slotDivisors` /
+`slotCounts` layout, `tierScores`, `dynamicAtlas`, `bakeBudgetMiB`, `pcf`, and
+the projection planes. **Two of those are orthogonal on purpose** — `atlasSize`
+buys sharpness and the slot counts buy light budget — so turning shadows down
+must never stop lights casting. `low.toml` halves the atlas and leaves the counts
+alone: the same 337 slots, the same lights casting, each at half the resolution.
+
+`dynamicAtlas = false` is the low-end switch and it is a real one: no light takes
+a dynamic tile, no record sets `Flags` bit 0, and the per-frame copy and second
+bake pass never run. Per-frame shadow cost goes to zero and movers cast nothing.
+
+`pcf = "cheap"` keeps the four corner taps and drops the 3×3 refinement, so a
+penumbra quantises to quarters rather than ninths. It reaches the shader on
+`ShadowRecord.Flags` **bit 1** rather than through a struct field — `Flags` had
+31 spare bits, so the knob cost no layout risk, and it is per-tile for free
+should a tier ever want to spend fewer taps on a small slot than a large one.
+
+**A bad value rejects the file.** `settings.checkShadowAtlas` is where the
+`init()` panics in `scene/shadowatlas.go` went when the layout stopped being
+compile-time. That matters more here than for most settings: a layout that cannot
+be carved is silent everywhere else — allocation refuses, every light ends up
+with `ShadowIndex = -1`, and the scene renders unshadowed with nothing logged.
+
+The two hysteresis margins, `nextTierThreshold` and `slotStickiness`, are
+deliberately **not** knobs. They trade re-bakes against responsiveness, so a
+wrong value is a flicker rather than a tier — two more ways to make the allocator
+thrash and nothing gained.
+
 ---
 
 ## Part 2 — roadmap
@@ -601,7 +635,7 @@ Smaller items, all of them deliberate for now:
 | No cascades: the sun is one 2048 ortho tile over a hardcoded [-10, 10] box  | `Light.shadowRecord` in `scene/shadowatlas.go`                                |
 | A static re-bake redraws every allocated tile, not the slots that changed   | `Scene.UpdateShadows` — a tile with no caster in frustum writes nothing      |
 | The score ignores whether a light is on screen at all                       | `lightScore` — the cluster gate is Part G                                    |
-| Tier thresholds and tile sizes are constants, not config                    | `shadowTiers` in `scene/shadowatlas.go`, moved to TOML by Part H             |
+| `MaxLights` is a fixed 64, and the score ignores what is off screen         | both are `tmp/CLUSTERED_FORWARD.md`, the one deferred part                   |
 | A light that moves does not dirty its own tiles                             | nothing moves a light yet; `Scene.UpdateShadows` when one can                |
 | The prepass image is unverified against the prepass-off image               | no readback path; needs two RenderDoc captures                              |
 | `GeometryShader` and `passShadowCube` are enabled and unused                 | `depth_cube.slang` retired with the atlas                                    |

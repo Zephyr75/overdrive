@@ -51,7 +51,7 @@ type ShadowRecord struct {
 	PCFStep     float32    // Percentage-Closer Filtering step for soft edges: high smooths more
 	FarPlane    float32    // far plane distance to divide radial distance into [0, 1]
 	FaceIndex   int32      // 0..5 for a cube face, -1 for a 2D tile
-	Flags       int32      // bit 0: sample the dynamic or static atlas
+	Flags       int32      // bit 0: sample the dynamic atlas; bit 1: cheap PCF
 }
 
 // Camera, lights and shadow maps: Update once per pass
@@ -67,6 +67,9 @@ type FrameUniforms struct {
 	TexShadowStatic  TextureHandle        // depth atlas sampled when Flags bit 0 is 0
 	TexShadowDynamic TextureHandle        // depth atlas sampled when Flags bit 0 is 1
 	TexSkybox        TextureHandle        // cubemap drawn as the sky and sampled for ambient
+	// How much to grow the shadow normal-offset bias at this atlas size, the
+	// offsets in forward.slang being world-space constants tuned at 4096
+	ShadowNormalScale float32
 }
 
 // Transform and material of one face group: Update once per draw
@@ -90,7 +93,7 @@ func init() { // TODO: where is it called
 	if unsafe.Sizeof(LightData{}) != 72 {
 		panic("renderer.LightData no longer matches common.slang")
 	}
-	if unsafe.Sizeof(FrameUniforms{}) != 4844 {
+	if unsafe.Sizeof(FrameUniforms{}) != 4848 {
 		panic("renderer.FrameUniforms no longer matches common.slang")
 	}
 	if unsafe.Sizeof(ShadowRecord{}) != 96 {

@@ -7,77 +7,79 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/Zephyr75/overdrive/renderer"
+	"github.com/Zephyr75/overdrive/settings"
 )
 
 // One depth texture holds every shadow in the scene, each light owning a
-// sub-rect of it: a sun or spot one tile, a point light six 90° tiles.
-const atlasSize = 4096
-
-// The extremes of the slot layout below, named so the layout and the debug map
-// can size themselves off it. init() checks they still match the table
-const (
+// sub-rect of it: a sun or spot one tile, a point light six 90° tiles
+//
+// The layout below is rebuilt from settings on every shadowAtlas.reset, which is
+// what makes it a quality tier rather than a constant. settings.checkShadowAtlas
+// is where a layout that could not be carved is rejected — by the time these are
+// read they are known good.
+var (
+	atlasSize = settings.ShadowAtlasSize
+	// The extremes of the slot layout, named so the layout and the allocator can
+	// size themselves off it
 	sunTileSize = atlasSize / 2  // the largest slot, and the sun's ceiling
 	minTileSize = atlasSize / 32 // the smallest, so the unit buildLayout counts in
+
+	// The fixed slot layout: the atlas is carved once at load and never
+	// repartitioned
+	//
+	// Every size is a division of atlasSize rather than a pixel count, so
+	// changing the atlas rescales the whole layout instead of changing how many
+	// lights fit. That splits one confusing knob into two orthogonal ones — atlas
+	// size buys sharpness, the counts buy light budget.
+	//
+	// Slots are typeless; only size matters. A point light's six faces each carry
+	// their own atlasRect and are never filtered across, so they need not be
+	// adjacent — a point light takes six slots of one size from wherever they
+	// happen to be. That is what keeps a fixed layout from being rigid.
+	//
+	// The default is LIGHTING_PLAN.md §4.1's partition, quadrant for quadrant:
+	// the sun owns one, and the other three each hold one tier at a single size.
+	// 337 slots for the plan's 1 sun + 52 point + 24 spot = 77 shadowed lights,
+	// and 100% of the atlas — 4 + 4 + 4 + 4 of the atlas's 16 cells of 1024².
+	slotLayout []struct{ size, count int }
+
+	// Score thresholds and the tile size each earns, highest first
+	//
+	// score = radius / distance, which is the light's rough screen-space
+	// footprint: the same light gets a bigger tile as the camera walks toward it.
+	// Below the last threshold a light is not worth a tile at all.
+	//
+	// This is the *ceiling* on what a light may hold, not what it is handed. Rank
+	// picks the slot and this caps it, so a lone light with a tiny footprint
+	// cannot claim a big slot it would only spend bake time on.
+	//
+	// The sizes are the non-sun rows of slotLayout rather than a second list, so
+	// a ceiling can never name a size no pool holds.
+	shadowTiers []struct {
+		minScore float32
+		size     int
+	}
 )
 
-// The fixed slot layout: the atlas is carved once at load and never repartitioned
-//
-// Every size is a division of atlasSize rather than a pixel count, so changing
-// the atlas rescales the whole layout instead of changing how many lights fit.
-// That splits one confusing knob into two orthogonal ones — atlas size buys
-// sharpness, the counts below buy light budget — which is what a quality
-// setting wants: turning shadows down must not stop lights casting.
-//
-// Slots are typeless; only size matters. A point light's six faces each carry
-// their own atlasRect and are never filtered across, so they need not be
-// adjacent — a point light takes six slots of one size from wherever they
-// happen to be. That is what keeps a fixed layout from being rigid.
-//
-// This is LIGHTING_PLAN.md §4.1's partition, quadrant for quadrant: the sun owns
-// one, and the other three each hold one tier at a single size. 337 slots for
-// the plan's 1 sun + 52 point + 24 spot = 77 shadowed lights, and 100% of the
-// atlas — the four rows below are 4 + 4 + 4 + 4 of the atlas's 16 cells of 1024².
-//
-// That exact accounting is why there is no 1024 tier. A 1024 row would cost four
-// cells, which is a whole quadrant, and the only quadrant it could come from is
-// the 128 row — so a 4096 atlas can have §4.3's high tier or the 40 far point
-// lights the drawing puts in the bottom right, never both. The drawing chose the
-// light count; this follows it, and shadowTiers below drops to match.
-//
-// A scene with no sun should trade the first row for four 1024s: nothing else is
-// ever capped that high, so the slot would otherwise sit idle.
-var slotLayout = []struct {
-	size, count int
-}{
-	{atlasSize / 2, 1},    // 2048: the sun, alone
-	{atlasSize / 8, 16},   // 512:  near lights
-	{atlasSize / 16, 64},  // 256:  mid distance
-	{atlasSize / 32, 256}, // 128:  distant / small
-}
+// Rebuilds the layout tables from settings, before any slot is carved
+func loadLayoutSettings() {
+	atlasSize = settings.ShadowAtlasSize
+	div, count := settings.ShadowSlotDivisors, settings.ShadowSlotCounts
 
-// Score thresholds and the tile size each earns, highest first
-//
-// score = radius / distance, which is the light's rough screen-space footprint:
-// the same light gets a bigger tile as the camera walks toward it. Below the
-// last threshold a light is not worth a tile at all and lights unshadowed.
-//
-// This is the *ceiling* on what a light may hold, not what it is handed. Rank
-// picks the slot and this caps it, so a lone light with a tiny footprint cannot
-// claim a big slot it would only spend bake time on.
-//
-// One tier per non-sun row of slotLayout, and they have to stay in step: a
-// ceiling with no pool at that size is not an error, it just reads as every
-// light in that band being permanently "degraded from" a size the atlas does not
-// hold. §4.3 of the plan writes these as 1024 / 512 / 256, which is one step
-// coarser than the partition §4.1 draws; the layout comment says why the
-// drawing wins.
-var shadowTiers = []struct {
-	minScore float32
-	size     int
-}{
-	{0.50, atlasSize / 8},
-	{0.20, atlasSize / 16},
-	{0.08, atlasSize / 32},
+	slotLayout = slotLayout[:0]
+	for i := range div {
+		slotLayout = append(slotLayout, struct{ size, count int }{atlasSize / div[i], count[i]})
+	}
+	sunTileSize = slotLayout[0].size
+	minTileSize = slotLayout[len(slotLayout)-1].size
+
+	shadowTiers = shadowTiers[:0]
+	for i, sc := range settings.ShadowTierScores {
+		shadowTiers = append(shadowTiers, struct {
+			minScore float32
+			size     int
+		}{sc, slotLayout[i+1].size})
+	}
 }
 
 // How far past a threshold a score must go before the tier actually changes
@@ -95,34 +97,6 @@ const nextTierThreshold = 1.2
 // cannot damp this — it is a margin against a fixed threshold, and this
 // contention is between lights. So the margin goes on the ranking instead.
 const slotStickiness = 1.2
-
-// Checks the layout against the constants derived from it, at load rather than
-// as a silently wrong partition
-//
-// A slot size the tree can never produce is not an error anywhere else: alloc
-// simply refuses, every light ends up with ShadowIndex = -1, and the scene
-// renders unshadowed with nothing logged.
-func init() {
-	if atlasSize&(atlasSize-1) != 0 {
-		panic("atlasSize must be a power of two: the layout is carved by halving")
-	}
-	if slotLayout[0].size != sunTileSize || slotLayout[len(slotLayout)-1].size != minTileSize {
-		panic("slotLayout no longer spans sunTileSize..minTileSize")
-	}
-	texels := 0
-	for i, s := range slotLayout {
-		if s.size&(s.size-1) != 0 || s.size > atlasSize {
-			panic("every slot size must be a power-of-two division of the atlas")
-		}
-		if i > 0 && s.size >= slotLayout[i-1].size {
-			panic("slotLayout must be ordered largest size first")
-		}
-		texels += s.count * s.size * s.size
-	}
-	if texels > atlasSize*atlasSize {
-		panic("the shadow slot layout asks for more texels than the atlas has")
-	}
-}
 
 // The atlas and who owns what of it
 //
@@ -196,6 +170,7 @@ func (a *shadowAtlas) setup(b renderer.Backend) {
 
 // Rebuilds the layout and forgets every allocation
 func (a *shadowAtlas) reset() {
+	loadLayoutSettings()
 	a.pools = buildLayout()
 	a.allocs = map[int32]*lightAlloc{}
 }
@@ -500,14 +475,6 @@ func cubeFaceFov(tile int) float32 {
 	return float32(2 * math.Atan(half))
 }
 
-// Texels a frame may spend rebuilding dynamic tiles
-//
-// A 2048 tile is 4.2M of them, so this is about two: enough to rebuild a few
-// tiles at once, low enough that a frame where everything moves spreads over
-// several rather than spiking. What does not fit waits, ranked by the same
-// score the allocator ranks by, and keeps the tile it already has meanwhile.
-const bakeTexelBudget = 8 << 20
-
 // Whether a mesh that can move is close enough to matter to this light
 //
 // A sun reaches everything; anything else is the caster's bounding sphere
@@ -576,7 +543,9 @@ func (s *Scene) UpdateShadows(nearPlane, farPlane float32) {
 		}
 		l := &s.Lights[i]
 		al.staticQueued, al.dynamicQueued = false, false
-		al.dynamic = s.movableCasterInRange(l)
+		// A scene built without the second atlas has no dynamic tiles at all:
+		// every record falls back to the static one and movers cast nothing
+		al.dynamic = settings.ShadowDynamicAtlas && s.movableCasterInRange(l)
 		if !al.staticValid {
 			restatic = true
 		}
@@ -603,7 +572,7 @@ func (s *Scene) UpdateShadows(nearPlane, farPlane float32) {
 	}
 
 	sort.SliceStable(wants, func(i, j int) bool { return wants[i].score > wants[j].score })
-	budget := bakeTexelBudget
+	budget := settings.ShadowBakeBudget()
 	for _, w := range wants {
 		al := s.atlas.allocs[w.idx]
 		cost := len(al.tiles) * al.size * al.size
@@ -668,15 +637,20 @@ func (l *Light) shadowRecord(tile shadowTile, face, faces int, dynamic bool,
 	nearPlane, farPlane float32) renderer.ShadowRecord {
 
 	// Bit 0 picks the atlas: set only once the dynamic tile actually holds this
-	// frame's copy, so a light never samples a tile that was not built for it
+	// frame's copy, so a light never samples a tile that was not built for it.
+	// Bit 1 is the PCF quality, riding the same word rather than growing
+	// ShadowRecord — a per-tile knob for free, should a tier ever want one
 	var flags int32
 	if dynamic {
-		flags = 1
+		flags |= 1
+	}
+	if settings.ShadowPCF == settings.PCFCheap {
+		flags |= 2
 	}
 	rec := renderer.ShadowRecord{
 		AtlasCoords: [4]float32{
-			float32(tile.x) / atlasSize, float32(tile.y) / atlasSize,
-			float32(tile.size) / atlasSize, float32(tile.size) / atlasSize,
+			float32(tile.x) / float32(atlasSize), float32(tile.y) / float32(atlasSize),
+			float32(tile.size) / float32(atlasSize), float32(tile.size) / float32(atlasSize),
 		},
 		PCFStep:   1.0 / float32(tile.size),
 		FarPlane:  farPlane,
