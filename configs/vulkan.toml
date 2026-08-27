@@ -1,12 +1,16 @@
 # go run . -config configs/vulkan.toml
-#
-# Every key is optional and an absent one keeps its default, but an unknown key
-# or an out-of-range value is an error rather than a shrug: a settings file that
-# is silently ignored is worse than one that fails.
 
 [window]
 width = 1920
 height = 1080
+
+[renderer]
+backend = "vulkan"
+
+# Draw depth first, then shade only the fragments that survive, with an EQUAL
+# depth test. Turn off to compare the image: the two passes must agree to the
+# bit, and a disagreement shows as speckle along edges rather than as an error
+depthPrepass = true
 
 # The shadow atlas, and what it is carved into. Two orthogonal knobs: atlasSize
 # buys sharpness, the slot counts buy light budget — every slot size is a
@@ -44,14 +48,6 @@ pcf = "full"
 # The near and far planes every shadow projection is built with
 nearPlane = 1.0
 farPlane = 50.0
-
-[renderer]
-backend = "vulkan"
-
-# Draw depth first, then shade only the fragments that survive, with an EQUAL
-# depth test. Turn off to compare the image: the two passes must agree to the
-# bit, and a disagreement shows as speckle along edges rather than as an error
-depthPrepass = true
 
 [antialiasing]
 mode = "msaa"         # or "none"

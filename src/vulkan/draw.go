@@ -127,7 +127,7 @@ func writeRingSlice[T any](b *VKBackend, blocks []T) uint64 {
 }
 
 // Snapshots this frame's shadow records into the ring, for every draw of the frame to reach by address
-func (b *VKBackend) BindShadowRecords(records []renderer.ShadowRecord) {
+func (b *VKBackend) BindShadowRecords(records []renderer.ShadowTile) {
 	if !b.frameActive || len(records) == 0 {
 		return
 	}

@@ -25,29 +25,16 @@ var (
 	Anisotropy int = 8
 
 	// Draw depth first and shade only what survives, with an EQUAL depth test
-	//
-	// A rendering switch rather than a debug one, but it has to be reachable
-	// from the file: the prepass is only correct if the two passes agree to the
-	// bit, and "turn it off and compare the image" is how that is checked
 	DepthPrepass bool = true
 )
 
-// The [debug] section: switches that change how a run is inspected, never what
-// it renders — except NoShadows, which is an A/B and says so.
-//
-// These were environment variables until 2026-08-16. They are settings like any
-// other now, so a run's whole configuration is readable from the one file it was
-// given rather than from the shell history that launched it.
+// The [debug] section: switches that change how a run is inspected
 var (
 	// Vulkan validation layers. Costs frame rate, reports API misuse
 	Validation bool = false
-	// Freeze the camera where the scene put it: no mouse look, no WASD.
-	// Reproducible captures need it, the compositor otherwise delivering a
-	// cursor event of its own choosing on the first frames
+	// Freeze the camera on start to allow reproducible captures
 	LockCamera bool = false
-	// Light every light unshadowed, while still baking every tile.
-	// The A/B that separates "the scene is dark" from "every light is wrongly
-	// occluded" — two failures that render identically and share no code
+	// Light every light unshadowed, while still baking every tile
 	NoShadows bool = false
 )
 
@@ -66,19 +53,13 @@ const shadowReferenceAtlas = 4096
 
 // The [shadows] section: the shadow atlas, what it is carved into, and what a
 // frame may spend rebuilding it
-//
-// Two orthogonal knobs, deliberately: ShadowAtlasSize buys sharpness, the slot
-// counts buy light budget. Every slot size is a division of the atlas, so
-// changing the atlas rescales the whole layout rather than changing how many
-// lights fit.
 var (
 	// Side of the one shadow atlas, in texels. A power of two, 1024 to 8192
 	ShadowAtlasSize int = 4096
 
-	// The slot layout, as parallel arrays: slot i has size ShadowAtlasSize /
-	// ShadowSlotDivisors[i], and there are ShadowSlotCounts[i] of them.
-	// Divisors ascend, so the rows run largest slot first
+	// Slot i has size ShadowAtlasSize / ShadowSlotDivisors[i]
 	ShadowSlotDivisors []int = []int{2, 8, 16, 32}
+	// There are ShadowSlotCounts[i] slots of size i
 	ShadowSlotCounts   []int = []int{1, 16, 64, 256}
 
 	// The score (radius / distance to camera) at which a light earns each
@@ -117,7 +98,7 @@ func AspectRatio() float32 {
 	return float32(WindowWidth) / float32(WindowHeight)
 }
 
-// Returns the texels a frame may spend rebuilding dynamic shadow tiles
+// Returns the combined resolution of dynamic shadow tiles a frame may spend rebuilding
 func ShadowBakeBudget() int {
 	return ShadowBakeBudgetMiB << 20
 }

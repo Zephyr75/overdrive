@@ -138,7 +138,7 @@ type Backend interface {
 	// Frame-scoped rather than pass-scoped: call once after BeginFrame, before
 	// the first pass. Every draw of the frame then reaches the array by device
 	// address, LightData.ShadowIndex being the index into it.
-	BindShadowRecords(records []ShadowRecord)
+	BindShadowRecords(records []ShadowTile)
 
 	// Selects which face is culled, as pass-scoped state
 	SetCullMode(m CullMode)

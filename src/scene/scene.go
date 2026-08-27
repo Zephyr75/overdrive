@@ -25,10 +25,9 @@ type Scene struct {
 	Cam    Camera
 
 	// The one depth texture every shadow in the scene is a sub-rect of, plus the
-	// tiles handed out this frame and the records that describe them
-	atlas         shadowAtlas
-	tiles         []shadowTile
-	shadowRecords []renderer.ShadowRecord
+	// records describing the tiles handed out this frame
+	atlas       shadowAtlas
+	shadowTiles []renderer.ShadowTile
 
 	// This frame's bake work, as indices into Lights, and the tiles it drew into
 	//

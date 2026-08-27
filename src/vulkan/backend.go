@@ -706,7 +706,7 @@ func (b *VKBackend) BeginFrame() {
 	// even in a frame where nothing called BindShadowRecords. The shader only
 	// indexes it through a non-negative LightData.ShadowIndex, which no light has
 	// in that case, but the address itself is dereferenced by the pipeline setup
-	b.recordAddr = writeRing(b, renderer.ShadowRecord{})
+	b.recordAddr = writeRing(b, renderer.ShadowTile{})
 
 	b.boundPipeline = 0
 	b.frameActive = true

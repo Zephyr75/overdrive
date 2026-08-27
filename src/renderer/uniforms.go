@@ -45,7 +45,7 @@ type LightData struct {
 
 // One shadow tile: where it lives in the atlas and how to project into it
 // A sun or a spot owns one and a point light six consecutive ones
-type ShadowRecord struct {
+type ShadowTile struct {
 	WorldToTile mgl32.Mat4 // world to this tile's clip space, both baking and sampling
 	AtlasCoords [4]float32 // uv offset.xy, uv scale.xy
 	PCFStep     float32    // Percentage-Closer Filtering step for soft edges: high smooths more
@@ -96,7 +96,7 @@ func init() { // TODO: where is it called
 	if unsafe.Sizeof(FrameUniforms{}) != 4848 {
 		panic("renderer.FrameUniforms no longer matches common.slang")
 	}
-	if unsafe.Sizeof(ShadowRecord{}) != 96 {
+	if unsafe.Sizeof(ShadowTile{}) != 96 {
 		panic("renderer.ShadowRecord no longer matches common.slang")
 	}
 	if unsafe.Sizeof(DrawUniforms{}) != 128 {
