@@ -3,7 +3,7 @@
 // build_shaders.sh compiles this to SPIR-V: BDA push constant + bindless arrays
 //
 // The uniform data is split by update frequency: FrameUniforms once per pass,
-// DrawUniforms once per draw. The backend memcpys both into a host-visible ring
+// DrawUniforms once per draw. The backend memcpys both into a host-visible arena
 // and pushes their device addresses, with no marshalling — Slang's scalar
 // layout and Go's struct packing agree field for field
 
@@ -138,7 +138,7 @@ struct DrawUniforms {
 };
 
 // BDA, one pointer per block lives in a 24-byte push constant
-// All three point into the host-visible ring the backend uploads into: the
+// All three point into the host-visible arena the backend uploads into: the
 // frame entry is written once per pass and its address re-pushed per draw, the
 // draw entry is written per draw, the record array once per frame The records
 // are a variable-length array, which is why they are a pointer rather than a

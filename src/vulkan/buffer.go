@@ -7,12 +7,12 @@ import (
 )
 
 // Creates a host-visible, persistently mapped buffer and fills it
-func (b *VKBackend) createBuffer(data []float32, usage vk.BufferUsageFlags) renderer.BufferHandle {
+func (backend *VKBackend) createBuffer(data []float32, usage vk.BufferUsageFlags) renderer.BufferHandle {
 	size := uint64(len(data) * 4)
 	if size == 0 {
 		size = 4 // zero-sized buffers are not allowed
 	}
-	buf, alloc, info, err := b.allocator.VmaCreateBuffer(
+	buf, alloc, info, err := backend.allocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: size, Usage: usage},
 		vk.VmaAllocationCreateInfo{
 			Flags: vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped,
@@ -23,20 +23,20 @@ func (b *VKBackend) createBuffer(data []float32, usage vk.BufferUsageFlags) rend
 		vk.MemCopy(info.MappedData, data)
 	}
 
-	b.buffers = append(b.buffers, bufEntry{
+	backend.buffers = append(backend.buffers, bufEntry{
 		buffer: buf, alloc: alloc, mapped: info.MappedData, size: size, valid: true,
 	})
-	return renderer.BufferHandle(len(b.buffers) - 1)
+	return renderer.BufferHandle(len(backend.buffers) - 1)
 }
 
 // Creates a vertex buffer, always host-visible so an update is a memcpy
-func (b *VKBackend) CreateBuffer(data []float32) renderer.BufferHandle {
-	return b.createBuffer(data, vk.BufferUsageVertexBuffer)
+func (backend *VKBackend) CreateBuffer(data []float32) renderer.BufferHandle {
+	return backend.createBuffer(data, vk.BufferUsageVertexBuffer)
 }
 
 // Memcpys new contents into a buffer's mapping, after draining the frames that might still read it
-func (b *VKBackend) UpdateBuffer(h renderer.BufferHandle, data []float32) {
-	e := b.buffer(h)
+func (backend *VKBackend) UpdateBuffer(h renderer.BufferHandle, data []float32) {
+	e := backend.buffer(h)
 	if e == nil || len(data) == 0 {
 		return
 	}
@@ -45,46 +45,46 @@ func (b *VKBackend) UpdateBuffer(h renderer.BufferHandle, data []float32) {
 	}
 	// No driver-side ghosting, and the GPU may still be reading. Rare by design:
 	// per-frame motion belongs in the Model matrix, not a vertex rewrite
-	b.waitAllFrames()
+	backend.waitAllFrames()
 	vk.MemCopy(e.mapped, data)
 }
 
 // Destroys a buffer once the frames in flight have drained
-func (b *VKBackend) DestroyBuffer(h renderer.BufferHandle) {
-	e := b.buffer(h)
+func (backend *VKBackend) DestroyBuffer(h renderer.BufferHandle) {
+	e := backend.buffer(h)
 	if e == nil {
 		return
 	}
-	b.waitAllFrames()
-	b.allocator.VmaDestroyBuffer(e.buffer, e.alloc)
+	backend.waitAllFrames()
+	backend.allocator.VmaDestroyBuffer(e.buffer, e.alloc)
 	e.valid = false
 }
 
 // Resolves a buffer handle, returning nil for 0, out-of-range or destroyed entries
-func (b *VKBackend) buffer(h renderer.BufferHandle) *bufEntry {
-	if h == 0 || int(h) >= len(b.buffers) || !b.buffers[h].valid {
+func (backend *VKBackend) buffer(h renderer.BufferHandle) *bufEntry {
+	if h == 0 || int(h) >= len(backend.buffers) || !backend.buffers[h].valid {
 		return nil
 	}
-	return &b.buffers[h]
+	return &backend.buffers[h]
 }
 
 // Pairs a shared vertex buffer with a layout and this face group's index buffer
 //
 // No VAO equivalent: the layout is baked into the pipeline, so the mesh carries
 // it as the pipeline key.
-func (b *VKBackend) CreateMesh(vertexBuf renderer.BufferHandle, indices []uint32, layout renderer.VertexLayout) renderer.MeshHandle {
+func (backend *VKBackend) CreateMesh(vertexBuf renderer.BufferHandle, indices []uint32, layout renderer.VertexLayout) renderer.MeshHandle {
 	indexed := len(indices) > 0
 	count := uint32(len(indices))
 	if !indexed {
 		// No index list, so the draw sweeps the whole vertex buffer
-		count = uint32(b.buffer(vertexBuf).size) / uint32(layout.Floats()*4)
+		count = uint32(backend.buffer(vertexBuf).size) / uint32(layout.Floats()*4)
 	}
 
 	size := uint64(len(indices) * 4)
 	if size == 0 {
 		size = 4
 	}
-	buf, alloc, info, err := b.allocator.VmaCreateBuffer(
+	buf, alloc, info, err := backend.allocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: size, Usage: vk.BufferUsageIndexBuffer},
 		vk.VmaAllocationCreateInfo{
 			Flags: vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped,
@@ -95,30 +95,30 @@ func (b *VKBackend) CreateMesh(vertexBuf renderer.BufferHandle, indices []uint32
 		vk.MemCopy(info.MappedData, indices)
 	}
 
-	b.meshes = append(b.meshes, meshEntry{
+	backend.meshes = append(backend.meshes, meshEntry{
 		vbo: vertexBuf, indexBuffer: buf, indexAlloc: alloc,
 		layout: layout, count: count, indexed: indexed, valid: true,
 	})
-	return renderer.MeshHandle(len(b.meshes) - 1)
+	return renderer.MeshHandle(len(backend.meshes) - 1)
 }
 
 // Destroys a mesh's index buffer once the frames in flight have drained, leaving the shared vertex buffer alone
-func (b *VKBackend) DestroyMesh(m renderer.MeshHandle) {
-	e := b.mesh(m)
+func (backend *VKBackend) DestroyMesh(m renderer.MeshHandle) {
+	e := backend.mesh(m)
 	if e == nil {
 		return
 	}
-	b.waitAllFrames()
+	backend.waitAllFrames()
 	if e.indexBuffer != 0 {
-		b.allocator.VmaDestroyBuffer(e.indexBuffer, e.indexAlloc)
+		backend.allocator.VmaDestroyBuffer(e.indexBuffer, e.indexAlloc)
 	}
 	e.valid = false
 }
 
 // Resolves a mesh handle, returning nil for 0, out-of-range or destroyed entries
-func (b *VKBackend) mesh(m renderer.MeshHandle) *meshEntry {
-	if m == 0 || int(m) >= len(b.meshes) || !b.meshes[m].valid {
+func (backend *VKBackend) mesh(m renderer.MeshHandle) *meshEntry {
+	if m == 0 || int(m) >= len(backend.meshes) || !backend.meshes[m].valid {
 		return nil
 	}
-	return &b.meshes[m]
+	return &backend.meshes[m]
 }

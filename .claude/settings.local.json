@@ -106,5 +106,6 @@
       "Bash(timeout 12 env OVERDRIVE_VK_VALIDATION=1 go run .)",
       "Bash(go test *)"
     ]
-  }
+  },
+  "outputStyle": "Concise"
 }

@@ -77,7 +77,7 @@ instance → surface → physical device → queue family → logical device
 Two things to notice:
 
 - **Per-frame data** is one function creating four things — command buffer,
-  fence, semaphore, uniform ring — because they share a lifetime, not a
+  fence, semaphore, uniform arena — because they share a lifetime, not a
   subsystem. Everything that exists _once per frame in flight_ is built there.
 - **Samplers and descriptors are independent.** Neither uses the other. They
   only meet later, when a texture is written into a descriptor (§4).
@@ -112,7 +112,7 @@ What the green and red boxes actually do:
 
 |                  |                                                                                                                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`BeginFrame`** | wait on this slot's fence _(the CPU throttle)_ · acquire a swapchain image · reset the ring · flush any staged texture uploads · begin the command buffer · bind the one descriptor set |
+| **`BeginFrame`** | wait on this slot's fence _(the CPU throttle)_ · acquire a swapchain image · reset the arena · flush any staged texture uploads · begin the command buffer · bind the one descriptor set |
 | **`EndFrame`**   | barrier the image to present layout · end the command buffer · **submit** · present · advance the frame slot                                                                            |
 
 Every shadow in the scene is a sub-rect of **one** 4096² depth texture: a sun or
@@ -141,7 +141,7 @@ Two completely separate paths, and the split is forced rather than chosen.
 ```mermaid
 graph LR
     subgraph BDA["buffer device address"]
-        U["FrameUniforms 4844 B<br/>DrawUniforms 128 B<br/>ShadowRecord[] 96 B each"] --> RG["per-frame ring<br/>1 MiB, mapped"]
+        U["FrameUniforms 4848 B<br/>DrawUniforms 128 B<br/>ShadowRecord[] 96 B each"] --> RG["per-frame arena<br/>4 MiB, mapped"]
         RG --> PC["push constant<br/>3 × 64-bit address"]
     end
     subgraph DESC["descriptors"]
@@ -153,7 +153,7 @@ graph LR
 
 ### Uniforms — by pointer
 
-The blocks are memcpy'd into a mapped ring buffer, and their **GPU addresses**
+The blocks are memcpy'd into a mapped per-frame arena, and their **GPU addresses**
 go out as a 24-byte push constant. The shader dereferences them like C pointers.
 No descriptors, no dynamic offsets, no binding.
 
@@ -283,11 +283,11 @@ counterpart; the engine uses the pair consistently.
 ### Frames in flight
 
 Two of everything the CPU and GPU both touch: command buffer, fence, acquire
-semaphore, uniform ring. While the GPU renders frame N, the CPU records N+1.
+semaphore, uniform arena. While the GPU renders frame N, the CPU records N+1.
 
 Two index spaces that are **not** interchangeable:
 
-- `frameIndex` cycles 0..1 — selects command buffer, fence, ring
+- `frameIndex` cycles 0..1 — selects command buffer, fence, arena
 - `imageIndex` comes back from acquire — selects the swapchain image and its
   render semaphore
 

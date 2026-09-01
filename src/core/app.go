@@ -156,9 +156,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 		// rather than once per surface drawn over it
 		prepass := s != nil && settings.DepthPrepass
 		if prepass {
-			b.BeginDepthPrepass()
-			s.RenderDepthPrepass(prepassShader, &f)
-			b.EndPass()
+			s.RunDepthPrepass(prepassShader, &f)
 		}
 
 		// Run the main pass, the only one that clears color. It keeps the depth

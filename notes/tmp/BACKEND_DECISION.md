@@ -94,8 +94,8 @@ teaches:
 | practice | where |
 |---|---|
 | VMA for all allocation | `vulkan/backend.go:309` |
-| Buffer device address | `vulkan/backend.go:415,462` — uniform ring, pushed as two addresses |
-| Descriptor indexing (bindless) | `vulkan/backend.go:416` |
+| Buffer device address | `vulkan/backend.go:402,462` — uniform arena, pushed as three addresses |
+| Descriptor indexing (bindless) | `vulkan/backend.go:399` |
 | Dynamic rendering, no render pass objects | `vulkan/backend.go:422,744` |
 | Synchronization2 | `vulkan/backend.go:423` — `CmdPipelineBarrier2`, `QueueSubmit2` |
 | Slang → SPIR-V | `build_shaders.sh` |
@@ -345,7 +345,7 @@ Three things assumed missing that are **already present**:
 - **Multiple color attachments already work** — every relevant field is a slice.
   A G-buffer is free.
 - **Storage buffers need nothing**, provided they are reached by device address
-  rather than a descriptor. That is already how the uniform ring works.
+  rather than a descriptor. That is already how the uniform arena works.
 
 So item 3 in §9 is **~2 days, not 3–5**, and it stops being the blocker it
 looked like. `go-vulkan` remains the largest maintenance item in the project

@@ -191,23 +191,31 @@ func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
 	u.ShadowNormalScale = settings.ShadowNormalScale()
 }
 
-// Draws every mesh depth-only, inside the depth prepass
+// Opens the depth prepass, draws every mesh depth-only and closes it
+//
+// Run rather than Render because it owns its pass, as BakeShadows does:
+// RenderScene and RenderSkybox instead draw inside a pass the caller opened.
 //
 // The matrices are rebuilt from the same expressions RenderScene uses, and
 // prepass.slang combines them in the same order forward.slang does. An EQUAL
 // depth test rejects any difference between the two down to the last bit, so
 // "the same value" is not good enough — it has to be the same arithmetic.
-func (s *Scene) RenderDepthPrepass(shader renderer.ShaderHandle, f *renderer.FrameUniforms) {
+func (s *Scene) RunDepthPrepass(shader renderer.ShaderHandle, f *renderer.FrameUniforms) {
+	b := s.backend
+	b.BeginDepthPrepass()
+
 	f.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
 	f.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-	s.backend.BindFrameUniforms(f)
+	b.BindFrameUniforms(f)
 
 	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
-	s.backend.BindShader(shader)
+	b.BindShader(shader)
 	for i := range s.Meshes {
 		s.Meshes[i].draw(&u)
 	}
+
+	b.EndPass()
 }
 
 // Draws every mesh of the scene with the forward shader, inside the main pass

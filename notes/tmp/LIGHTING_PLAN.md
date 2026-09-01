@@ -156,7 +156,7 @@ struct PushConstants { FrameUniforms *frame; DrawUniforms *draw; ShadowRecord *r
 ```
 
 This needs no new descriptor, no new binding, and no `go-vulkan` work — the
-uniform ring already works exactly this way (`BACKEND_DECISION.md` §7). The
+uniform arena already works exactly this way (`BACKEND_DECISION.md` §7). The
 cluster arrays (§6) take a fourth pointer when they land.
 
 ### 2.6 A depth prepass early, not late

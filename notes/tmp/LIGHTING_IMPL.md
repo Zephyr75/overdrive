@@ -256,15 +256,15 @@ only at the end.
    `unsafe.Sizeof(pushAddresses{})` rather than a literal at the two call sites
    that had to agree.
 
-   The array rides the **existing per-frame ring**, not a separate storage
-   buffer: the ring is already `BufferUsageShaderDeviceAddress` and already
-   reset per frame, so `writeRing` only had to grow a slice form
-   (`writeRingSlice`). `CreateStorageBuffer` (`BACKEND_DECISION.md` §9 item 8)
+   The array rides the **existing per-frame arena**, not a separate storage
+   buffer: the arena is already `BufferUsageShaderDeviceAddress` and already
+   reset per frame, so `writeArena` only had to grow a slice form
+   (`writeArenaSlice`). `CreateStorageBuffer` (`BACKEND_DECISION.md` §9 item 8)
    is still worth having, but nothing here needed it.
 
    That took a **third `Backend` method**, which §8 did not list:
    `BindShadowRecords([]ShadowRecord)`, frame-scoped rather than pass-scoped.
-   `BeginFrame` seeds the ring with one empty record so a frame that never calls
+   `BeginFrame` seeds the arena with one empty record so a frame that never calls
    it still pushes a dereferenceable address.
 
 2. ~~Rework `FrameUniforms` per §5.3.~~ **Done, at 4844 bytes rather than the

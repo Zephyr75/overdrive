@@ -53,7 +53,7 @@ overdrive/
     ├── vulkan/            Vulkan 1.3 backend — the only package that may import vk.*
     │   ├── backend.go     device, swapchain, passes, lifetimes
     │   ├── buffer.go      VMA allocations
-    │   ├── draw.go        the uniform ring, push constants, Draw
+    │   ├── draw.go        the uniform arena, push constants, Draw
     │   ├── shader.go      modules and lazy pipeline construction
     │   ├── swapchain.go   creation and resize
     │   └── texture.go     images, staging, bindless descriptors, render targets

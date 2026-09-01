@@ -78,8 +78,8 @@ per-pass one", `vkCmdPushConstants` is "the per-draw one".
 
 | Method              | What it does                                                                                                                                                                                                                            |
 | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BeginFrame`        | `WaitForFences` (the CPU throttle) → `AcquireNextImageKHR` → `ResetFences` → rewind ring → `drainRetired` → `ResetCommandBuffer` + `BeginCommandBuffer` → `CmdBindDescriptorSets` → flush staged uploads → seed one empty shadow record |
-| `BindShadowRecords` | Memcpy the whole record array into the ring, cache its device address for every draw of the frame                                                                                                                                       |
+| `BeginFrame`        | `WaitForFences` (the CPU throttle) → `AcquireNextImageKHR` → `ResetFences` → rewind arena → `drainRetired` → `ResetCommandBuffer` + `BeginCommandBuffer` → `CmdBindDescriptorSets` → flush staged uploads → seed one empty shadow record |
+| `BindShadowRecords` | Memcpy the whole record array into the arena, cache its device address for every draw of the frame                                                                                                                                       |
 | `UpdateTexture2D`   | Memcpy into a mapped staging buffer, **defer** the copy to the next `BeginFrame`. Costs the overlay one frame of latency                                                                                                                |
 | `EndFrame`          | Barrier to `PresentSrcKHR` → `EndCommandBuffer` → `QueueSubmit2` (wait acquire sem, signal image's render sem, signal fence) → `QueuePresentKHR` → advance frame slot                                                                   |
 
@@ -92,7 +92,7 @@ light count — only the viewport changes inside it do.
 
 | Method              | What it does                                                                                                                                                       |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `BindFrameUniforms` | Memcpy 4844 B into the ring, cache its device address for the pass's draws. Also called **per tile** inside the atlas pass, each tile needing its own `BakeMatrix` |
+| `BindFrameUniforms` | Memcpy 4848 B into the arena, cache its device address for the pass's draws. Also called **per tile** inside the atlas pass, each tile needing its own `BakeMatrix` |
 | `BeginPass`         | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state               |
 | `SetCullMode`       | `CmdSetCullMode` — dynamic state, no extra pipeline                                                                                                                |
 | `SetDepthCompare`   | `CmdSetDepthCompareOp` — dynamic state                                                                                                                             |
@@ -113,7 +113,7 @@ caller of the first; the second waits for Part E's static/dynamic split.
 | Method       | What it does                                                                                                                                                                                              |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `BindShader` | Records the handle. The pipeline also depends on the pass and the mesh's layout, neither known until `Draw`                                                                                               |
-| `Draw`       | `getPipeline(shader, pass, mesh layout)` (skipped if unchanged) → memcpy 128 B into the ring → `CmdPushConstants` (three 8-byte device addresses) → bind vertex (+ index) → `CmdDrawIndexed` or `CmdDraw` |
+| `Draw`       | `getPipeline(shader, pass, mesh layout)` (skipped if unchanged) → memcpy 128 B into the arena → `CmdPushConstants` (three 8-byte device addresses) → bind vertex (+ index) → `CmdDrawIndexed` or `CmdDraw` |
 
 The mesh carries its own vertex layout, count and indexed-ness, so one entry
 point serves face groups, the skybox cube and the UI overlay alike.
@@ -193,7 +193,7 @@ Backend.BeginFrame()
 
   Scene.UpdateShadows      allocate a tile per caster, decide what is dirty,
                            build one record per tile
-  BindShadowRecords        the whole array into the ring, once for the frame
+  BindShadowRecords        the whole array into the arena, once for the frame
   Scene.FillFrameUniforms  camera, lights, each light's record index
 
   Scene.BakeShadows:                                 ← nothing at all when settled
@@ -217,9 +217,9 @@ Backend.BeginFrame()
           EndPass()
 
   if settings.DepthPrepass:
-      BeginDepthPrepass()                            ← depth only, no color at all
-          Scene.RenderDepthPrepass  every mesh, prepass shader
-      EndPass()
+      Scene.RunDepthPrepass     every mesh, prepass shader
+                                opens and closes its own BeginDepthPrepass,
+                                depth only, no color at all
 
   BeginPass(0, &{0.1,0.1,0.1,1}, prepass)            ← backbuffer, clears color,
       Scene.RenderSkybox     SetDepthCompare(LessEqual) → draw cube → back to Less
@@ -321,7 +321,7 @@ pipeline kind are both still there, unexercised — see `tmp/BACKEND_DECISION.md
 
 | Method       | What it does                                                                                                                                                                                                                                                 |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `BeginFrame` | Waits on this frame slot's fence (the CPU throttle for 2 frames in flight), acquires a swapchain image, resets the ring offset, drains retired resources, resets and begins the command buffer, binds the one descriptor set, flushes staged texture uploads |
+| `BeginFrame` | Waits on this frame slot's fence (the CPU throttle for 2 frames in flight), acquires a swapchain image, resets the arena offset, drains retired resources, resets and begins the command buffer, binds the one descriptor set, flushes staged texture uploads |
 | `BeginPass`  | Barriers the target into attachment layout, `CmdBeginRendering` with load ops (`Clear` / `Load` / `DontCare`), `CmdSetViewport`, `CmdSetScissor`, re-issues cull mode + depth compare                                                                        |
 | `BeginDepthPrepass` | Barriers the backbuffer depth from `b.depthLayout`, `CmdBeginRendering` with a depth attachment alone (`Clear` / `Store`), viewport, scissor, dynamic state                                                                          |
 | `EndPass`    | `CmdEndRendering`, and for a shadow target barriers depth-attachment → shader-read-only                                                                                                                                                                      |
@@ -406,15 +406,15 @@ is the other half of the `PipelineSpec` gap.
 
 Go packs `float32`/`int32` structs with no padding, which _is_ Vulkan's scalar
 block layout (Slang compiles with `-fvk-use-scalar-layout`). So every block
-memcpys straight into this frame's ring buffer (1 MiB, 64-byte aligned entries)
+memcpys straight into this frame's arena (4 MiB, 64-byte aligned entries)
 and their **GPU addresses** go out as a 24-byte push constant. The shader
 dereferences those pointers — the uniform data needs no descriptor at all. 4844,
 128 and 96×N bytes, no padding, no marshalling code.
 [HTV: buffer device address]
 
-The third pointer is the shadow record array. It rides the same ring rather than
-a storage buffer of its own: the ring is already device-addressable and already
-rewound per frame, so a variable-length array only needed `writeRingSlice`. It is
+The third pointer is the shadow record array. It rides the same arena rather than
+a storage buffer of its own: the arena is already device-addressable and already
+rewound per frame, so a variable-length array only needed `writeArenaSlice`. It is
 a _pointer_ rather than a `FrameUniforms` member precisely because its length is
 data — 7 records in the showcase, 337 in the partition `tmp/LIGHTING_PLAN.md`
 §4.1 sizes for.
@@ -430,8 +430,8 @@ went out on every draw, roughly 1.2 KB of which was identical across the pass.
 
 |               | How                                                                                                                       |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Transport     | per-frame ring buffer: one frame entry per pass _and per atlas tile_, one draw entry per draw, one record array per frame |
-| Layout        | scalar, 4844 + 128 + 96×N bytes                                                                                           |
+| Transport     | per-frame arena: one frame entry per pass _and per atlas tile_, one draw entry per draw, one record array per frame |
+| Layout        | scalar, 4848 + 128 + 96×N bytes                                                                                           |
 | Addressing    | three 64-bit device addresses in one push constant                                                                        |
 | Textures      | handles rewritten into **bindless slot indices** in the copy                                                              |
 | Cost per draw | one 128-byte memcpy + one 24-byte push constant                                                                           |
@@ -560,7 +560,7 @@ across a face boundary so one bias covers all six.
 
 | Method | What it does                                                                                                                                                                                                           |
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Draw` | Resolve handles, bind the pipeline for (shader, current pass, **mesh's** layout) if it changed, memcpy the draw block into the ring, push both addresses, bind vertex (+ index) buffers, `CmdDrawIndexed` or `CmdDraw` |
+| `Draw` | Resolve handles, bind the pipeline for (shader, current pass, **mesh's** layout) if it changed, memcpy the draw block into the arena, push both addresses, bind vertex (+ index) buffers, `CmdDrawIndexed` or `CmdDraw` |
 
 **One entry point for every drawable.** A face group, the skybox cube and the UI
 overlay differ only in what was recorded when the mesh was created — vertex
@@ -750,7 +750,7 @@ Instance                                          DestroyInstance
     ├── frames[2]  ───────────── one set per frame in flight
     │   ├── fence                 DestroyFence
     │   ├── acquireSem            DestroySemaphore
-    │   └── ring (1 MiB, mapped)  VmaDestroyBuffer
+    │   └── arena (4 MiB, mapped) VmaDestroyBuffer
     │
     ├── DescriptorPool                              DestroyDescriptorPool
     │   └── descriptorSet         freed with the pool
@@ -772,7 +772,7 @@ Instance                                          DestroyInstance
 | ---------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------ |
 | **Permanent**                | instance, surface, device, allocator, command pool, descriptor pool/set/layout, pipeline layout, samplers | `Init`, once                         | `Shutdown`, reverse order                                    |
 | **Swapchain-sized**          | swapchain, image views, render semaphores, depth image + view, MSAA colour image + view                   | `createSwapchain`                    | `destroySwapchain` — **also on every resize**                |
-| **Per frame in flight** (×2) | command buffer, fence, acquire semaphore, uniform ring                                                    | `createFrameData`                    | `Shutdown`                                                   |
+| **Per frame in flight** (×2) | command buffer, fence, acquire semaphore, uniform arena                                                   | `createFrameData`                    | `Shutdown`                                                   |
 | **Per resource**             | shader modules + pipelines, textures, buffers, meshes, the shadow atlas                                   | load time, on demand                 | `Destroy*` (after `waitAllFrames`) or `Shutdown`             |
 | **Retired**                  | images/views/staging replaced mid-frame                                                                   | `retire`, when the UI canvas resizes | `drainRetired`, once `framesInFlight + 1` frames have passed |
 
@@ -800,7 +800,7 @@ Instance                                          DestroyInstance
 ### Two index spaces that are easy to confuse
 
 `frameIndex` cycles `0..framesInFlight-1` and selects the command buffer, fence,
-acquire semaphore and ring. `imageIndex` comes back from `AcquireNextImageKHR`
+acquire semaphore and arena. `imageIndex` comes back from `AcquireNextImageKHR`
 and selects the swapchain image, its view and its render semaphore. They are not
 interchangeable and the swapchain may hold a different number of images than
 there are frames in flight — which is exactly why `renderSems` is sized per

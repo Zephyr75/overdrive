@@ -38,6 +38,7 @@ notes/
 | know why there is one backend, or what the interface still can't express | `tmp/BACKEND_DECISION.md` |
 | know where the lighting and shadow work is heading | `tmp/LIGHTING_PLAN.md` — read its staleness banner first |
 | pick up the next part of that work | `tmp/LIGHTING_IMPL.md` |
+| make the existing code shorter and clearer | `tmp/SIMPLIFICATION_PLAN.md` |
 | debug a wrong image | `ENGINE_FLOW.md` §5 and §6 |
 | understand a Vulkan object's lifetime | `ENGINE_FLOW.md` §7 |
 | revise the theory behind the shaders | `cheatsheets/PBR.md` |

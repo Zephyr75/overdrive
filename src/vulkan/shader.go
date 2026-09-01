@@ -20,49 +20,49 @@ type shaderEntry struct {
 }
 
 // Loads the SPIR-V modules of a shader set, no pipeline being built yet
-func (b *VKBackend) CreateShader(name string) (renderer.ShaderHandle, error) {
+func (backend *VKBackend) CreateShader(name string) (renderer.ShaderHandle, error) {
 	var e shaderEntry
 	var err error
-	if e.vert, err = b.loadModule(name, "vert"); err != nil {
+	if e.vert, err = backend.loadModule(name, "vert"); err != nil {
 		return 0, err
 	}
-	if e.frag, err = b.loadModule(name, "frag"); err != nil {
+	if e.frag, err = backend.loadModule(name, "frag"); err != nil {
 		return 0, err
 	}
 	// Optional, and only depth_cube has one. build_shaders.sh emits exactly the
 	// stages a set declares, so presence on disk is the answer
 	if _, err := os.Stat(paths.Shader(name + ".geo.spv")); err == nil {
-		if e.geo, err = b.loadModule(name, "geo"); err != nil {
+		if e.geo, err = backend.loadModule(name, "geo"); err != nil {
 			return 0, err
 		}
 	}
 
 	// Build no pipeline here, as which ones are needed depends on the passes
 	// and meshes this shader is drawn with, so they are built lazily
-	b.shaders = append(b.shaders, e)
-	return renderer.ShaderHandle(len(b.shaders)), nil // handle 0 stays invalid
+	backend.shaders = append(backend.shaders, e)
+	return renderer.ShaderHandle(len(backend.shaders)), nil // handle 0 stays invalid
 }
 
 // Reads one precompiled SPIR-V stage from shaders/vk into a shader module
-func (b *VKBackend) loadModule(name, stage string) (vk.ShaderModule, error) {
+func (backend *VKBackend) loadModule(name, stage string) (vk.ShaderModule, error) {
 	path := paths.Shader(fmt.Sprintf("%s.%s.spv", name, stage))
 	code, err := os.ReadFile(path)
 	if err != nil {
 		return 0, fmt.Errorf("read SPIR-V %s: %w (run ./build_shaders.sh)", path, err)
 	}
-	return vk.CreateShaderModule(b.device, code)
+	return vk.CreateShaderModule(backend.device, code)
 }
 
 // Resolves a shader handle, returning nil for 0 or out-of-range entries
-func (b *VKBackend) shader(h renderer.ShaderHandle) *shaderEntry {
-	if h == 0 || int(h) > len(b.shaders) {
+func (backend *VKBackend) shader(h renderer.ShaderHandle) *shaderEntry {
+	if h == 0 || int(h) > len(backend.shaders) {
 		return nil
 	}
-	return &b.shaders[h-1]
+	return &backend.shaders[h-1]
 }
 
 // Returns the pipeline for this (shader, pass, layout), building it on first use
-func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout renderer.VertexLayout) vk.Pipeline {
+func (backend *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout renderer.VertexLayout) vk.Pipeline {
 	if p := s.pipelines[pass][layout]; p != 0 {
 		return p
 	}
@@ -80,7 +80,7 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout renderer.V
 	})
 
 	ci := vk.GraphicsPipelineCreateInfo{
-		Layout:             b.pipelineLayout,
+		Layout:             backend.pipelineLayout,
 		Stages:             stages,
 		VertexInputState:   vertexInputState(pass, layout),
 		InputAssemblyState: &vk.PipelineInputAssemblyStateCreateInfo{Topology: vk.PrimitiveTopologyTriangleList},
@@ -92,7 +92,7 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout renderer.V
 			FrontFace: frontFace(pass),
 			LineWidth: 1,
 		},
-		MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: b.passSamples(pass)},
+		MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: backend.passSamples(pass)},
 		DepthStencilState: &vk.PipelineDepthStencilStateCreateInfo{
 			// An offscreen colour pass has no depth attachment to test against
 			DepthTestEnable: pass != passOffscreenColor,
@@ -110,10 +110,10 @@ func (b *VKBackend) getPipeline(s *shaderEntry, pass passKind, layout renderer.V
 		},
 		// Declare the attachment formats this pipeline will be used with, which
 		// under dynamic rendering replaces pointing at a render-pass object
-		Rendering: renderingInfo(pass, b.swapFormat),
+		Rendering: renderingInfo(pass, backend.swapFormat),
 	}
 
-	p, err := vk.CreateGraphicsPipeline(b.device, ci)
+	p, err := vk.CreateGraphicsPipeline(backend.device, ci)
 	fatal(err, "create graphics pipeline")
 	s.pipelines[pass][layout] = p
 	return p
@@ -167,11 +167,11 @@ func frontFace(pass passKind) vk.FrontFace {
 //
 // Only the backbuffer is multisampled — everything else is sampled by a later
 // pass, and these shaders cannot read a multisampled texture.
-func (b *VKBackend) passSamples(pass passKind) vk.SampleCountFlags {
+func (backend *VKBackend) passSamples(pass passKind) vk.SampleCountFlags {
 	// The prepass shares the main pass's depth attachment, and a pass's
 	// attachments must all rasterise at one sample count — so must its pipelines
 	if pass == passMain || pass == passDepthPrepass {
-		return b.samples
+		return backend.samples
 	}
 	return vk.SampleCount1Bit
 }

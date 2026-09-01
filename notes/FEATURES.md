@@ -471,8 +471,8 @@ stall. `main.go` currently passes a nil widget, so only the debug crosshair draw
 
 ### Depth prepass — shade each visible pixel once
 
-`[renderer] depthPrepass`, on by default. `BeginDepthPrepass` draws every mesh
-through `prepass.slang` — position in, empty fragment stage — filling the
+`[renderer] depthPrepass`, on by default. `Scene.RunDepthPrepass` opens a
+`BeginDepthPrepass` of its own and draws every mesh through `prepass.slang` — position in, empty fragment stage — filling the
 backbuffer's depth with the nearest surface per pixel. The main pass then keeps
 that depth (`BeginPass(0, clear, true)`) and `RenderScene` shades with
 `CompareEqual`, so only the frontmost fragment survives to run `fsMain`.
