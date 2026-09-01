@@ -154,10 +154,8 @@ func normalisePCF(name string) (PCFQuality, error) {
 
 // Rejects a shadow atlas or slot layout the allocator could not carve
 //
-// Every check here was an init() panic in scene/shadowatlas.go while the layout
-// was compile-time. A layout that does not pack is not an error anywhere else:
-// allocation simply refuses, every light ends up with ShadowIndex = -1, and the
-// scene renders unshadowed with nothing logged
+// The only place that can: a layout that does not pack silently leaves every
+// light with ShadowIndex = -1 and the scene unshadowed
 func checkShadowAtlas(c Config) error {
 	n := c.Shadows.AtlasSize
 	if n < 1024 || n > 8192 || n&(n-1) != 0 {

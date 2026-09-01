@@ -46,17 +46,24 @@ type Scene struct {
 }
 
 // Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
-func NewScene(path string, b renderer.Backend) Scene {
-	s := LoadScene(path)
+func NewScene(path string, b renderer.Backend) (Scene, error) {
+	s, err := LoadScene(path)
+	if err != nil {
+		return Scene{}, err
+	}
 	s.backend = b
 	for i := range s.Meshes {
-		s.Meshes[i].setup(b)
+		if err := s.Meshes[i].setup(b); err != nil {
+			return Scene{}, fmt.Errorf("mesh %s: %w", s.Meshes[i].Name, err)
+		}
 	}
 	// One atlas for every light, allocated here rather than per casting light.
 	// Who gets a tile of it is a per-frame decision, not a load-time one
 	s.atlas.setup(b)
-	s.Skybox.setup(b)
-	return s
+	if err := s.Skybox.setup(b); err != nil {
+		return Scene{}, err
+	}
+	return s, nil
 }
 
 // Returns a scene with nothing in it, for running the app with UI only
@@ -108,25 +115,21 @@ func (s *Scene) Camera() *Camera {
 }
 
 // Parses a scene XML file into meshes, lights and a camera, with no GPU work
-func LoadScene(path string) Scene {
+func LoadScene(path string) (Scene, error) {
 	xmlFile, err := os.Open(path)
 	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return Scene{}
+		return Scene{}, fmt.Errorf("open scene: %w", err)
 	}
 	defer xmlFile.Close()
 
 	xmlData, err := io.ReadAll(xmlFile)
 	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return Scene{}
+		return Scene{}, fmt.Errorf("read scene: %w", err)
 	}
 
 	var sceneXml SceneXml
-
 	if err := xml.Unmarshal(xmlData, &sceneXml); err != nil {
-		fmt.Println("Error parsing scene XML:", err)
-		return Scene{}
+		return Scene{}, fmt.Errorf("parse scene XML: %w", err)
 	}
 
 	var s Scene
@@ -137,14 +140,17 @@ func LoadScene(path string) Scene {
 	s.Cam = sceneXml.CamXml.toCamera()
 
 	for i, meshXml := range sceneXml.MeshesXml {
-		s.Meshes[i] = meshXml.toMesh()
+		s.Meshes[i], err = meshXml.toMesh()
+		if err != nil {
+			return Scene{}, fmt.Errorf("mesh %s: %w", meshXml.Name, err)
+		}
 	}
 
 	for i, lightXml := range sceneXml.LightsXml {
 		s.Lights[i] = lightXml.toLight()
 	}
 
-	return s
+	return s, nil
 }
 
 // Writes the per-frame values into u: camera matrices, the light array, and the scene-wide texture handles

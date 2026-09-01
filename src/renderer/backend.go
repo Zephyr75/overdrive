@@ -14,6 +14,9 @@ type (
 	ShaderHandle       uint32
 )
 
+// The swapchain image acquired for this frame, as a render target
+const Backbuffer RenderTargetHandle = 0
+
 // Feature is an optional capability a backend may support. Call
 // Backend.Supports before using the matching optional interface.
 type Feature int
@@ -106,8 +109,8 @@ type Backend interface {
 	// Closes the frame and presents it
 	EndFrame()
 
-	// Begins a pass on target (0 = backbuffer), sized from the target itself: 
-	// clears color only when clear is non-nil, and depth unless keepDepth
+	// Begins a pass on target (Backbuffer for the swapchain), sized from the
+	// target itself: clears color only when clear is non-nil, depth unless keepDepth
 	BeginPass(target RenderTargetHandle, clear *[4]float32, keepDepth bool)
 	// Begins a depth-only pass on the backbuffer, clearing and storing its depth:
 	// no colour attachment is bound, so nothing is shaded and nothing is resolved
@@ -129,9 +132,7 @@ type Backend interface {
 
 	// Publishes this frame's shadow tile records, from a copy taken at call time
 	//
-	// Frame-scoped rather than pass-scoped: call once after BeginFrame, before
-	// the first pass. Every draw of the frame then reaches the array by device
-	// address, LightData.ShadowIndex being the index into it.
+	// Frame-scoped: call once after BeginFrame, before the first pass
 	BindShadowRecords(records []ShadowTile)
 
 	// Selects which face is culled, as pass-scoped state

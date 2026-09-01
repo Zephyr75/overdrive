@@ -20,11 +20,8 @@ const (
 	shadersDir = "src/shaders/vk"
 )
 
-// Overrides root discovery, for a build whose layout is not the repository's
-//
-// The only environment variable the engine reads, and it cannot be a setting:
-// every other knob lives in the TOML file, which is itself resolved against the
-// root this returns. A setting that locates the settings file is a cycle.
+// Overrides root discovery; the one environment variable, since a setting that
+// locates the settings file would be a cycle
 const rootEnv = "OVERDRIVE_ROOT"
 
 var (

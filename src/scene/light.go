@@ -11,17 +11,13 @@ import (
 
 // The constant term of the falloff forward.slang implements, 1/(kConstant + d²)
 //
-// Lives here rather than at the FillFrameUniforms literal it feeds because
-// lightRadius solves the same expression: two copies would let the radius drift
-// out of step with the attenuation the day this is tuned
+// One copy, because lightRadius solves the same expression as the shading does
 const lightConstant = float32(1.0)
 
 // Radiance below which a light is treated as contributing nothing
 //
-// Linear space, so it is not one 8-bit step: fsMain ends on a Reinhard curve
-// and a 1/2.2 gamma, which lifts a linear 1/255 to roughly 21/255 on screen.
-// That makes this conservative rather than perceptual, which is the right
-// direction for a culling threshold. A quality knob eventually
+// Linear, so conservative rather than perceptual: fsMain's Reinhard plus 1/2.2
+// gamma lifts a linear 1/255 to roughly 21/255 on screen
 const lightCutoff = float32(1.0 / 255.0)
 
 type LightXml struct {
@@ -117,14 +113,10 @@ func (l LightXml) toLight() Light {
 	}
 }
 
-// Solves the shader's falloff for the distance at which a light drops below
-// lightCutoff, which is what the shading early-out and the cluster bounds test
+// Solves forward.slang's falloff for where a light drops below lightCutoff
 //
-// forward.slang shades with color*diffuse*intensity / (kConstant + d²), so the
-// cutoff distance is sqrt(peak/lightCutoff - kConstant). The peak is the
-// brightest channel, not the average: averaging would cull a saturated light
-// while its strong channel is still visible. A zero or negative argument means
-// the light never reaches the threshold at all, hence the clamp
+// Peak channel, not the average, which would cull a saturated light while its
+// strong channel is still visible
 func lightRadius(color mgl32.Vec3, diffuse, intensity float32) float32 {
 	peak := float32(math.Max(math.Max(float64(color[0]), float64(color[1])),
 		float64(color[2]))) * diffuse * intensity

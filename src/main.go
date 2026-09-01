@@ -12,6 +12,7 @@ import (
 	"github.com/Zephyr75/overdrive/physics"
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
+	"github.com/Zephyr75/overdrive/utils"
 
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/go-gl/mathgl/mgl32"
@@ -73,7 +74,8 @@ func main() {
 
 	app := core.NewApp("Gutter", settings.WindowWidth, settings.WindowHeight, true, nil, nil)
 
-	scene := scene.NewScene(paths.Asset(*sceneName), app.Backend)
+	scene, err := scene.NewScene(paths.Asset(*sceneName), app.Backend)
+	utils.HandleError(err)
 
 	world := createWorld(&scene)
 

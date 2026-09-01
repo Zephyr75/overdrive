@@ -1,6 +1,8 @@
 package scene
 
 import (
+	"fmt"
+
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/Zephyr75/overdrive/paths"
@@ -14,7 +16,7 @@ type Skybox struct {
 }
 
 // Uploads the skybox cube and loads its six face images as a cubemap
-func (s *Skybox) setup(b renderer.Backend) {
+func (s *Skybox) setup(b renderer.Backend) error {
 	vertices := []float32{
 		// positions
 		-1.0, 1.0, -1.0,
@@ -72,10 +74,10 @@ func (s *Skybox) setup(b renderer.Backend) {
 		paths.Texture("skybox/back.png"),
 	})
 	if err != nil {
-		println("Error loading skybox:", err.Error())
-		return
+		return fmt.Errorf("skybox: %w", err)
 	}
 	s.Texture = b.CreateCubemap(faces, w, h)
+	return nil
 }
 
 // Draws the skybox first in the main pass, with a depth test that lets it fill the far plane

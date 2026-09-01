@@ -84,10 +84,7 @@ func (backend *VKBackend) recordImageUpload(cb vk.CommandBuffer, img vk.Image, s
 			ImageExtent: vk.Extent3D{Width: uint32(w), Height: uint32(h), Depth: 1},
 		}})
 
-	backend.imageBarrier(cb, img, vk.ImageAspectColor, uint32(layers),
-		vk.ImageLayoutTransferDstOptimal, vk.ImageLayoutShaderReadOnlyOptimal,
-		vk.PipelineStage2Copy, vk.Access2TransferWrite,
-		vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
+	backend.barrierToShaderRead(cb, img, vk.ImageAspectColor, uint32(layers), vk.ImageLayoutTransferDstOptimal)
 }
 
 // Records the image in the handle table and writes its descriptor into the bindless array, so shaders can reach it by slot index

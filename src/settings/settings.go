@@ -60,7 +60,7 @@ var (
 	// Slot i has size ShadowAtlasSize / ShadowSlotDivisors[i]
 	ShadowSlotDivisors []int = []int{2, 8, 16, 32}
 	// There are ShadowSlotCounts[i] slots of size i
-	ShadowSlotCounts   []int = []int{1, 16, 64, 256}
+	ShadowSlotCounts []int = []int{1, 16, 64, 256}
 
 	// The score (radius / distance to camera) at which a light earns each
 	// non-sun row above, descending. One per row after the first
@@ -105,11 +105,8 @@ func ShadowBakeBudget() int {
 
 // Returns how much the shadow normal-offset bias must grow at this atlas size
 //
-// The offsets in forward.slang are world-space constants tuned at 4096. Halving
-// the atlas halves every tile, doubling the world footprint of a texel and
-// re-introducing exactly the acne they were tuned to hide — so the shader scales
-// them by this. 1.0 at the default, which is what keeps the default image
-// byte-identical to what Part F shipped.
+// forward.slang's offsets are world-space constants tuned at 4096, so a smaller
+// atlas doubles a texel's world footprint and brings back the acne they hide
 func ShadowNormalScale() float32 {
 	return float32(shadowReferenceAtlas) / float32(ShadowAtlasSize)
 }

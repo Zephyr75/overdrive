@@ -161,7 +161,7 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 
 		// Run the main pass, the only one that clears color. It keeps the depth
 		// the prepass left, which is what the EQUAL test in RenderScene compares
-		b.BeginPass(0, &[4]float32{0.1, 0.1, 0.1, 1.0}, prepass)
+		b.BeginPass(renderer.Backbuffer, &[4]float32{0.1, 0.1, 0.1, 1.0}, prepass)
 
 		if s != nil {
 			s.RenderSkybox(skyboxShader, &f)

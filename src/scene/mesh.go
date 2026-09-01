@@ -35,24 +35,17 @@ type Mesh struct {
 	Faces         [][]uint32 // one []uint32 per material group, pos/tex/norm indices interleaved in threes
 	Materials     []Material
 	Position      mgl32.Vec3
-	// Whether the shadow bake draws this mesh, default true
-	//
-	// False is for a receiver that cannot usefully occlude anything: a
-	// single-sided ground plane with the whole scene above it contributes nothing
-	// to any shadow map except its own acne. See BakeShadows.
+	// Whether the shadow bake draws this mesh, default true; false is for a
+	// receiver that would contribute nothing but its own acne
 	CastsShadow bool
-	// Whether this mesh may move, and so belongs in the dynamic shadow atlas
-	// rather than the static one
-	//
-	// MoveBy/MoveTo also set it, so a mesh that moves without declaring itself
-	// leaves its shadow behind for one frame rather than for the session.
+	// Whether this mesh belongs in the dynamic shadow atlas rather than the
+	// static one; MoveBy/MoveTo also set it
 	Movable bool
 
 	// World-space bounding sphere, rebuilt by fillVertices so it follows a move
 	//
-	// prevCenter is where it was before the last move: a caster leaving a light's
-	// range still has to dirty the tile it is leaving, which its new centre alone
-	// would not say.
+	// prevCenter is where it was before: a caster leaving a light's range has to
+	// dirty the tile it left, which its new centre alone would not say
 	boundsCenter, prevCenter mgl32.Vec3
 	boundsRadius             float32
 
@@ -86,148 +79,183 @@ func (m *Mesh) MoveTo(dest mgl32.Vec3) {
 }
 
 // Parses the OBJ and MTL files an XML mesh names into geometry and materials
-func (mXml MeshXml) toMesh() Mesh {
-	objFile, err := os.Open(paths.Mesh(mXml.Obj))
+func (mXml MeshXml) toMesh() (Mesh, error) {
+	obj, err := parseOBJ(paths.Mesh(mXml.Obj))
 	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return Mesh{}
+		return Mesh{}, err
 	}
-	defer objFile.Close()
+	materials, err := parseMTL(paths.Mesh(mXml.mtlPath()))
+	if err != nil {
+		return Mesh{}, err
+	}
+	return mXml.assemble(obj, materials), nil
+}
 
-	var faces [][]uint32
+// The MTL a mesh names, falling back to the .obj basename because an OBJ names
+// its own material library and it conventionally matches
+func (mXml MeshXml) mtlPath() string {
+	if mXml.Mtl != "" {
+		return mXml.Mtl
+	}
+	return strings.TrimSuffix(mXml.Obj, ".obj") + ".mtl"
+}
+
+// The i'th field of a line as a float32, 0 when the line is too short
+func f32(fields []string, i int) float32 {
+	if i >= len(fields) {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(fields[i], 32)
+	return float32(v)
+}
+
+// Fields 1 to 3 of a line as a vector, the form every OBJ and MTL triple takes
+func vec3(fields []string) mgl32.Vec3 {
+	return mgl32.Vec3{f32(fields, 1), f32(fields, 2), f32(fields, 3)}
+}
+
+// The shared vertex streams of an OBJ plus one index list per material group
+type objData struct {
+	positions     []mgl32.Vec3
+	normalCoords  []mgl32.Vec3
+	textureCoords []mgl32.Vec2
+	faces         [][]uint32
+}
+
+// Reads an OBJ file's vertex streams and face groups
+func parseOBJ(path string) (objData, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return objData{}, fmt.Errorf("open OBJ: %w", err)
+	}
+	defer file.Close()
+
+	var obj objData
 	var face []uint32
 
-	var positions []mgl32.Vec3
-	var normalCoords []mgl32.Vec3
-	var textureCoords []mgl32.Vec2
-
-	objScanner := bufio.NewScanner(objFile)
-	for objScanner.Scan() {
-		line := objScanner.Text()
-		split_line := strings.Split(line, " ")
-		switch line[0] {
-		case 'v':
-			first, _ := strconv.ParseFloat(split_line[1], 32)
-			second, _ := strconv.ParseFloat(split_line[2], 32)
-			switch line[1] {
-			case ' ':
-				third, _ := strconv.ParseFloat(split_line[3], 32)
-				positions = append(positions, mgl32.Vec3{float32(first), float32(second), float32(third)})
-			case 't':
-				textureCoords = append(textureCoords, mgl32.Vec2{float32(first), float32(second)})
-			case 'n':
-				third, _ := strconv.ParseFloat(split_line[3], 32)
-				normalCoords = append(normalCoords, mgl32.Vec3{float32(first), float32(second), float32(third)})
-			}
-		case 'u':
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) == 0 {
+			continue
+		}
+		switch fields[0] {
+		case "v":
+			obj.positions = append(obj.positions, vec3(fields))
+		case "vt":
+			obj.textureCoords = append(obj.textureCoords, mgl32.Vec2{f32(fields, 1), f32(fields, 2)})
+		case "vn":
+			obj.normalCoords = append(obj.normalCoords, vec3(fields))
+		case "usemtl":
+			// A new material closes the group before it, one index list each
 			if len(face) > 0 {
-				faces = append(faces, face)
+				obj.faces = append(obj.faces, face)
 				face = nil
 			}
-		case 'f':
-			for i := 0; i < 3; i++ {
-				split_face := strings.Split(split_line[i+1], "/")
-				first, _ := strconv.ParseUint(split_face[0], 10, 32)
-				second, _ := strconv.ParseUint(split_face[1], 10, 32)
-				third, _ := strconv.ParseUint(split_face[2], 10, 32)
-				face = append(face, uint32(first))
-				face = append(face, uint32(second))
-				face = append(face, uint32(third))
-			}
+		case "f":
+			face = append(face, triangleIndices(fields)...)
 		}
 	}
 	// A read error or an over-long line ends the loop like a clean EOF, which
 	// would otherwise load a silently truncated mesh
-	if err := objScanner.Err(); err != nil {
-		fmt.Println("Error reading OBJ:", err)
-		return Mesh{}
+	if err := scanner.Err(); err != nil {
+		return objData{}, fmt.Errorf("read OBJ: %w", err)
 	}
-	faces = append(faces, face)
+	obj.faces = append(obj.faces, face)
+	return obj, nil
+}
 
-	pos := utils.ParseVec3(mXml.Position)
-	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
-
-	var m Mesh
-	m.Faces = faces
-	m.Vertices = positions
-	m.NormalCoords = normalCoords
-	m.TextureCoords = textureCoords
-	m.Name = mXml.Name
-	m.Position = pos
-	m.initialPosition = pos
-	m.CastsShadow = mXml.CastsShadow == nil || *mXml.CastsShadow
-	m.Movable = mXml.Movable != nil && *mXml.Movable
-
-	m.fillVertices()
-	m.prevCenter = m.boundsCenter
-
-	// Fall back to the .obj basename, scenes being allowed to omit <mtl> because
-	// an OBJ file names its own material library and it conventionally matches
-	mtlName := mXml.Mtl
-	if mtlName == "" {
-		mtlName = strings.TrimSuffix(mXml.Obj, ".obj") + ".mtl"
+// One face's pos/tex/norm indices, interleaved in threes
+//
+// Triangles carrying all three indices only, which is what the exporter writes;
+// anything else is dropped rather than left to break fillVertices' stride
+func triangleIndices(fields []string) []uint32 {
+	if len(fields) < 4 {
+		return nil
 	}
+	idx := make([]uint32, 0, 9)
+	for _, corner := range fields[1:4] {
+		parts := strings.Split(corner, "/")
+		if len(parts) < 3 {
+			return nil
+		}
+		for _, p := range parts[:3] {
+			n, _ := strconv.ParseUint(p, 10, 32)
+			idx = append(idx, uint32(n))
+		}
+	}
+	return idx
+}
 
-	mtlFile, err := os.Open(paths.Mesh(mtlName))
+// Reads an MTL file's material definitions, in the order the OBJ's groups use them
+func parseMTL(path string) ([]Material, error) {
+	file, err := os.Open(path)
 	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return Mesh{}
+		return nil, fmt.Errorf("open MTL: %w", err)
 	}
-	defer mtlFile.Close()
+	defer file.Close()
 
 	var materials []Material
 	material := newMaterial()
 
-	mtlScanner := bufio.NewScanner(mtlFile)
-	for mtlScanner.Scan() {
-		line := mtlScanner.Text()
-		split_line := strings.Split(line, " ")
-		switch split_line[0] {
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		// Every key below takes at least one argument
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 2 {
+			continue
+		}
+		switch fields[0] {
 		case "newmtl":
 			materials = append(materials, material)
 			material = newMaterial()
 		case "Ns":
-			first, _ := strconv.ParseFloat(split_line[1], 32)
-			material.Shininess = float32(first)
+			material.Shininess = f32(fields, 1)
 		case "Ka":
-			first, _ := strconv.ParseFloat(split_line[1], 32)
-			second, _ := strconv.ParseFloat(split_line[2], 32)
-			third, _ := strconv.ParseFloat(split_line[3], 32)
-			material.Ambient = mgl32.Vec3{float32(first), float32(second), float32(third)}
+			material.Ambient = vec3(fields)
 		case "Kd":
-			first, _ := strconv.ParseFloat(split_line[1], 32)
-			second, _ := strconv.ParseFloat(split_line[2], 32)
-			third, _ := strconv.ParseFloat(split_line[3], 32)
-			material.Diffuse = mgl32.Vec3{float32(first), float32(second), float32(third)}
+			material.Diffuse = vec3(fields)
 		case "Ks":
-			first, _ := strconv.ParseFloat(split_line[1], 32)
-			second, _ := strconv.ParseFloat(split_line[2], 32)
-			third, _ := strconv.ParseFloat(split_line[3], 32)
-			material.Specular = mgl32.Vec3{float32(first), float32(second), float32(third)}
+			material.Specular = vec3(fields)
 		case "d":
-			first, _ := strconv.ParseFloat(split_line[1], 32)
-			material.Alpha = float32(first)
+			material.Alpha = f32(fields, 1)
 		case "Pm": // MTL PBR extension: metalness
-			first, _ := strconv.ParseFloat(split_line[1], 32)
-			material.Metallic = float32(first)
+			material.Metallic = f32(fields, 1)
 		case "Pr": // MTL PBR extension: roughness
-			first, _ := strconv.ParseFloat(split_line[1], 32)
-			material.Roughness = float32(first)
+			material.Roughness = f32(fields, 1)
 		case "map_Kd":
-			material.TexturePath = texturePath(split_line[1])
+			material.TexturePath = texturePath(fields[1])
 		case "map_Bump", "bump":
-			material.NormalMapPath = texturePath(split_line[1])
+			material.NormalMapPath = texturePath(fields[1])
 		}
 	}
-	if err := mtlScanner.Err(); err != nil {
-		fmt.Println("Error reading MTL:", err)
-		return Mesh{}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("read MTL: %w", err)
 	}
+	// Drop the empty material the loop opened with, and close the last one
 	materials = append(materials, material)
-	materials = materials[1:]
+	return materials[1:], nil
+}
 
-	m.Materials = materials
+// Builds the mesh from the two parsed halves and the XML's own fields
+func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh {
+	pos := utils.ParseVec3(mXml.Position)
+	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 
+	m := Mesh{
+		Name:            mXml.Name,
+		Vertices:        obj.positions,
+		NormalCoords:    obj.normalCoords,
+		TextureCoords:   obj.textureCoords,
+		Faces:           obj.faces,
+		Materials:       materials,
+		Position:        pos,
+		initialPosition: pos,
+		CastsShadow:     mXml.CastsShadow == nil || *mXml.CastsShadow,
+		Movable:         mXml.Movable != nil && *mXml.Movable,
+	}
+	m.fillVertices()
+	m.prevCenter = m.boundsCenter
 	return m
 }
 
@@ -290,7 +318,7 @@ func (m *Mesh) fillVertices() {
 }
 
 // Uploads the mesh's vertex buffer, one mesh handle per face group, and its material textures
-func (m *Mesh) setup(b renderer.Backend) {
+func (m *Mesh) setup(b renderer.Backend) error {
 	m.backend = b
 
 	// Share one vertex buffer across the face groups, each group owning only
@@ -305,20 +333,21 @@ func (m *Mesh) setup(b renderer.Backend) {
 	for i := range m.Materials {
 		mat := &m.Materials[i]
 		if mat.TexturePath != "" {
-			if pix, w, h, err := loadRGBA(mat.TexturePath); err != nil {
-				fmt.Println("Error loading texture:", err)
-			} else {
-				mat.Texture = b.CreateTexture(pix, w, h)
+			pix, w, h, err := loadRGBA(mat.TexturePath)
+			if err != nil {
+				return fmt.Errorf("texture %s: %w", mat.TexturePath, err)
 			}
+			mat.Texture = b.CreateTexture(pix, w, h)
 		}
 		if mat.NormalMapPath != "" {
-			if pix, w, h, err := loadRGBA(mat.NormalMapPath); err != nil {
-				fmt.Println("Error loading normal map:", err)
-			} else {
-				mat.NormalMap = b.CreateTexture(pix, w, h)
+			pix, w, h, err := loadRGBA(mat.NormalMapPath)
+			if err != nil {
+				return fmt.Errorf("normal map %s: %w", mat.NormalMapPath, err)
 			}
+			mat.NormalMap = b.CreateTexture(pix, w, h)
 		}
 	}
+	return nil
 }
 
 // Reuploads the vertex buffer when a Move marked it dirty

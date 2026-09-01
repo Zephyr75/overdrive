@@ -19,18 +19,10 @@ import (
 
 const (
 	framesInFlight = 2
-	// Per-frame uniform arena: a bump allocator, reset to 0 at BeginFrame and
-	// reused only because the fence wait there proves the GPU is done with it.
-	// Sized by the shadow pass, not by the draw count: the bake rebinds the whole
-	// 4848-byte FrameUniforms once per tile, because three of its fields describe
-	// the tile being baked, so a full 337-slot atlas costs ~1.6 MiB before a
-	// single scene draw. 1 MiB overflowed at 259 tiles, and an overflow restarts
-	// at offset 0 over blocks the GPU still needs — silent wrong depth, one
-	// warning line on stderr.
-	//
-	// The real fix is to split those three fields into their own small block so a
-	// tile costs ~100 bytes instead of 4848; see notes/TODO.md. This is the size
-	// that makes the current shape safe.
+	// Per-frame uniform bump arena, sized by the shadow pass rather than the draw
+	// count: the bake rebinds the whole 4848-byte FrameUniforms per tile, so a
+	// full 337-slot atlas costs ~1.6 MiB and 1 MiB overflowed at 259 tiles. An
+	// overflow wraps over blocks the GPU still needs — silent wrong depth
 	arenaSize = 4 << 20
 	// Bindless array sizes, which must match the descriptor set layout the
 	// shaders were compiled against.
@@ -140,6 +132,11 @@ func (t *targetEntry) aspect() vk.ImageAspectFlags {
 		return vk.ImageAspectColor
 	}
 	return vk.ImageAspectDepth
+}
+
+// Reports the rect a pass on this target covers, which is all of it
+func (t *targetEntry) renderArea() vk.Rect2D {
+	return vk.Rect2D{Extent: vk.Extent2D{Width: uint32(t.width), Height: uint32(t.height)}}
 }
 
 // Reports the number of array layers, 6 for a cube
@@ -750,13 +747,10 @@ func (backend *VKBackend) EndFrame() {
 	backend.frameActive = false
 }
 
-// Transitions the target into attachment layout and begins dynamic rendering on it, with the viewport, scissor and dynamic state this pass needs
 // Begins a depth-only pass on the backbuffer's depth attachment
 //
-// No colour attachment at all, so nothing is shaded, nothing is blended and —
-// under MSAA — nothing is resolved; the prepass costs a geometry pass and a
-// depth write, not a second pass over the framebuffer. StoreOp is Store because
-// the whole point is that the main pass loads what this leaves.
+// No colour attachment, so nothing is shaded, blended or MSAA-resolved; StoreOp
+// is Store because the main pass loads what this leaves
 func (backend *VKBackend) BeginDepthPrepass() {
 	if !backend.frameActive {
 		return
@@ -766,156 +760,163 @@ func (backend *VKBackend) BeginDepthPrepass() {
 	backend.currentPass = passDepthPrepass
 	backend.currentTarget = 0
 
-	backend.imageBarrier(cb, backend.depthImage, vk.ImageAspectDepth, 1,
-		backend.depthLayout, vk.ImageLayoutDepthAttachmentOptimal,
-		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite,
-		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite)
-	backend.depthLayout = vk.ImageLayoutDepthAttachmentOptimal
+	backend.barrierBackbufferDepth(cb)
 
-	info := vk.RenderingInfo{
-		LayerCount: 1,
-		RenderArea: vk.Rect2D{Extent: backend.swapExtent},
-		DepthAttachment: &vk.RenderingAttachmentInfo{
-			ImageView:   backend.depthView,
-			ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
-			LoadOp:      vk.AttachmentLoadOpClear,
-			StoreOp:     vk.AttachmentStoreOpStore,
-			ClearValue:  vk.ClearDepthStencil(1, 0),
-		},
-	}
-	viewport := backend.viewportFor(passDepthPrepass, 0, 0,
-		int(backend.swapExtent.Width), int(backend.swapExtent.Height))
+	depthAtt := depthAttachment(backend.depthView, false)
+	depthAtt.StoreOp = vk.AttachmentStoreOpStore
 
-	vk.CmdBeginRendering(cb, info)
-	vk.CmdSetViewport(cb, viewport)
-	vk.CmdSetScissor(cb, info.RenderArea)
-	backend.applyDynamicState(cb)
+	backend.beginRendering(cb, vk.RenderingInfo{
+		LayerCount:      1,
+		RenderArea:      vk.Rect2D{Extent: backend.swapExtent},
+		DepthAttachment: &depthAtt,
+	}, backend.viewportFor(passDepthPrepass, 0, 0,
+		int(backend.swapExtent.Width), int(backend.swapExtent.Height)))
 }
 
+// Begins a pass on target, sized from the target itself so a pass cannot be
+// given an extent that disagrees with its attachments
+//
+// A dispatcher: the three attachment shapes share almost nothing but the tail
 func (backend *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]float32, keepDepth bool) {
-	// The target knows its own extent, so a pass cannot be given one that
-	// disagrees with its attachments
-	w, h := int(backend.swapExtent.Width), int(backend.swapExtent.Height)
-	if target != 0 {
-		if t := &backend.targets[target]; t.valid {
-			w, h = t.width, t.height
-		}
-	}
 	if !backend.frameActive {
 		return
 	}
-	cb := backend.frames[backend.frameIndex].cb
+	if target == renderer.Backbuffer {
+		backend.passActive = true
+		backend.beginBackbufferPass(clear, keepDepth)
+		return
+	}
+	t := backend.target(target)
+	if t == nil {
+		fmt.Fprintln(os.Stderr, "vulkan: BeginPass on an invalid target, ignored")
+		return
+	}
 	backend.passActive = true
+	if t.format == renderer.TargetColor {
+		backend.beginColorTargetPass(target, t, clear)
+		return
+	}
+	backend.beginDepthTargetPass(target, t, keepDepth)
+}
 
-	depthAtt := vk.RenderingAttachmentInfo{
+// The swapchain image, resolved from the multisampled one when there is one,
+// over the depth the prepass left
+func (backend *VKBackend) beginBackbufferPass(clear *[4]float32, keepDepth bool) {
+	cb := backend.frames[backend.frameIndex].cb
+	backend.currentPass = passMain
+	backend.currentTarget = renderer.Backbuffer
+
+	backend.barrierDiscardToColor(cb, backend.swapImages[backend.imageIndex])
+	backend.barrierBackbufferDepth(cb)
+
+	colorAtt := colorAttachment(backend.swapViews[backend.imageIndex], clear)
+	// The pass draws into the multisampled image and resolves into the
+	// swapchain image, so the samples themselves never need storing
+	if backend.msaaView != 0 {
+		colorAtt.ResolveImageView = colorAtt.ImageView
+		colorAtt.ResolveImageLayout = vk.ImageLayoutColorAttachmentOptimal
+		colorAtt.ResolveMode = vk.ResolveModeAverage
+		colorAtt.ImageView = backend.msaaView
+		colorAtt.StoreOp = vk.AttachmentStoreOpDontCare
+
+		backend.barrierDiscardToColor(cb, backend.msaaImage)
+	}
+
+	// The backbuffer's depth is discarded every frame; only the prepass stores it
+	depthAtt := depthAttachment(backend.depthView, keepDepth)
+	depthAtt.StoreOp = vk.AttachmentStoreOpDontCare
+
+	backend.beginRendering(cb, vk.RenderingInfo{
+		LayerCount:       1,
+		RenderArea:       vk.Rect2D{Extent: backend.swapExtent},
+		ColorAttachments: []vk.RenderingAttachmentInfo{colorAtt},
+		DepthAttachment:  &depthAtt,
+	}, backend.viewportFor(passMain, 0, 0,
+		int(backend.swapExtent.Width), int(backend.swapExtent.Height)))
+}
+
+// An offscreen colour target, with no depth attachment at all
+//
+// Right for the post-processing quads this path exists for, which is why
+// keepDepth is not consulted here: there is nothing to keep
+func (backend *VKBackend) beginColorTargetPass(target renderer.RenderTargetHandle,
+	t *targetEntry, clear *[4]float32) {
+
+	cb := backend.frames[backend.frameIndex].cb
+	backend.currentPass = passOffscreenColor
+	backend.currentTarget = target
+
+	backend.imageBarrier(cb, t.image, vk.ImageAspectColor, t.layers(),
+		t.layout, vk.ImageLayoutColorAttachmentOptimal,
+		vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
+		vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
+	t.layout = vk.ImageLayoutColorAttachmentOptimal
+
+	colorAtt := colorAttachment(t.attachmentView, clear)
+	backend.beginRendering(cb, vk.RenderingInfo{
+		LayerCount:       t.layers(),
+		RenderArea:       t.renderArea(),
+		ColorAttachments: []vk.RenderingAttachmentInfo{colorAtt},
+	}, backend.viewportFor(passOffscreenColor, 0, 0, t.width, t.height))
+}
+
+// An offscreen depth target: the shadow atlases, whose tiles SetViewportScissor
+// narrows to one at a time inside the pass
+func (backend *VKBackend) beginDepthTargetPass(target renderer.RenderTargetHandle,
+	t *targetEntry, keepDepth bool) {
+
+	cb := backend.frames[backend.frameIndex].cb
+	backend.currentPass = t.pass()
+	backend.currentTarget = target
+
+	backend.imageBarrier(cb, t.image, vk.ImageAspectDepth, t.layers(),
+		t.layout, vk.ImageLayoutDepthAttachmentOptimal,
+		vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
+		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite)
+	t.layout = vk.ImageLayoutDepthAttachmentOptimal
+
+	depthAtt := depthAttachment(t.attachmentView, keepDepth)
+	depthAtt.StoreOp = vk.AttachmentStoreOpStore
+
+	backend.beginRendering(cb, vk.RenderingInfo{
+		LayerCount:      t.layers(),
+		RenderArea:      t.renderArea(),
+		DepthAttachment: &depthAtt,
+	}, backend.viewportFor(t.pass(), 0, 0, t.width, t.height))
+}
+
+// A colour attachment that stores, clearing first only when clear is non-nil
+func colorAttachment(view vk.ImageView, clear *[4]float32) vk.RenderingAttachmentInfo {
+	att := vk.RenderingAttachmentInfo{
+		ImageView:   view,
+		ImageLayout: vk.ImageLayoutColorAttachmentOptimal,
+		LoadOp:      vk.AttachmentLoadOpDontCare,
+		StoreOp:     vk.AttachmentStoreOpStore,
+	}
+	if clear != nil {
+		att.LoadOp = vk.AttachmentLoadOpClear
+		att.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
+	}
+	return att
+}
+
+// A depth attachment, loading what the target already holds when keepDepth
+func depthAttachment(view vk.ImageView, keepDepth bool) vk.RenderingAttachmentInfo {
+	att := vk.RenderingAttachmentInfo{
+		ImageView:   view,
 		ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
 		LoadOp:      vk.AttachmentLoadOpClear,
 		ClearValue:  vk.ClearDepthStencil(1, 0),
 	}
 	if keepDepth {
-		depthAtt.LoadOp = vk.AttachmentLoadOpLoad
-		depthAtt.ClearValue = vk.ClearValue{}
+		att.LoadOp = vk.AttachmentLoadOpLoad
+		att.ClearValue = vk.ClearValue{}
 	}
-	info := vk.RenderingInfo{LayerCount: 1}
-	var viewport vk.Viewport
+	return att
+}
 
-	if target == 0 {
-		backend.imageBarrier(cb, backend.swapImages[backend.imageIndex], vk.ImageAspectColor, 1,
-			vk.ImageLayoutUndefined, vk.ImageLayoutColorAttachmentOptimal,
-			vk.PipelineStage2ColorAttachmentOutput, vk.Access2None,
-			vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
-		// From whatever the prepass left, not from Undefined: Undefined is a
-		// discard, and keepDepth on the backbuffer exists to read it back
-		backend.imageBarrier(cb, backend.depthImage, vk.ImageAspectDepth, 1,
-			backend.depthLayout, vk.ImageLayoutDepthAttachmentOptimal,
-			vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite,
-			vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite)
-		backend.depthLayout = vk.ImageLayoutDepthAttachmentOptimal
-
-		colorAtt := vk.RenderingAttachmentInfo{
-			ImageView:   backend.swapViews[backend.imageIndex],
-			ImageLayout: vk.ImageLayoutColorAttachmentOptimal,
-			LoadOp:      vk.AttachmentLoadOpDontCare,
-			StoreOp:     vk.AttachmentStoreOpStore,
-		}
-		if clear != nil {
-			colorAtt.LoadOp = vk.AttachmentLoadOpClear
-			colorAtt.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
-		}
-		// The pass draws into the multisampled image and resolves into the
-		// swapchain image, so the samples themselves never need storing
-		if backend.msaaView != 0 {
-			colorAtt.ResolveImageView = colorAtt.ImageView
-			colorAtt.ResolveImageLayout = vk.ImageLayoutColorAttachmentOptimal
-			colorAtt.ResolveMode = vk.ResolveModeAverage
-			colorAtt.ImageView = backend.msaaView
-			colorAtt.StoreOp = vk.AttachmentStoreOpDontCare
-
-			backend.imageBarrier(cb, backend.msaaImage, vk.ImageAspectColor, 1,
-				vk.ImageLayoutUndefined, vk.ImageLayoutColorAttachmentOptimal,
-				vk.PipelineStage2ColorAttachmentOutput, vk.Access2None,
-				vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
-		}
-		depthAtt.ImageView = backend.depthView
-		depthAtt.StoreOp = vk.AttachmentStoreOpDontCare
-
-		info.RenderArea = vk.Rect2D{Extent: backend.swapExtent}
-		info.ColorAttachments = []vk.RenderingAttachmentInfo{colorAtt}
-
-		viewport = backend.viewportFor(passMain, 0, 0, w, h)
-
-		backend.currentPass = passMain
-		backend.currentTarget = 0
-	} else {
-		t := &backend.targets[target]
-		layers := t.layers()
-
-		info.RenderArea = vk.Rect2D{Extent: vk.Extent2D{Width: uint32(w), Height: uint32(h)}}
-		info.LayerCount = layers
-		backend.currentPass = t.pass()
-		backend.currentTarget = target
-
-		if t.format == renderer.TargetColor {
-			backend.imageBarrier(cb, t.image, vk.ImageAspectColor, layers,
-				t.layout, vk.ImageLayoutColorAttachmentOptimal,
-				vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
-				vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
-			t.layout = vk.ImageLayoutColorAttachmentOptimal
-
-			colorAtt := vk.RenderingAttachmentInfo{
-				ImageView:   t.attachmentView,
-				ImageLayout: vk.ImageLayoutColorAttachmentOptimal,
-				LoadOp:      vk.AttachmentLoadOpDontCare,
-				StoreOp:     vk.AttachmentStoreOpStore,
-			}
-			if clear != nil {
-				colorAtt.LoadOp = vk.AttachmentLoadOpClear
-				colorAtt.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
-			}
-			info.ColorAttachments = []vk.RenderingAttachmentInfo{colorAtt}
-
-			viewport = backend.viewportFor(passOffscreenColor, 0, 0, w, h)
-
-			vk.CmdBeginRendering(cb, info)
-			vk.CmdSetViewport(cb, viewport)
-			vk.CmdSetScissor(cb, info.RenderArea)
-			backend.applyDynamicState(cb)
-			return
-		}
-
-		backend.imageBarrier(cb, t.image, vk.ImageAspectDepth, layers,
-			t.layout, vk.ImageLayoutDepthAttachmentOptimal,
-			vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
-			vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite)
-		t.layout = vk.ImageLayoutDepthAttachmentOptimal
-
-		depthAtt.ImageView = t.attachmentView
-		depthAtt.StoreOp = vk.AttachmentStoreOpStore
-
-		viewport = backend.viewportFor(backend.currentPass, 0, 0, w, h)
-	}
-	info.DepthAttachment = &depthAtt
-
+// Opens dynamic rendering and re-issues the state every pass start owes the pipeline
+func (backend *VKBackend) beginRendering(cb vk.CommandBuffer, info vk.RenderingInfo, viewport vk.Viewport) {
 	vk.CmdBeginRendering(cb, info)
 	vk.CmdSetViewport(cb, viewport)
 	vk.CmdSetScissor(cb, info.RenderArea)
@@ -924,7 +925,7 @@ func (backend *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[
 
 // Ends dynamic rendering and, for a shadow pass, transitions the depth target into shader-read layout
 func (backend *VKBackend) EndPass() {
-	if !backend.frameActive {
+	if !backend.frameActive || !backend.passActive {
 		return
 	}
 	cb := backend.frames[backend.frameIndex].cb
@@ -933,22 +934,10 @@ func (backend *VKBackend) EndPass() {
 
 	// Offscreen targets move to shader-read before a later pass samples them; the
 	// swapchain image keeps its attachment layout until EndFrame
-	if backend.currentTarget != 0 {
-		t := &backend.targets[backend.currentTarget]
-		srcStage := vk.PipelineStage2LateFragmentTests
-		srcAccess := vk.Access2DepthStencilAttachmentWrite
-		from := vk.ImageLayoutDepthAttachmentOptimal
-		if t.format == renderer.TargetColor {
-			srcStage = vk.PipelineStage2ColorAttachmentOutput
-			srcAccess = vk.Access2ColorAttachmentWrite
-			from = vk.ImageLayoutColorAttachmentOptimal
-		}
-		backend.imageBarrier(cb, t.image, t.aspect(), t.layers(),
-			from, vk.ImageLayoutShaderReadOnlyOptimal,
-			srcStage, srcAccess,
-			vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
+	if t := backend.target(backend.currentTarget); t != nil {
+		backend.barrierToShaderRead(cb, t.image, t.aspect(), t.layers(), t.layout)
 		t.layout = vk.ImageLayoutShaderReadOnlyOptimal
-		backend.currentTarget = 0
+		backend.currentTarget = renderer.Backbuffer
 	}
 }
 
@@ -984,11 +973,8 @@ func (backend *VKBackend) SetViewportScissor(x, y, w, h int) {
 
 // Copies a depth rect between two targets, both of which end up back in shader-read layout
 //
-// Records into this frame's command buffer, so it is ordered against the passes
-// around it. The two round trips through TRANSFER_SRC/DST are why it returns
-// both images to ShaderReadOnlyOptimal rather than leaving them in a transfer
-// layout: the source atlas stays sampleable, and the destination's next
-// BeginPass barrier starts from a layout it can name.
+// Both return to ShaderReadOnlyOptimal so the source stays sampleable and the
+// destination's next BeginPass barrier starts from a layout it can name
 func (backend *VKBackend) CopyDepthRegion(src, dst renderer.RenderTargetHandle, srcX, srcY, dstX, dstY, w, h int) {
 	if !backend.frameActive {
 		return
@@ -1017,9 +1003,8 @@ func (backend *VKBackend) CopyDepthRegion(src, dst renderer.RenderTargetHandle, 
 	}
 
 	cb := backend.frames[backend.frameIndex].cb
-	// Every stage/access on the source side, since the layout it is coming from
-	// depends on whether it was baked this frame or is a cached one from an
-	// earlier frame
+	// From whatever each side holds: a tile baked this frame and a cached one
+	// from an earlier frame arrive here in different layouts
 	backend.imageBarrier(cb, s.image, vk.ImageAspectDepth, s.layers(),
 		s.layout, vk.ImageLayoutTransferSrcOptimal,
 		vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
@@ -1039,15 +1024,9 @@ func (backend *VKBackend) CopyDepthRegion(src, dst renderer.RenderTargetHandle, 
 			Extent:     vk.Extent3D{Width: uint32(w), Height: uint32(h), Depth: 1},
 		}})
 
-	backend.imageBarrier(cb, s.image, vk.ImageAspectDepth, s.layers(),
-		vk.ImageLayoutTransferSrcOptimal, vk.ImageLayoutShaderReadOnlyOptimal,
-		vk.PipelineStage2Copy, vk.Access2TransferRead,
-		vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
+	backend.barrierToShaderRead(cb, s.image, vk.ImageAspectDepth, s.layers(), vk.ImageLayoutTransferSrcOptimal)
 	s.layout = vk.ImageLayoutShaderReadOnlyOptimal
-	backend.imageBarrier(cb, d.image, vk.ImageAspectDepth, d.layers(),
-		vk.ImageLayoutTransferDstOptimal, vk.ImageLayoutShaderReadOnlyOptimal,
-		vk.PipelineStage2Copy, vk.Access2TransferWrite,
-		vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
+	backend.barrierToShaderRead(cb, d.image, vk.ImageAspectDepth, d.layers(), vk.ImageLayoutTransferDstOptimal)
 	d.layout = vk.ImageLayoutShaderReadOnlyOptimal
 }
 
@@ -1136,6 +1115,51 @@ func (backend *VKBackend) imageBarrier(cb vk.CommandBuffer, image vk.Image,
 			AspectMask: aspect, LevelCount: 1, LayerCount: layerCount,
 		},
 	}})
+}
+
+// --- named transitions -------------------------------------------------------
+
+// The three transitions with more than one call site; everything else spells its
+// masks out at the barrier, where the pass that needs them can be read beside it
+
+// Discards an image and makes it a colour attachment, for a target overwritten whole
+func (backend *VKBackend) barrierDiscardToColor(cb vk.CommandBuffer, image vk.Image) {
+	backend.imageBarrier(cb, image, vk.ImageAspectColor, 1,
+		vk.ImageLayoutUndefined, vk.ImageLayoutColorAttachmentOptimal,
+		vk.PipelineStage2ColorAttachmentOutput, vk.Access2None,
+		vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
+}
+
+// Re-establishes the backbuffer depth attachment, from what the last depth pass
+// left rather than from Undefined — keepDepth exists to read it back
+func (backend *VKBackend) barrierBackbufferDepth(cb vk.CommandBuffer) {
+	backend.imageBarrier(cb, backend.depthImage, vk.ImageAspectDepth, 1,
+		backend.depthLayout, vk.ImageLayoutDepthAttachmentOptimal,
+		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite,
+		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite)
+	backend.depthLayout = vk.ImageLayoutDepthAttachmentOptimal
+}
+
+// Moves an image into shader-read for a later pass to sample
+//
+// The source scope follows from the layout being left, which is what lets one
+// helper serve an ended pass, both ends of a copy and a texture upload
+func (backend *VKBackend) barrierToShaderRead(cb vk.CommandBuffer, image vk.Image,
+	aspect vk.ImageAspectFlags, layers uint32, from vk.ImageLayout) {
+
+	srcStage, srcAccess := vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite
+	switch from {
+	case vk.ImageLayoutColorAttachmentOptimal:
+		srcStage, srcAccess = vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite
+	case vk.ImageLayoutTransferSrcOptimal:
+		srcStage, srcAccess = vk.PipelineStage2Copy, vk.Access2TransferRead
+	case vk.ImageLayoutTransferDstOptimal:
+		srcStage, srcAccess = vk.PipelineStage2Copy, vk.Access2TransferWrite
+	}
+	backend.imageBarrier(cb, image, aspect, layers,
+		from, vk.ImageLayoutShaderReadOnlyOptimal,
+		srcStage, srcAccess,
+		vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
 }
 
 // Records a one-off command buffer and blocks until the GPU has run it, used by the load-time upload paths

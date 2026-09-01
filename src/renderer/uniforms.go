@@ -33,15 +33,10 @@ type LightData struct {
 	Type        int32
 }
 
-// Split by how often the data changes: FrameUniforms once per pass, DrawUniforms
-// once per draw.
-//
-// INVARIANT: keep the field order identical to common.slang, and use only
-// float32/int32, arrays of those, and mgl32 matrices. Scalar layout then matches
-// Go's packing exactly, so both sides memcpy with no marshalling. Order drifting
-// renders garbage silently; the init below only catches a size change.
-//
-// Tex* fields hold plain TextureHandles, where 0 means "white pixel".
+// INVARIANT: the three blocks below mirror common.slang field for field, in
+// float32/int32/arrays/mgl32 matrices only, so scalar layout matches Go's
+// packing and both sides memcpy (notes/ENGINE_FLOW.md §5). Tex* handles: 0 is
+// the white pixel.
 
 // One shadow tile: where it lives in the atlas and how to project into it
 // A sun or a spot owns one and a point light six consecutive ones
@@ -87,9 +82,10 @@ type DrawUniforms struct {
 	UseNormalMap int32
 }
 
-func init() { // TODO: where is it called
-	// Go packs float32/int32 structs with no padding, which matches Vulkan's layout
-	// These tests check that uniforms.go and common.slang layout always match
+// Guards the common.slang correspondence on every build — Go runs this on the
+// first import of the package. Catches a member added or resized, never two
+// swapped, which renders garbage at an identical size
+func init() {
 	if unsafe.Sizeof(LightData{}) != 72 {
 		panic("renderer.LightData no longer matches common.slang")
 	}
