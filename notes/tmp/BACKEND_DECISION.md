@@ -118,7 +118,7 @@ Four reasons, in order of weight:
 
 1. **Invariant 1 is the engine's main structural rule.** `scene/`, `ecs/`,
    `core/`, `input/` and `physics/` hold opaque handles and never see a Vulkan
-   type. That is what makes `go test ./...` run without a GPU and what keeps the
+   type. That is what keeps everything above `renderer/` testable without a GPU, and keeps the
    Vulkan object graph confined to one package (`../ENGINE_FLOW.md` §7).
 2. **It is 269 lines.** `renderer/backend.go` plus `renderer/uniforms.go`. The
    previous decision already concluded this earns its place with a single

@@ -155,7 +155,8 @@ vulkan/            the only package that may import vk.*
 The rule above the line: **nothing in `scene/`, `core/`, `ecs/`, `input/` or
 `physics/` imports a graphics API.** They own handles (`renderer.MeshHandle`,
 `renderer.TextureHandle`, …), which are opaque integers the backend interprets
-in its own table. This is why `go test ./...` needs no GPU, and it is why the
+in its own table. This is why everything above `renderer/` builds and is testable
+without a GPU, and it is why the
 abstraction is kept with a single backend (`tmp/BACKEND_DECISION.md` §4).
 
 The rule inside a frame: **clears and viewports exist only inside

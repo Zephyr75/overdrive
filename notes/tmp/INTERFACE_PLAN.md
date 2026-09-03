@@ -72,7 +72,7 @@ Listed because a refactor this wide invites scope creep, and because each of
 these is load-bearing:
 
 - **Invariant 1.** Nothing above `renderer/` imports a graphics API, and
-  `go test ./...` keeps running without a GPU.
+  everything above it stays buildable and testable without a GPU.
 - **The three uniform structs.** `FrameUniforms` (4848), `DrawUniforms` (128),
   `ShadowTile` (96) and the `init()` size guards in `renderer/uniforms.go` stay
   exactly as they are. They stop being *backend* types and become *scene* types —

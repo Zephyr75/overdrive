@@ -34,7 +34,7 @@ Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
 ### The abstraction
 
 - The scene layer makes zero graphics-API calls. Everything goes through
-  `renderer.Backend` (27 methods), implemented in `vulkan/`. An OpenGL 4.1
+  `renderer.Backend` (28 methods), implemented in `vulkan/`. An OpenGL 4.1
   backend existed until 2026-08-05; `tmp/BACKEND_DECISION.md` §1–2 is why it went and
   why the abstraction stayed
 - Shaders are authored in Slang (`shaders/slang/*.slang`) and compiled to SPIR-V

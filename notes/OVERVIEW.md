@@ -37,7 +37,8 @@ graph TD
 > Nothing above `renderer/` may import a graphics API.
 
 `scene/` owns `renderer.MeshHandle`, `renderer.TextureHandle` — opaque integers
-that only `vulkan/` knows how to interpret. That is why `go test ./...` runs
+that only `vulkan/` knows how to interpret. That is why those packages build and
+are testable
 with no GPU, and why the Vulkan object graph stays in one package.
 
 There is exactly one backend. The abstraction is kept for that rule, not for
