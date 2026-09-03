@@ -582,7 +582,10 @@ thrash and nothing gained.
 
 ## Part 2 — roadmap
 
-Ordered by value to effort. Each item lists what to touch.
+Ordered by value to effort. Each item lists what to touch, and *why* it is wanted
+— which is what this section is for. What each one is blocked on, and which
+interface method expresses it, is `tmp/INTERFACE_PLAN.md` §4 and §5; that is not
+repeated here.
 
 ### 1. Texture-driven PBR and real IBL
 

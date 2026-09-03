@@ -63,7 +63,7 @@ The standard gate from `LIGHTING_IMPL.md`, run from `src/`:
 
 ```sh
 SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh
-go build ./... && go test ./...
+go build ./... && go vet ./...              # there are no tests; see CLAUDE.md
 for f in shaders/vk/*.spv; do spirv-val --scalar-block-layout "$f"; done
 go run .                                    # with [debug] validation = true
 ```

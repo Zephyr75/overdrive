@@ -2,6 +2,11 @@
 
 **Status: decided. §5.1–5.4 and §5.6 executed 2026-08-05; §5.5 and §9 items 3 onward still open.**
 
+> **§6 and §9 are superseded in part.** `INTERFACE_PLAN.md` answers §6's seven
+> gaps method by method and expands §9 items 6, 7, 8 and 10 into its own staged
+> rollout. Read §6 for *why* each gap blocks what it blocks — that reasoning is
+> not repeated — then `INTERFACE_PLAN.md` §3 and §4 for what replaces it.
+
 Why OpenGL goes, why the `Backend` interface stays anyway, what the interface
 must grow to express the rendering ideas this engine exists for, and what that
 costs. Supersedes the 2026-08-04 decision to keep both backends; §2 records what
@@ -11,6 +16,7 @@ Scope: the strategic choice — which API, what the abstraction is for once ther
 is only one, and the ordered work to get there.
 
 Not here: the `Backend` contract as it stands today (`../ENGINE_FLOW.md` §0), the
+replacement for it (`INTERFACE_PLAN.md`), the
 lighting work this unblocks (`LIGHTING_PLAN.md`, `LIGHTING_IMPL.md`), ray
 tracing theory (`../cheatsheets/RAYTRACING.md`).
 

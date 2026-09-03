@@ -49,7 +49,6 @@ The Go module root is **`src/`** (module `github.com/Zephyr75/overdrive`), so `g
 cd src
 SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh   # required; see note below
 go build ./...
-go test ./...        # uniform layout + showcase-scene checks; no GPU needed
 go run .             # reads configs/vulkan.toml
 
 go run . -config configs/vulkan.toml     # the same, named explicitly
@@ -57,8 +56,16 @@ go run . -config configs/low.toml        # the low quality tier: 2048 atlas, no
                                          # dynamic atlas, cheap PCF, no MSAA
 go run . -scene stress.xml               # 64 lights (MaxLights), all casting: the allocator scene
 
-go test ./scene/ -run TestShowcaseLoads   # single test
+go vet ./...         # two known unsafe.Pointer reports, see below
 ```
+
+**There are no tests.** `go test ./...` reports `[no test files]` for every
+package — there is not one `_test.go` in the tree. So a change is verified by
+`go build ./...`, `gofmt -l`, and **looking at the scene**; the `init()` size
+guards in `renderer/uniforms.go` fire when the engine *runs*, not when it builds.
+`notes/TODO.md` carries the item, and nominates `shadowAtlas.allocate` as the
+first thing worth a unit test — it is pure CPU logic over `[]Light` and needs no
+GPU.
 
 **Every runtime knob is in the TOML file, including the debug ones.** The shadow
 system in particular is fully configured — `[shadows]` carries `atlasSize`, the
@@ -113,7 +120,7 @@ vulkan/            the only package that may import vk.*
 
 Four invariants hold the engine together. Breaking any of them is how it goes wrong:
 
-1. **Nothing above `renderer/` imports a graphics API.** Scene/core/ecs/input/physics own opaque handles (`renderer.MeshHandle`, `TextureHandle`, …) that the backend interprets in its own table. This is the rule that keeps `go test ./...` runnable without a GPU, and it is why the abstraction is kept despite there being one backend.
+1. **Nothing above `renderer/` imports a graphics API.** Scene/core/ecs/input/physics own opaque handles (`renderer.MeshHandle`, `TextureHandle`, …) that the backend interprets in its own table. This is the rule that keeps everything above `renderer/` buildable and testable without a GPU, and it is why the abstraction is kept despite there being one backend.
 
 2. **Clears and viewports exist only inside `Backend.BeginPass`** — or are narrowed by `SetViewportScissor` within a pass on an atlas target, which is the one amendment. `BeginPass`'s `keepDepth` argument suppresses the depth clear so a pass can add to what a target already holds; it works on offscreen depth targets only, the backbuffer's depth being discarded every frame. Never add a free-floating clear to scene or core code.
 
@@ -142,10 +149,12 @@ Conventions that would silently produce a mirrored or inside-out image: the main
 ## Documentation map
 
 - `notes/OVERVIEW.md` — **the whole engine in one read.** Layers, startup order, one frame, how uniforms and textures reach a shader, and the record-vs-submit model. Start here if the context is cold; it is deliberately the one file that restates the others.
-- `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method. §0 indexes all 27 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §5 is the rendering conventions, §6 a symptom→file table, §7 the Vulkan object-ownership tree and the five lifetime classes.
+- `notes/ENGINE_FLOW.md` — **read this first when touching the renderer.** Operational: one frame from `main()` to the GPU, then the `Backend` contract method by method. §0 indexes all 28 methods by call frequency (startup / load / per-frame / per-pass / per-draw); §5 is the rendering conventions, §6 a symptom→file table, §7 the Vulkan object-ownership tree and the five lifetime classes.
 - `notes/ARCHITECTURE.md` — the code map: repository layout, the dependency rule (with the diagram), scene loading, physics/ECS, a package-by-package symbol reference, the XML/OBJ scene format and the Blender add-on, and §8 the list of dead files.
 - `notes/FEATURES.md` — what is implemented and _why it is built that way_ (shadow bias, early-bail PCF, bindless vs dedicated descriptors), Part 2 the roadmap and known gaps, plus the performance history.
-- `notes/tmp/BACKEND_DECISION.md` — **the current plan.** Why Vulkan only, what the `Backend` interface cannot yet express, and the ordered work items to fix that.
+- `notes/tmp/INTERFACE_PLAN.md` — **the current plan.** The 29-method `Backend`/`Frame`/`Pass`/`Compute` interface that replaces today's 28, so every roadmap technique is buildable in pure Go with no `src/vulkan/` edit: §3 the interface, §4 the technique-by-technique coverage table, §5 the `go-vulkan` batches, §6 the staged rollout.
+- `notes/tmp/BACKEND_DECISION.md` — the strategy `INTERFACE_PLAN.md` executes. Why Vulkan only, §6 why each gap blocks what it blocks, §8 ray tracing, §9 the ordered work items.
+- `notes/tmp/CLUSTERED_FORWARD.md` — the one deferred part of the lighting plan.
 - `notes/TODO.md` — the working list.
 - `notes/README.md` — index of `notes/`, and the shared conventions the cheatsheets follow.
 - `notes/cheatsheets/` — engine-independent reference: `GRAPHICS.md` (real-time techniques, procedural generation, physics simulation, AI, compression, optimisation, GPGPU, emulation), `PBR.md`, `RAYTRACING.md`, `OPENGL.md`, `VULKAN.md`, `ALGEBRA.md`. All English, all opening with a Scope / Not here / Source block. `OPENGL.md` is kept deliberately — it is API reference, not a description of this engine.

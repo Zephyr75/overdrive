@@ -113,9 +113,10 @@ whose layout is not the repository's.
 Why it exists: the literals it replaced (`assets/…` in `scene/mesh.go`,
 `./textures/skybox/…` in `scene/skybox.go`, `shaders/vk/…` in
 `vulkan/shader.go`) each assumed the process had started from one specific
-directory. `go test ./scene/` runs with the working directory set to
-`src/scene/`, so `TestShowcaseLoads` never found its scene and skipped rather
-than ran — silently, for as long as it has existed.
+directory. A test run sets the working directory to the package's own — `go test
+./scene/` runs in `src/scene/` — which is how the since-deleted
+`TestShowcaseLoads` came to skip rather than run, silently, for as long as it
+existed. The `paths` package is what stops that recurring when tests come back.
 
 ---
 
@@ -124,7 +125,7 @@ than ran — silently, for as long as it has existed.
 **Nothing above `renderer/` imports a graphics API.** Scene, core, ecs, input and
 physics own opaque handles (`renderer.MeshHandle`, `TextureHandle`,
 `RenderTargetHandle`, `ShaderHandle`, `BufferHandle`) that the backend
-interprets in its own table. This is what makes `go test ./...` runnable without
+interprets in its own table. This is what makes everything above `renderer/` testable without
 a GPU, and it is why the abstraction is kept with a single backend
 (`tmp/BACKEND_DECISION.md` §4).
 
@@ -260,7 +261,7 @@ Only what exists. Unexported symbols are marked _(pkg)_.
 
 | Symbol                                                                              | Kind         | Description                                                                                                                                                       |
 | ----------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Backend`                                                                           | interface    | 27 methods, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency                                                                                  |
+| `Backend`                                                                           | interface    | 28 methods, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency; `tmp/INTERFACE_PLAN.md` is what replaces it                                                                                  |
 | `TextureHandle`, `BufferHandle`, `MeshHandle`, `RenderTargetHandle`, `ShaderHandle` | type         | Opaque `uint32`. Texture 0 is the white pixel, render target 0 the backbuffer                                                                                     |
 | `VertexLayout`                                                                      | type         | `LayoutMesh`, `LayoutPosition`, `LayoutPositionUV` — how a mesh's vertex buffer is read. Recorded at creation, which is what lets one `Draw` serve every drawable |
 | `RenderTargetSpec`, `TargetFormat`                                                  | type         | Describes an offscreen target by what it _is_ — size, depth or colour, cube or not                                                                                |

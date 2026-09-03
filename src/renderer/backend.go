@@ -101,6 +101,7 @@ type RenderTargetSpec struct {
 type Backend interface {
 	// Sets up the context/device/swapchain, once, after window creation
 	Init(window *glfw.Window) error
+	
 	// Destroys everything the backend owns
 	Shutdown()
 

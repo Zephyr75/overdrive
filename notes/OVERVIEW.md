@@ -327,5 +327,5 @@ next planned change.
 | whether a feature exists, and why it is built that way | `FEATURES.md`                  |
 | Vulkan concepts, engine-independent                    | `cheatsheets/VULKAN.md`        |
 | the theory behind the shading                          | `cheatsheets/PBR.md`           |
-| what is planned, in order                              | `tmp/BACKEND_DECISION.md` §9   |
+| what is planned, in order                              | `tmp/INTERFACE_PLAN.md` §6, then `tmp/BACKEND_DECISION.md` §9 |
 | the next small task                                    | `TODO.md`                      |

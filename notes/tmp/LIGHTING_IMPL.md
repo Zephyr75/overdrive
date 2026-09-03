@@ -59,7 +59,9 @@ would otherwise have to reason about. Part A is independent and can land now.
 
 ## The gate
 
-Every part ends with the same check, from `src/`:
+Every part ended with the same check, from `src/`. **The `go test` step is
+historical** — the tests it counts below were deleted since, and `go test ./...`
+now reports `[no test files]` for every package (`CLAUDE.md`, `../TODO.md`):
 
 ```sh
 SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh

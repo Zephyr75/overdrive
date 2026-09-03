@@ -6,8 +6,9 @@ method, showing what the Vulkan backend does with each one and why.
 
 `ARCHITECTURE.md` is the map (where every package and symbol lives) and
 `FEATURES.md` is the feature list with the reasoning behind each one.
-`tmp/BACKEND_DECISION.md` is where the interface is _going_. This is the operational
-document: what actually happens, in order.
+`tmp/INTERFACE_PLAN.md` is where the interface is _going_ — read it before
+memorising §0 or §4, because most of what they describe is being replaced. This
+is the operational document: what actually happens today, in order.
 
 An OpenGL 4.1 backend existed until 2026-08-05. Where a decision here only makes
 sense as a legacy of it — the y-up clip space, the `[-w, w]` projections, the
@@ -35,7 +36,7 @@ descriptor indexing, synchronization2, VMA) is the one this backend uses.
 
 ## 0. The `Backend` contract by how often it is called
 
-`renderer.Backend`'s 27 methods are declared by **resource type** — textures,
+`renderer.Backend`'s 28 methods are declared by **resource type** — textures,
 buffers, meshes, shaders, targets, draws. That is the wrong axis for remembering
 _where a Vulkan call sits in a frame_. This table is the other axis: how often
 each method runs. §4 walks the same methods in interface order, with the
@@ -83,7 +84,7 @@ per-pass one", `vkCmdPushConstants` is "the per-draw one".
 | `UpdateTexture2D`   | Memcpy into a mapped staging buffer, **defer** the copy to the next `BeginFrame`. Costs the overlay one frame of latency                                                                                                                |
 | `EndFrame`          | Barrier to `PresentSrcKHR` → `EndCommandBuffer` → `QueueSubmit2` (wait acquire sem, signal image's render sem, signal fence) → `QueuePresentKHR` → advance frame slot                                                                   |
 
-### Once per pass, ×2 a frame — 5 methods
+### Once per pass, ×3 a frame — 6 methods
 
 One shadow-atlas pass (depth-only, no colour clear) then the main backbuffer
 pass. It was one pass per casting light until the atlas landed; now every shadow
@@ -94,6 +95,7 @@ light count — only the viewport changes inside it do.
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `BindFrameUniforms` | Memcpy 4848 B into the arena, cache its device address for the pass's draws. Also called **per tile** inside the atlas pass, each tile needing its own `BakeMatrix` |
 | `BeginPass`         | `imageBarrier` into attachment layout → `CmdBeginRendering` (load ops carry the clear) → `CmdSetViewport` → `CmdSetScissor` → re-issue dynamic state               |
+| `BeginDepthPrepass` | The same, on the backbuffer's depth attachment alone — no colour, so nothing is shaded or resolved, and `StoreOp` is `Store` so the main pass can load it          |
 | `SetCullMode`       | `CmdSetCullMode` — dynamic state, no extra pipeline                                                                                                                |
 | `SetDepthCompare`   | `CmdSetDepthCompareOp` — dynamic state                                                                                                                             |
 | `EndPass`           | `CmdEndRendering`, and for a shadow target `imageBarrier` depth-attachment → shader-read-only                                                                      |

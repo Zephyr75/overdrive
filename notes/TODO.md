@@ -29,7 +29,8 @@ Small, concrete items. Anything that needs a paragraph of reasoning lives in
 
 ## Backend
 
-The ordered plan is `tmp/BACKEND_DECISION.md` §9. These are its first items.
+The ordered plan is `tmp/INTERFACE_PLAN.md` §6, which expands `tmp/BACKEND_DECISION.md`
+§9 items 6-10. These are its first items.
 
 - [x] Delete the OpenGL backend — 2026-08-05
 - [x] Drop the dead 16-byte cell rule from `renderer/uniforms.go` and `common.slang` — `tmp/BACKEND_DECISION.md` §5.3
@@ -71,10 +72,19 @@ The ordered plan is `tmp/BACKEND_DECISION.md` §9. These are its first items.
 
 - [ ] GPU timestamp queries, to profile one pass against another — blocked on query-pool bindings, `go-vulkan/BINDINGS_GAP.md` §5.4
 - [ ] Debug object names (`SetDebugUtilsObjectNameEXT`) so validation and RenderDoc show names, not handles — `go-vulkan/BINDINGS_GAP.md` §5.5
-- [ ] A rendered-image regression test — nothing checks the frame today, only that the scene parses
+- [ ] **Any test at all.** `go test ./...` reports `[no test files]` for every package — there is not one `_test.go` in the tree. `CLAUDE.md` claims a uniform-layout check and `TestShowcaseLoads`; neither exists, and that claim should be fixed or made true. The `init()` size guards in `renderer/uniforms.go` fire when the engine *runs*, not when it builds or tests
+- [ ] Start with `shadowAtlas.allocate` — pure CPU logic over `[]Light`, no GPU needed. `scene/shadowatlas.go` names `TestTileSizeTracksCameraDistance` in a comment as though it once existed
+- [ ] A rendered-image regression test — nothing checks the frame today. `INTERFACE_PLAN.md`'s `ReadBuffer` is what makes one possible
 - [ ] Score physical devices instead of taking `devices[0]`
-- [ ] Delete or implement the dead files listed in `ARCHITECTURE.md` §8
+- [ ] Delete or implement the dead files listed in `ARCHITECTURE.md` §8 — `physics/box_old.go` (119 lines, 1 live), `ecs/ecs.go` (142/1, and the only file `gofmt -l` reports), `physics/link.go` (24/1), `physics/box.go` (empty). `ecs/entity.go` is the live ECS. Then delete §8 itself, which exists only to list them
 - [ ] `overdrive.sh` and `overdrive_build.sh` at the repo root are still cmake wrappers for the deleted C++ tree
+
+## Shading experiments
+
+Parked here from a scratch file that was otherwise empty checkboxes.
+
+- [ ] Glass shader — experiment, then write up. Needs `PipelineSpec.Blend` and transparency, `INTERFACE_PLAN.md` §4 rows 1 and 29
+- [ ] Watercolor shader — [reference](https://x.com/TheMirzaBeig/status/2016702324576579644), [Blender version](https://www.reddit.com/r/blender/comments/1hcfb8x/realtime_watercolor_shader_in_blender/). Break into steps, list the features each needs, then implement
 
 ## Procedural / world
 
