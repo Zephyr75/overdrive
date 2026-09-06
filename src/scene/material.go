@@ -23,8 +23,12 @@ type Material struct {
 	// created in Mesh.setup once a backend is available.
 	TexturePath   string
 	NormalMapPath string
-	Texture       renderer.TextureHandle
-	NormalMap     renderer.TextureHandle
+	Texture       renderer.ImageHandle
+	NormalMap     renderer.ImageHandle
+	// The shader-visible slots of the two, resolved once at load: a draw block
+	// carries the slot, never the handle
+	TextureSlot   int32
+	NormalMapSlot int32
 }
 
 // Returns the defaults a material carries before its MTL entry is parsed

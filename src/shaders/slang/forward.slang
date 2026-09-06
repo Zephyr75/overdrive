@@ -139,8 +139,8 @@ float shadowLookup(int recordIndex, float3 fragPos, float3 normal,
   // put there. Harmless while one point light cast; with the Part D allocator
   // handing tiles to every point light in the scene it is black blotches
   if ((rec.flags & 1) != 0)
-    return pcfTile(shadowAtlasDynamic, rec, local, depth, bias);
-  return pcfTile(shadowAtlasStatic, rec, local, depth, bias);
+    return pcfTile(HOT_SHADOW_DYNAMIC, rec, local, depth, bias);
+  return pcfTile(HOT_SHADOW_STATIC, rec, local, depth, bias);
 }
 
 // ---- Cook-Torrance metallic-roughness PBR -----------------------------------

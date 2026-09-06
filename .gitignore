@@ -22,3 +22,5 @@ go.work
 
 # Generated shaders (built from shaders/slang by build_shaders.sh)
 src/shaders/vk/
+how_to_vulkan.go
+src/out.png

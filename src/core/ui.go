@@ -2,8 +2,6 @@ package core
 
 import (
 	"image"
-	"image/color"
-	"math"
 
 	"github.com/disintegration/imaging"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -12,19 +10,13 @@ import (
 
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/Zephyr75/overdrive/renderer"
+	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
 )
 
-var (
-	lastInstance string
-	lastMap      = map[string]bool{}
-	areas        = []ui.Area{}
-	uiTexture    renderer.TextureHandle
-)
-
-// The overlay's geometry, in renderer.LayoutPositionUV: two triangles, so it draws like any other mesh
+// The overlay's geometry: two triangles in clip space, position(3) | uv(2), so
+// it draws like any other mesh
 var quadVertices = []float32{
-	// clip-space position(3) | uv(2)
 	-1, 1, 0, 0, 1,
 	-1, -1, 0, 0, 0,
 	1, 1, 0, 1, 1,
@@ -34,24 +26,93 @@ var quadVertices = []float32{
 	1, -1, 0, 1, 0,
 }
 
-// Uploads the overlay's quad, once, as an ordinary mesh
-func createOverlayQuad(b renderer.Backend) renderer.MeshHandle {
-	return b.CreateMesh(b.CreateBuffer(quadVertices), nil, renderer.LayoutPositionUV)
+// Everything the UI overlay owns on the GPU, plus the hover state that decides
+// whether the widget tree is rasterised again this frame
+type overlay struct {
+	backend       renderer.Backend
+	pipeline      renderer.PipelineHandle
+	mesh          renderer.MeshHandle
+	image         renderer.ImageHandle
+	slot          int32
+	width, height int
+
+	lastInstance string
+	lastMap      map[string]bool
+	areas        []ui.Area
 }
 
-// Rasterises the widget tree into an RGBA image, uploads it through the backend and draws it as a fullscreen quad, inside the main pass
-func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.ShaderHandle, quad renderer.MeshHandle) {
-	window := app.Window
+// Builds the overlay's quad, pipeline and first canvas image
+func newOverlay(backend renderer.Backend) (*overlay, error) {
+	ovl := &overlay{backend: backend, lastMap: map[string]bool{}}
 
-	// Allocate the canvas the widgets rasterise into
-	img := image.NewRGBA(image.Rect(0, 0, settings.WindowWidth, settings.WindowHeight))
-	var instance ui.UIElement = nil
+	buf, _ := backend.CreateBuffer(renderer.BufferInfo{
+		Name: "overlayQuad", Usage: renderer.BufferVertex,
+		Location: renderer.LocationHost, Data: quadVertices,
+	})
+	ovl.mesh = backend.CreateMesh(renderer.MeshInfo{Name: "overlayQuad", Vertices: buf, Stride: 5 * 4})
+
+	// Tests depth but does not write it: the overlay composites over the
+	// finished scene from the near plane
+	pass, err := backend.CreatePipeline(renderer.PipelineSpec{
+		Name: "ui", Shader: "ui",
+		Vertex: renderer.VertexLayout{
+			Stride: 5 * 4,
+			Attrs: []renderer.VertexAttr{
+				{Location: 0, Format: renderer.FormatRGB32F, Offset: 0},
+				{Location: 1, Format: renderer.FormatRG32F, Offset: 3 * 4},
+			},
+		},
+		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
+		DepthCompare: renderer.CompareLess, DepthWrite: false,
+		Blend:        renderer.BlendAlpha,
+		ColorFormats: []renderer.Format{renderer.FormatBackbuffer},
+		DepthFormat:  renderer.FormatBackbufferDepth,
+		Samples:      backend.Capacities().BackbufferSamples,
+	})
+	if err != nil {
+		return nil, err
+	}
+	ovl.pipeline = pass
+	ovl.resize(settings.WindowWidth, settings.WindowHeight)
+	return ovl, nil
+}
+
+// Replaces the canvas image when the window size changed
+//
+// The old one goes through Destroy, which retires it behind the frames in
+// flight and only then gives its bindless slot back
+func (ovl *overlay) resize(width, height int) {
+	if ovl.image != 0 && ovl.width == width && ovl.height == height {
+		return
+	}
+	if ovl.image != 0 {
+		ovl.backend.Destroy(ovl.image)
+	}
+	ovl.image = ovl.backend.CreateImage(renderer.ImageInfo{
+		Name: "uiOverlay", Width: width, Height: height, Format: renderer.FormatRGBA8,
+		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
+	})
+	ovl.slot = int32(ovl.backend.Slot(ovl.image))
+	ovl.width, ovl.height = width, height
+	// Fill it once outside any frame, so the first pass samples an image in a
+	// layout it has actually been transitioned into rather than Undefined
+	ovl.backend.UpdateImage(ovl.image, renderer.ImageData{Pixels: make([]byte, width*height*4), Width: width, Height: height})
+}
+
+// Rasterises the widget tree into the canvas, uploads it and draws it as a
+// fullscreen quad, inside the main pass
+func (ovl *overlay) draw(frame renderer.Frame, pass renderer.Pass, app App, widget func(app App) ui.UIElement) {
+	window := app.Window
+	ovl.resize(settings.WindowWidth, settings.WindowHeight)
+
+	img := image.NewRGBA(image.Rect(0, 0, ovl.width, ovl.height))
+	var instance ui.UIElement
 	if widget != nil {
 		instance = widget(app)
 	}
 	equal := true
-	for _, area := range areas {
-		if ui.MouseInBounds(window, area) != lastMap[area.ToString()] {
+	for _, area := range ovl.areas {
+		if ui.MouseInBounds(window, area) != ovl.lastMap[area.ToString()] {
 			equal = false
 		}
 		if ui.MouseInBounds(window, area) && window.GetMouseButton(glfw.MouseButtonLeft) == glfw.Press {
@@ -59,43 +120,34 @@ func renderUI(app App, widget func(app App) ui.UIElement, uiShader renderer.Shad
 		}
 	}
 
-	// Draw the debug crosshair
-	if app.Debug {
-		radius := 50
-		for i := 0; i < 360; i++ {
-			x := int(float64(radius) * math.Cos(float64(i)))
-			y := int(float64(radius) * math.Sin(float64(i)))
-			img.SetRGBA(settings.WindowWidth/2+x, settings.WindowHeight/2+y, color.RGBA{255, 255, 255, 255})
-		}
-	}
-
 	if instance != nil {
 		// Redraw only when the widget tree or the hover state changed
-		if lastInstance != instance.ToString() || !equal {
-			lastInstance = instance.ToString()
-			areas = instance.Draw(img, window)
+		if ovl.lastInstance != instance.ToString() || !equal {
+			ovl.lastInstance = instance.ToString()
+			ovl.areas = instance.Draw(img, window)
 
 			newAreas := []ui.Area{}
-			for _, area := range areas {
+			for _, area := range ovl.areas {
 				if area.Left != 0 || area.Right != 0 || area.Top != 0 || area.Bottom != 0 {
 					newAreas = append(newAreas, area)
 				}
 			}
-			areas = newAreas
+			ovl.areas = newAreas
 		}
-		for _, area := range areas {
-			lastMap[area.ToString()] = ui.MouseInBounds(window, area)
+		for _, area := range ovl.areas {
+			ovl.lastMap[area.ToString()] = ui.MouseInBounds(window, area)
 		}
 	}
 
-	flippedImg := imaging.FlipV(img)
-
-	uiTexture = app.Backend.UpdateTexture2D(uiTexture,
-		settings.WindowWidth, settings.WindowHeight, flippedImg.Pix)
+	flipped := imaging.FlipV(img)
+	// Called from inside the pass, so the backend stages this and records the
+	// copy at the start of the next frame
+	ovl.backend.UpdateImage(ovl.image, renderer.ImageData{Pixels: flipped.Pix, Width: ovl.width, Height: ovl.height})
 
 	// The overlay is an ordinary mesh with an ordinary material, so it needs no
-	// special draw path — only a texture and an identity transform
-	u := renderer.DrawUniforms{Model: mgl32.Ident4(), TexDiffuse: uiTexture}
-	app.Backend.BindShader(uiShader)
-	app.Backend.Draw(quad, &u)
+	// special draw path — only a texture slot and an identity transform
+	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4(), TexDiffuse: ovl.slot}
+	var push [4]renderer.Address
+	push[scene.PushDraw] = frame.Upload(&uniforms)
+	pass.Draw(renderer.DrawCall{Pipeline: ovl.pipeline, Mesh: ovl.mesh, Push: push})
 }

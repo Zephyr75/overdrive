@@ -93,11 +93,6 @@ func MSAAEnabled() bool {
 	return AntiAliasing == AAMSAA && MSAASamples > 1
 }
 
-// Returns the window's aspect ratio, for the camera projection
-func AspectRatio() float32 {
-	return float32(WindowWidth) / float32(WindowHeight)
-}
-
 // Returns the combined resolution of dynamic shadow tiles a frame may spend rebuilding
 func ShadowBakeBudget() int {
 	return ShadowBakeBudgetMiB << 20

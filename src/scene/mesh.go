@@ -61,21 +61,21 @@ type Mesh struct {
 }
 
 // Offsets the mesh and rebuilds its vertex data for the next upload
-func (m *Mesh) MoveBy(x float32, y float32, z float32) {
-	m.Movable = true
-	m.Position[0] += x
-	m.Position[1] += y
-	m.Position[2] += z
-	m.fillVertices()
-	m.needsUpdate = true
+func (mesh *Mesh) MoveBy(x float32, y float32, z float32) {
+	mesh.Movable = true
+	mesh.Position[0] += x
+	mesh.Position[1] += y
+	mesh.Position[2] += z
+	mesh.fillVertices()
+	mesh.needsUpdate = true
 }
 
 // Moves the mesh to a position and rebuilds its vertex data for the next upload
-func (m *Mesh) MoveTo(dest mgl32.Vec3) {
-	m.Movable = true
-	m.Position = dest
-	m.fillVertices()
-	m.needsUpdate = true
+func (mesh *Mesh) MoveTo(dest mgl32.Vec3) {
+	mesh.Movable = true
+	mesh.Position = dest
+	mesh.fillVertices()
+	mesh.needsUpdate = true
 }
 
 // Parses the OBJ and MTL files an XML mesh names into geometry and materials
@@ -105,8 +105,8 @@ func f32(fields []string, i int) float32 {
 	if i >= len(fields) {
 		return 0
 	}
-	v, _ := strconv.ParseFloat(fields[i], 32)
-	return float32(v)
+	value, _ := strconv.ParseFloat(fields[i], 32)
+	return float32(value)
 }
 
 // Fields 1 to 3 of a line as a vector, the form every OBJ and MTL triple takes
@@ -179,8 +179,8 @@ func triangleIndices(fields []string) []uint32 {
 		if len(parts) < 3 {
 			return nil
 		}
-		for _, p := range parts[:3] {
-			n, _ := strconv.ParseUint(p, 10, 32)
+		for _, part := range parts[:3] {
+			n, _ := strconv.ParseUint(part, 10, 32)
 			idx = append(idx, uint32(n))
 		}
 	}
@@ -242,7 +242,7 @@ func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh {
 	pos := utils.ParseVec3(mXml.Position)
 	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 
-	m := Mesh{
+	mesh := Mesh{
 		Name:            mXml.Name,
 		Vertices:        obj.positions,
 		NormalCoords:    obj.normalCoords,
@@ -254,9 +254,9 @@ func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh {
 		CastsShadow:     mXml.CastsShadow == nil || *mXml.CastsShadow,
 		Movable:         mXml.Movable != nil && *mXml.Movable,
 	}
-	m.fillVertices()
-	m.prevCenter = m.boundsCenter
-	return m
+	mesh.fillVertices()
+	mesh.prevCenter = mesh.boundsCenter
+	return mesh
 }
 
 // Resolves an MTL texture reference to a project-local path
@@ -269,20 +269,20 @@ func texturePath(ref string) string {
 }
 
 // Flattens the OBJ face lists into the interleaved vertex array and per-group index lists
-func (m *Mesh) fillVertices() {
+func (mesh *Mesh) fillVertices() {
 	var value []float32
 	var faces [][]uint32
 	var index uint32
 	index = 0
 	var lo, hi mgl32.Vec3
 	first := true
-	for i := 0; i < len(m.Faces); i++ {
+	for i := 0; i < len(mesh.Faces); i++ {
 		var face []uint32
-		for j := 0; j < len(m.Faces[i]); j += 3 {
-			posIndex := m.Faces[i][j] - 1
-			texIndex := m.Faces[i][j+1] - 1
-			normIndex := m.Faces[i][j+2] - 1
-			position := m.Position.Sub(m.initialPosition).Add(m.Vertices[posIndex])
+		for j := 0; j < len(mesh.Faces[i]); j += 3 {
+			posIndex := mesh.Faces[i][j] - 1
+			texIndex := mesh.Faces[i][j+1] - 1
+			normIndex := mesh.Faces[i][j+2] - 1
+			position := mesh.Position.Sub(mesh.initialPosition).Add(mesh.Vertices[posIndex])
 			if first {
 				lo, hi, first = position, position, false
 			}
@@ -297,90 +297,107 @@ func (m *Mesh) fillVertices() {
 			value = append(value, position[0])
 			value = append(value, position[1])
 			value = append(value, position[2])
-			value = append(value, m.NormalCoords[normIndex][0])
-			value = append(value, m.NormalCoords[normIndex][1])
-			value = append(value, m.NormalCoords[normIndex][2])
-			value = append(value, m.TextureCoords[texIndex][0])
-			value = append(value, m.TextureCoords[texIndex][1])
+			value = append(value, mesh.NormalCoords[normIndex][0])
+			value = append(value, mesh.NormalCoords[normIndex][1])
+			value = append(value, mesh.NormalCoords[normIndex][2])
+			value = append(value, mesh.TextureCoords[texIndex][0])
+			value = append(value, mesh.TextureCoords[texIndex][1])
 			face = append(face, index)
 			index++
 		}
 		faces = append(faces, face)
 	}
-	m.vertexData = value
-	m.indexGroups = faces
+	mesh.vertexData = value
+	mesh.indexGroups = faces
 
 	// The AABB's bounding sphere, not a tight one: this culls casters against a
 	// light's radius and a tile's frustum, where over-including is only a wasted
 	// draw and under-including is a missing shadow
-	m.boundsCenter = lo.Add(hi).Mul(0.5)
-	m.boundsRadius = hi.Sub(lo).Len() * 0.5
+	mesh.boundsCenter = lo.Add(hi).Mul(0.5)
+	mesh.boundsRadius = hi.Sub(lo).Len() * 0.5
 }
 
 // Uploads the mesh's vertex buffer, one mesh handle per face group, and its material textures
-func (m *Mesh) setup(b renderer.Backend) error {
-	m.backend = b
+func (mesh *Mesh) setup(backend renderer.Backend) error {
+	mesh.backend = backend
 
 	// Share one vertex buffer across the face groups, each group owning only
 	// its index list
-	m.vertexBuf = b.CreateBuffer(m.vertexData)
-	m.gpu = make([]renderer.MeshHandle, len(m.indexGroups))
-	for i, face := range m.indexGroups {
-		m.gpu[i] = b.CreateMesh(m.vertexBuf, face, renderer.LayoutMesh)
+	mesh.vertexBuf, _ = backend.CreateBuffer(renderer.BufferInfo{
+		Name: mesh.Name, Usage: renderer.BufferVertex, Location: renderer.LocationHost,
+		Data: mesh.vertexData,
+	})
+	mesh.gpu = make([]renderer.MeshHandle, len(mesh.indexGroups))
+	for i, face := range mesh.indexGroups {
+		mesh.gpu[i] = backend.CreateMesh(renderer.MeshInfo{
+			Name: mesh.Name, Vertices: mesh.vertexBuf, Indices: face, Stride: meshStride,
+		})
 	}
 
 	// Load the material textures recorded at parse time
-	for i := range m.Materials {
-		mat := &m.Materials[i]
+	for i := range mesh.Materials {
+		mat := &mesh.Materials[i]
 		if mat.TexturePath != "" {
-			pix, w, h, err := loadRGBA(mat.TexturePath)
+			pix, width, height, err := loadRGBA(mat.TexturePath)
 			if err != nil {
 				return fmt.Errorf("texture %s: %w", mat.TexturePath, err)
 			}
-			mat.Texture = b.CreateTexture(pix, w, h)
+			mat.Texture = uploadTexture(backend, mat.TexturePath, pix, width, height)
+			mat.TextureSlot = int32(backend.Slot(mat.Texture))
 		}
 		if mat.NormalMapPath != "" {
-			pix, w, h, err := loadRGBA(mat.NormalMapPath)
+			pix, width, height, err := loadRGBA(mat.NormalMapPath)
 			if err != nil {
 				return fmt.Errorf("normal map %s: %w", mat.NormalMapPath, err)
 			}
-			mat.NormalMap = b.CreateTexture(pix, w, h)
+			mat.NormalMap = uploadTexture(backend, mat.NormalMapPath, pix, width, height)
+			mat.NormalMapSlot = int32(backend.Slot(mat.NormalMap))
 		}
 	}
 	return nil
 }
 
+// Uploads tightly packed RGBA8 pixels as a sampled 2D image
+func uploadTexture(backend renderer.Backend, name string, pixels []byte, width, height int) renderer.ImageHandle {
+	img := backend.CreateImage(renderer.ImageInfo{
+		Name: name, Width: width, Height: height, Format: renderer.FormatRGBA8,
+		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
+	})
+	backend.UpdateImage(img, renderer.ImageData{Pixels: pixels, Width: width, Height: height})
+	return img
+}
+
 // Reuploads the vertex buffer when a Move marked it dirty
-func (m *Mesh) updateVertices() {
-	if !m.needsUpdate {
+func (mesh *Mesh) updateVertices() {
+	if !mesh.needsUpdate {
 		return
 	}
-	m.backend.UpdateBuffer(m.vertexBuf, m.vertexData)
-	m.needsUpdate = false
+	mesh.backend.UpdateBuffer(mesh.vertexBuf, 0, mesh.vertexData)
+	mesh.needsUpdate = false
 }
 
 // Draws every face group, writing its material fields into u first; the caller owns u.Model
-func (m *Mesh) draw(u *renderer.DrawUniforms) {
-	for i := range m.indexGroups {
-		mat := m.Materials[i]
+func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) {
+	for i := range mesh.indexGroups {
+		mat := mesh.Materials[i]
 
-		u.MatAmbient = mat.Ambient
-		u.MatDiffuse = mat.Diffuse
-		u.MatSpecular = mat.Specular
-		u.MatShininess = mat.Shininess
-		u.MatMetallic = mat.Metallic
-		u.MatRoughness = mat.Roughness
-		u.MatAo = mat.Ao
-		u.TexDiffuse = mat.Texture // 0 means the backend's white pixel
+		uniforms.MatAmbient = mat.Ambient
+		uniforms.MatDiffuse = mat.Diffuse
+		uniforms.MatSpecular = mat.Specular
+		uniforms.MatShininess = mat.Shininess
+		uniforms.MatMetallic = mat.Metallic
+		uniforms.MatRoughness = mat.Roughness
+		uniforms.MatAo = mat.Ao
+		uniforms.TexDiffuse = mat.TextureSlot // 0 is the backend's white pixel
 
 		// Flag normal mapping per face group, the shader falling back to the
 		// interpolated geometric normal without a map
-		u.TexNormalMap = mat.NormalMap
-		u.UseNormalMap = 0
+		uniforms.TexNormalMap = mat.NormalMapSlot
+		uniforms.UseNormalMap = 0
 		if mat.NormalMap != 0 {
-			u.UseNormalMap = 1
+			uniforms.UseNormalMap = 1
 		}
 
-		m.backend.Draw(m.gpu[i], u)
+		ctx.draw(mesh.gpu[i], uniforms)
 	}
 }

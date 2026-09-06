@@ -1,12 +1,11 @@
 // Package vulkan implements renderer.Backend on Vulkan 1.3, using the
-// hand-written bindings in the go-vulkan repo. Every vk.* call in the
-// engine lives in this package.
+// hand-written bindings in the go-vulkan repo. Every vk.* call in the engine
+// lives in this package, and nothing in it names a rendering technique.
 package vulkan
 
 import (
 	"fmt"
 	"math"
-	"os"
 	"unsafe"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -19,155 +18,30 @@ import (
 
 const (
 	framesInFlight = 2
-	// Per-frame uniform bump arena, sized by the shadow pass rather than the draw
-	// count: the bake rebinds the whole 4848-byte FrameUniforms per tile, so a
-	// full 337-slot atlas costs ~1.6 MiB and 1 MiB overflowed at 259 tiles. An
-	// overflow wraps over blocks the GPU still needs — silent wrong depth
-	arenaSize = 4 << 20
-	// Bindless array sizes, which must match the descriptor set layout the
-	// shaders were compiled against.
-	max2DTextures   = 256
-	maxCubeTextures = 64
+	// Per-frame upload arena. Sized by the shadow bake, which uploads one
+	// ~80-byte block per tile: a full 337-slot atlas costs ~40 KiB here, where
+	// republishing the whole frame block per tile used to cost ~1.6 MiB
+	arenaSize = 2 << 20
+	// Views 0-2 are reserved: none, the backbuffer, and its depth buffer
+	firstUserView = 3
 
 	depthFormat = vk.FormatD32Sfloat
-	// Wants to be R16G16B16A16_SFLOAT for HDR, but no half-float format is bound
-	// yet. Changing this constant is the whole HDR change on this side
-	offscreenColorFormat = vk.FormatR8G8B8A8Unorm
 )
 
-// Every stage reads the push constant: vertex for matrices, geometry for the cube shadow matrices, fragment for materials and lights
-const pushStages = vk.ShaderStageVertex | vk.ShaderStageGeometry | vk.ShaderStageFragment
+// Every stage reads the push constant: vertex for matrices, geometry for a cube
+// pass, fragment for materials and lights, compute for whatever a dispatch was
+// handed
+const pushStages = vk.ShaderStageVertex | vk.ShaderStageGeometry | vk.ShaderStageFragment | vk.ShaderStageCompute
 
-// A pipeline is built per (shader, pass kind, vertex layout): the pass decides winding, formats and blending, the layout decides vertex input
-type passKind int
+// The same stages reach the descriptor set
+const descriptorStages = pushStages
 
-const (
-	passMain passKind = iota
-	passShadow2D
-	passShadowCube
-	passOffscreenColor
-	// The depth prepass: the backbuffer's depth attachment, no colour at all
-	passDepthPrepass
-	passCount
-)
+// Four device addresses, well inside the 128-byte guaranteed minimum
+const pushConstantSize = uint32(unsafe.Sizeof([4]renderer.Address{}))
 
-// Pipelines are keyed by layout, so the table needs a count the enum itself
-// does not carry. renderer.VertexLayout is the shared declaration.
-const layoutCount = int(renderer.LayoutPositionUV) + 1
-
-// One texture: its image, view, and the bindless slot shaders reach it through
-type texEntry struct {
-	cube bool
-	// Index into the bindless array of its kind (binding 0 for 2D, 1 for cube).
-	slot      uint32
-	image     vk.Image
-	alloc     vk.VmaAllocation
-	view      vk.ImageView
-	ownsImage bool // false for shadow-map views, whose image the shadowEntry owns
-	valid     bool
-
-	// Set only on textures the CPU rewrites every frame (the UI overlay): a
-	// persistently mapped staging buffer plus the deferred-copy bookkeeping.
-	staging       vk.Buffer
-	stagingAlloc  vk.VmaAllocation
-	stagingMapped unsafe.Pointer
-	stagingSize   uint64
-	width, height int
-	pending       bool // staged pixels not yet copied into the image
-}
-
-// One buffer and its persistent mapping
-type bufEntry struct {
-	buffer vk.Buffer
-	alloc  vk.VmaAllocation
-	mapped unsafe.Pointer
-	size   uint64
-	valid  bool
-}
-
-// One drawable: a vertex buffer, an optional index buffer, and everything Draw needs
-//
-// layout and count are recorded at creation, which is what lets one Draw serve
-// meshes, the skybox and the overlay alike.
-type meshEntry struct {
-	vbo         renderer.BufferHandle
-	indexBuffer vk.Buffer
-	indexAlloc  vk.VmaAllocation
-	layout      renderer.VertexLayout
-	count       uint32 // index count when indexed, vertex count otherwise
-	indexed     bool
-	valid       bool
-}
-
-// One offscreen render target, holding both views of the same image
-type targetEntry struct {
-	format         renderer.TargetFormat
-	cube           bool
-	width, height  int
-	image          vk.Image
-	alloc          vk.VmaAllocation
-	attachmentView vk.ImageView           // 2D, or 2D_ARRAY(6) for cubes
-	tex            renderer.TextureHandle // the sampled view, as a texture handle
-	// Tracked so BeginPass knows which transition to record, an image having
-	// no implicit "ready to render into" state the way a GL texture does.
-	layout vk.ImageLayout
-	valid  bool
-}
-
-// Reports the pass kind a target is rendered with, which selects the pipeline
-func (t *targetEntry) pass() passKind {
-	switch {
-	case t.format == renderer.TargetColor:
-		return passOffscreenColor
-	case t.cube:
-		return passShadowCube
-	default:
-		return passShadow2D
-	}
-}
-
-// Reports the aspect its attachment and barriers refer to
-func (t *targetEntry) aspect() vk.ImageAspectFlags {
-	if t.format == renderer.TargetColor {
-		return vk.ImageAspectColor
-	}
-	return vk.ImageAspectDepth
-}
-
-// Reports the rect a pass on this target covers, which is all of it
-func (t *targetEntry) renderArea() vk.Rect2D {
-	return vk.Rect2D{Extent: vk.Extent2D{Width: uint32(t.width), Height: uint32(t.height)}}
-}
-
-// Reports the number of array layers, 6 for a cube
-func (t *targetEntry) layers() uint32 {
-	if t.cube {
-		return 6
-	}
-	return 1
-}
-
-// A texture's GPU objects awaiting deferred destruction
-type retiredTexture struct {
-	frame        uint64
-	view         vk.ImageView
-	image        vk.Image
-	alloc        vk.VmaAllocation
-	staging      vk.Buffer
-	stagingAlloc vk.VmaAllocation
-}
-
-// Everything one in-flight frame owns: its command buffer, sync objects and uniform arena
-type frameData struct {
-	cb          vk.CommandBuffer
-	fence       vk.Fence
-	acquireSem  vk.Semaphore
-	arena       vk.Buffer
-	arenaAlloc  vk.VmaAllocation
-	arenaMapped unsafe.Pointer
-	arenaAddr   uint64
-	arenaUsed   uint64
-}
+// The backend implements the whole interface, checked here rather than at the
+// one call site that assigns it
+var _ renderer.Backend = (*VKBackend)(nil)
 
 type VKBackend struct {
 	window *glfw.Window
@@ -179,115 +53,80 @@ type VKBackend struct {
 	queueFamily    uint32
 	queue          vk.Queue
 	allocator      *vk.VmaAllocator
+	props          vk.PhysicalDeviceProperties
+	caps           renderer.Capacities
 
-	// swapchain
-	swapchainCI vk.SwapchainCreateInfo // kept for recreation on resize
-	swapchain   vk.SwapchainKHR
-	swapFormat  vk.Format
-	swapExtent  vk.Extent2D
-	swapImages  []vk.Image
-	swapViews   []vk.ImageView
-	renderSems  []vk.Semaphore // one per swapchain image
-	depthImage  vk.Image
-	depthAlloc  vk.VmaAllocation
-	depthView   vk.ImageView
-
-	// The multisampled colour image the main pass renders into, resolved into the
-	// swapchain image at EndPass. Zero when MSAA is off, which is the "is MSAA on" test
-	msaaImage vk.Image
-	msaaAlloc vk.VmaAllocation
-	msaaView  vk.ImageView
-	// Sample count of the main pass, decided once in Init from
-	// settings.MSAASamples and the device's limits
+	// swapchain and everything sized to it
+	swapchainCI     vk.SwapchainCreateInfo
+	swapchain       vk.SwapchainKHR
+	swapFormat      vk.Format
+	swapExtent      vk.Extent2D
+	swapchainImages []imageEntry
+	renderSems      []vk.Semaphore
+	// The depth buffer and, when the backend multisamples, the colour image the
+	// backbuffer view resolves out of. Both are the backend's because both are
+	// sized to a swapchain only it sees resize
+	depth   imageEntry
+	msaa    imageEntry
 	samples vk.SampleCountFlags
 
 	// frame state
-	commandPool vk.CommandPool
-	frames      [framesInFlight]frameData
-	frameIndex  int
-	imageIndex  uint32
-	frameActive bool
+	commandPool  vk.CommandPool
+	frames       [framesInFlight]frameData
+	frameIndex   int
+	imageIndex   uint32
+	frameCounter uint64
+	// True while Backend.Frame's closure runs, which is what tells an image
+	// upload to stage rather than submit
+	recording     bool
+	boundPipeline vk.Pipeline
 
-	// descriptors / pipeline layout
+	// descriptors
 	setLayout      vk.DescriptorSetLayout
 	descriptorPool vk.DescriptorPool
 	descriptorSet  vk.DescriptorSet
 	pipelineLayout vk.PipelineLayout
+	slotFree       [bindingKinds][]uint32
+	slotNext       [bindingKinds]uint32
 
-	// samplers
-	samplerRepeat     vk.Sampler // material textures
-	samplerCubeLinear vk.Sampler // skybox
-	samplerShadow2D   vk.Sampler // nearest, clamp-to-border, white border
-	samplerShadowCube vk.Sampler // nearest, clamp-to-edge
+	// Resource tables, the handle being the index. Entry 0 is reserved in the
+	// tables whose handle 0 means "none"
+	images    []*imageEntry
+	views     []*viewEntry
+	buffers   []*bufEntry
+	meshes    []*meshEntry
+	pipelines []*pipelineEntry
+	samplers  []vk.Sampler
+	modules   map[string]vk.ShaderModule
 
-	// Resource tables, the handle being the index. Entry 0 is reserved in every
-	// table except textures, where handle 0 is the built-in white pixel.
-	textures     []texEntry
-	buffers      []bufEntry
-	meshes       []meshEntry
-	targets      []targetEntry
-	shaders      []shaderEntry
-	next2DSlot   uint32
-	nextCubeSlot uint32
+	// Images with staged pixels waiting to be copied at the next frame's start
+	pendingUploads []renderer.ImageHandle
+	// Resources waiting for the frames that reference them to finish
+	retired []retired
 
-	// Textures with staged pixels waiting to be copied at the next BeginFrame.
-	pendingUploads []renderer.TextureHandle
-
-	// Resources replaced mid-frame, waiting for the frames that reference them
-	// to finish. frameCounter is the monotonic frame number they are aged against.
-	retired      []retiredTexture
-	frameCounter uint64
-
-	// Which texture handles are currently mirrored into the dedicated shadow
-	// descriptors (bindings 2 and 3), so they are only rewritten on change.
-	shadowStaticHandle  renderer.TextureHandle
-	shadowDynamicHandle renderer.TextureHandle
-
-	// Device address of this pass's frame block, re-pushed by every draw.
-	// BindFrameUniforms writes it; the arena entry lives until the frame ends.
-	frameUniformAddr uint64
-	// Device address of this frame's shadow record array, likewise re-pushed by
-	// every draw. Frame-scoped, so BeginFrame seeds it with one empty record and
-	// no draw can push a null pointer.
-	recordAddr uint64
-
-	// draw-time state
-	currentPass   passKind
-	currentTarget renderer.RenderTargetHandle // 0 = backbuffer pass
-	// True between BeginPass and EndPass. currentTarget cannot stand in for it,
-	// 0 meaning both "backbuffer pass" and "no pass"; the copy path needs to tell
-	// those apart, a copy being illegal inside dynamic rendering
-	passActive    bool
-	boundPipeline vk.Pipeline
-	cullMode      renderer.CullMode
-	depthCompare  renderer.CompareOp
-	// What the backbuffer's depth image holds, so a second pass on it can load
-	// rather than discard. Reset every frame, the image not surviving one
-	depthLayout vk.ImageLayout
-	// The shader set BindShader selected, used by every following Draw
-	boundShader renderer.ShaderHandle
+	// Whether VK_EXT_debug_utils was there to enable, which is what makes a
+	// pass label reach a capture
+	hasLabels bool
 }
 
 // Builds an empty Vulkan backend, before any Vulkan object exists
 func New() *VKBackend {
-	b := &VKBackend{
-		swapFormat:          vk.FormatB8G8R8A8Unorm,
-		samples:             vk.SampleCount1Bit, // Init narrows this once the device is known
-		shadowStaticHandle:  invalidHandle,
-		shadowDynamicHandle: invalidHandle,
+	backend := &VKBackend{
+		swapFormat: vk.FormatB8G8R8A8Unorm,
+		samples:    vk.SampleCount1Bit, // Init narrows this once the device is known
+		modules:    map[string]vk.ShaderModule{},
 	}
-	// Reserve index 0 in the tables whose handle 0 means "none"
-	b.buffers = append(b.buffers, bufEntry{})
-	b.meshes = append(b.meshes, meshEntry{})
-	b.targets = append(b.targets, targetEntry{})
-	return b
+	// Reserve index 0 in the tables whose handle 0 means "none", and index 1 in
+	// the image table for renderer.BackbufferImage, which image() resolves to
+	// whichever swapchain image this frame acquired
+	backend.images = append(backend.images, &imageEntry{binding: -1}, &imageEntry{binding: -1})
+	backend.buffers = append(backend.buffers, &bufEntry{})
+	backend.meshes = append(backend.meshes, &meshEntry{})
+	return backend
 }
 
-// Marks "no texture mirrored yet" in the dedicated-binding caches, at a value
-// no real handle (a table index) can collide with.
-const invalidHandle = renderer.TextureHandle(math.MaxUint32)
-
-// Aborts on a failed Vulkan call, since resource creation failing mid-run is not recoverable and error plumbing at every call site would bury the code
+// Aborts on a failed Vulkan call: resource creation failing mid-run is not
+// recoverable, and error plumbing at every call site would bury the code
 func fatal(err error, what string) {
 	if err != nil {
 		panic(fmt.Sprintf("vulkan: %s: %v", what, err))
@@ -296,8 +135,9 @@ func fatal(err error, what string) {
 
 // --- lifecycle ---------------------------------------------------------------
 
-// Brings up the whole device stack: instance, surface, device, allocator, swapchain, frames, descriptors and default textures
-func (backend *VKBackend) Init(window *glfw.Window) error {
+// Brings up the whole device stack: instance, surface, device, allocator,
+// swapchain, frames, descriptors and the default textures
+func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error {
 	backend.window = window
 
 	if err := backend.createInstance(); err != nil {
@@ -330,36 +170,56 @@ func (backend *VKBackend) Init(window *glfw.Window) error {
 	if err := backend.createFrameData(); err != nil {
 		return err
 	}
-	backend.createSamplers()
+	backend.createDefaultSampler()
 	backend.createDescriptors()
 	backend.createGlobalPipelineLayout()
-	backend.createDefaultTextures()
+	backend.createDefaultImages()
+	backend.buildCaps(req)
 	return nil
 }
 
-// Creates the instance with the extensions GLFW requires, and the validation layers when [debug] validation is set
+// Creates the instance with the extensions GLFW requires, the validation layers
+// when [debug] validation is set, and debug-utils when the loader has it
 func (backend *VKBackend) createInstance() error {
-	// Keep validation opt-in, as the layers are a separate package on most
+	// Keep validation opt-in: the layers are a separate package on most
 	// distributions and instance creation fails outright when one is missing
 	var layers []string
 	if settings.Validation {
 		layers = append(layers, "VK_LAYER_KHRONOS_validation")
 	}
 
+	// Ask before enabling: an extension the loader does not have fails instance
+	// creation outright, and this one is absent on a machine with neither the
+	// validation layers nor RenderDoc installed
+	extensions := backend.window.GetRequiredInstanceExtensions()
+	if available, err := vk.EnumerateInstanceExtensionProperties(); err == nil {
+		for _, entry := range available {
+			if entry == vk.ExtDebugUtils {
+				extensions = append(extensions, vk.ExtDebugUtils)
+				backend.hasLabels = true
+				break
+			}
+		}
+	}
+
 	inst, err := vk.CreateInstance(vk.InstanceCreateInfo{
-		AppName:    "Overdrive", // TODO: use parameter
+		AppName:    "Overdrive",
 		APIVersion: vk.ApiVersion13,
-		Extensions: backend.window.GetRequiredInstanceExtensions(),
+		Extensions: extensions,
 		Layers:     layers,
 	})
-	if err != nil { // TODO: replace with chk
+	if err != nil {
 		return err
 	}
 	backend.instance = inst
+	// The extension's entry points are not exported by the loader, so they are
+	// fetched here; without this every label call is a no-op
+	vk.LoadDebugUtils(inst)
 	return nil
 }
 
-// Creates the surface, picks a graphics-and-present queue family, and creates the logical device with the features the engine needs
+// Creates the surface, picks a graphics-and-present queue family, and creates
+// the logical device with the features the engine needs
 func (backend *VKBackend) createSurfaceAndDevice() error {
 	devices, err := vk.EnumeratePhysicalDevices(backend.instance)
 	if err != nil {
@@ -369,12 +229,12 @@ func (backend *VKBackend) createSurfaceAndDevice() error {
 		return fmt.Errorf("no Vulkan physical devices")
 	}
 	backend.physicalDevice = devices[0]
-	name := vk.GetPhysicalDeviceProperties2(backend.physicalDevice).DeviceName
-	fmt.Printf("Vulkan device: %s\n", name)
+	backend.props = vk.GetPhysicalDeviceProperties2(backend.physicalDevice)
+	fmt.Printf("Vulkan device: %s\n", backend.props.DeviceName)
 
 	found := false
-	for i, qf := range vk.GetPhysicalDeviceQueueFamilyProperties(backend.physicalDevice) {
-		if qf.QueueFlags&vk.QueueGraphics != 0 {
+	for i, queueFamily := range vk.GetPhysicalDeviceQueueFamilyProperties(backend.physicalDevice) {
+		if queueFamily.QueueFlags&vk.QueueGraphics != 0 {
 			backend.queueFamily = uint32(i)
 			found = true
 			break
@@ -384,27 +244,28 @@ func (backend *VKBackend) createSurfaceAndDevice() error {
 		return fmt.Errorf("no queue family supports both graphics and present")
 	}
 
-	// DescriptorIndexing makes the bindless arrays legal, BufferDeviceAddress the
-	// uniform pointers, GeometryShader the point shadow pass, ScalarBlockLayout
-	// the -fvk-use-scalar-layout SPIR-V
+	// DescriptorIndexing makes the bindless arrays legal, BufferDeviceAddress
+	// the uniform pointers, ScalarBlockLayout the -fvk-use-scalar-layout SPIR-V,
+	// the storage-image pair the compute output targets
 	dev, err := vk.CreateDevice(backend.physicalDevice, vk.DeviceCreateInfo{
 		QueueCreateInfos: []vk.DeviceQueueCreateInfo{
 			{QueueFamilyIndex: backend.queueFamily, Priorities: []float32{1}},
 		},
 		Extensions: []string{"VK_KHR_swapchain"},
 		Features: vk.Features{
-			DescriptorIndexing:                        true,
-			ShaderSampledImageArrayNonUniformIndexing: true,
-			RuntimeDescriptorArray:                    true,
-			BufferDeviceAddress:                       true,
-			SamplerAnisotropy:                         true,
-			Synchronization2:                          true,
-			DynamicRendering:                          true,
-			// Added on top of reference
+			DescriptorIndexing:                           true,
+			ShaderSampledImageArrayNonUniformIndexing:    true,
+			ShaderStorageImageArrayNonUniformIndexing:    true,
+			RuntimeDescriptorArray:                       true,
+			BufferDeviceAddress:                          true,
+			SamplerAnisotropy:                            true,
+			Synchronization2:                             true,
+			DynamicRendering:                             true,
 			GeometryShader:                               true,
 			ScalarBlockLayout:                            true,
 			DescriptorBindingPartiallyBound:              true,
 			DescriptorBindingSampledImageUpdateAfterBind: true,
+			DescriptorBindingStorageImageUpdateAfterBind: true,
 		},
 	})
 	if err != nil {
@@ -428,21 +289,22 @@ func (backend *VKBackend) createSurfaceAndDevice() error {
 	return nil
 }
 
-// Allocates the per-frame command buffer, fence, semaphore and mapped uniform arena, one set per frame in flight
+// Allocates the per-frame command buffer, fence, semaphore, mapped arena and
+// query pool, one set per frame in flight
 func (backend *VKBackend) createFrameData() error {
 	cbs, err := vk.AllocateCommandBuffers(backend.device, backend.commandPool, framesInFlight)
 	if err != nil {
 		return err
 	}
 	for i := range backend.frames {
-		f := &backend.frames[i]
-		f.cb = cbs[i]
-		// Create the fence signalled, so the first frame does not block on a
-		// fence no submit will ever signal
-		if f.fence, err = vk.CreateFence(backend.device, vk.FenceCreateSignaled); err != nil {
+		frame := &backend.frames[i]
+		frame.commandBuffer = cbs[i]
+		// Signalled, so the first frame does not block on a fence no submit
+		// will ever signal
+		if frame.fence, err = vk.CreateFence(backend.device, vk.FenceCreateSignaled); err != nil {
 			return err
 		}
-		if f.acquireSem, err = vk.CreateSemaphore(backend.device); err != nil {
+		if frame.acquireSem, err = vk.CreateSemaphore(backend.device); err != nil {
 			return err
 		}
 
@@ -455,106 +317,39 @@ func (backend *VKBackend) createFrameData() error {
 		if err != nil {
 			return err
 		}
-		f.arena, f.arenaAlloc, f.arenaMapped = buf, alloc, info.MappedData
-		f.arenaAddr = vk.GetBufferDeviceAddress(backend.device, buf)
+		frame.arena, frame.arenaAlloc, frame.arenaMapped = buf, alloc, info.MappedData
+		frame.arenaAddr = vk.GetBufferDeviceAddress(backend.device, buf)
 	}
 	return nil
 }
 
-// Creates the four samplers the engine binds: repeating material, clamped cube, and the two nearest-filtered shadow samplers
-func (backend *VKBackend) createSamplers() {
-	var err error
-	base := vk.SamplerCreateInfo{
-		MagFilter: vk.FilterLinear, MinFilter: vk.FilterLinear,
-		// Linear rather than nearest between mip levels. Inert while MaxLod is 1
-		// and nothing generates mips, but the right default for when they do
-		MipmapMode:   vk.SamplerMipmapModeLinear,
-		AddressModeU: vk.SamplerAddressModeRepeat,
-		AddressModeV: vk.SamplerAddressModeRepeat,
-		AddressModeW: vk.SamplerAddressModeRepeat,
-		MaxLod:       1,
-	}
-
-	// Material sampler only: a skybox is never viewed at a grazing angle, and the
-	// shadow samplers filter NEAREST, where anisotropy means nothing
-	material := base
+// Creates the sampler handle 0 names, which every image gets unless it asks for
+// another
+func (backend *VKBackend) createDefaultSampler() {
+	aniso := float32(0)
 	if settings.AnisotropyEnabled() {
-		material.AnisotropyEnable = true
-		material.MaxAnisotropy = float32(settings.Anisotropy)
-		// Lower a request the device cannot meet rather than failing: the config
-		// file is written once, the GPU it runs on is not
-		if limit := vk.GetPhysicalDeviceProperties2(backend.physicalDevice).MaxSamplerAnisotropy; limit < material.MaxAnisotropy {
-			material.MaxAnisotropy = limit
-		}
+		aniso = float32(settings.Anisotropy)
 	}
-	backend.samplerRepeat, err = vk.CreateSampler(backend.device, material)
-	fatal(err, "create repeat sampler")
-
-	// Derived from base, not material, so none of these inherit the anisotropy
-	clamp := base
-	clamp.AddressModeU = vk.SamplerAddressModeClampToEdge
-	clamp.AddressModeV = vk.SamplerAddressModeClampToEdge
-	clamp.AddressModeW = vk.SamplerAddressModeClampToEdge
-	backend.samplerCubeLinear, err = vk.CreateSampler(backend.device, clamp)
-	fatal(err, "create cube sampler")
-
-	cubeShadow := clamp
-	cubeShadow.MagFilter = vk.FilterNearest
-	cubeShadow.MinFilter = vk.FilterNearest
-	backend.samplerShadowCube, err = vk.CreateSampler(backend.device, cubeShadow)
-	fatal(err, "create cube shadow sampler")
-
-	// Give the sun's map an opaque-white border, so outside its light frustum
-	// reads "fully lit"
-	shadow2D := cubeShadow
-	shadow2D.AddressModeU = vk.SamplerAddressModeClampToBorder
-	shadow2D.AddressModeV = vk.SamplerAddressModeClampToBorder
-	shadow2D.BorderColor = vk.BorderColorOpaqueWhiteFloat
-	backend.samplerShadow2D, err = vk.CreateSampler(backend.device, shadow2D)
-	fatal(err, "create 2D shadow sampler")
+	backend.samplers = append(backend.samplers, 0) // placeholder, replaced below
+	sampler, err := vk.CreateSampler(backend.device, vk.SamplerCreateInfo{
+		MagFilter: vk.FilterLinear, MinFilter: vk.FilterLinear,
+		MipmapMode:       vk.SamplerMipmapModeLinear,
+		AddressModeU:     vk.SamplerAddressModeRepeat,
+		AddressModeV:     vk.SamplerAddressModeRepeat,
+		AddressModeW:     vk.SamplerAddressModeRepeat,
+		AnisotropyEnable: aniso > 1,
+		MaxAnisotropy:    minF32(aniso, backend.props.MaxSamplerAnisotropy),
+		MaxLod:           16,
+	})
+	fatal(err, "create default sampler")
+	backend.samplers[0] = sampler
 }
 
-// Creates the one descriptor set the engine binds: two bindless texture arrays plus dedicated shadow-map descriptors
-func (backend *VKBackend) createDescriptors() {
-	// 0/1 bindless material arrays, 2/3 the static and dynamic shadow atlases.
-	// Dedicated because PCF taps them 9x per fragment and some drivers re-fetch a
-	// dynamically-indexed descriptor per tap — measured at ~1.7x frame time.
-	// Matches common.slang
-	const bindless = vk.DescriptorBindingPartiallyBound | vk.DescriptorBindingUpdateAfterBind
-	bindings := []vk.DescriptorSetLayoutBinding{
-		{Binding: 0, DescriptorType: vk.DescriptorTypeCombinedImageSampler,
-			DescriptorCount: max2DTextures, StageFlags: vk.ShaderStageFragment, BindingFlags: bindless},
-		{Binding: 1, DescriptorType: vk.DescriptorTypeCombinedImageSampler,
-			DescriptorCount: maxCubeTextures, StageFlags: vk.ShaderStageFragment, BindingFlags: bindless},
-		{Binding: 2, DescriptorType: vk.DescriptorTypeCombinedImageSampler,
-			DescriptorCount: 1, StageFlags: vk.ShaderStageFragment, BindingFlags: bindless},
-		{Binding: 3, DescriptorType: vk.DescriptorTypeCombinedImageSampler,
-			DescriptorCount: 1, StageFlags: vk.ShaderStageFragment, BindingFlags: bindless},
+func minF32(first, second float32) float32 {
+	if first < second {
+		return first
 	}
-
-	layout, err := vk.CreateDescriptorSetLayout(backend.device, vk.DescriptorSetLayoutCreateInfo{
-		Flags:           vk.DescriptorSetLayoutCreateUpdateAfterBindPool,
-		Bindings:        bindings,
-		UseBindingFlags: true,
-	})
-	fatal(err, "create descriptor set layout")
-	backend.setLayout = layout
-
-	total := uint32(max2DTextures + maxCubeTextures + 2)
-	pool, err := vk.CreateDescriptorPool(backend.device, vk.DescriptorPoolCreateInfo{
-		Flags:     vk.DescriptorPoolCreateUpdateAfterBind,
-		MaxSets:   1,
-		PoolSizes: []vk.DescriptorPoolSize{{Type: vk.DescriptorTypeCombinedImageSampler, DescriptorCount: total}},
-	})
-	fatal(err, "create descriptor pool")
-	backend.descriptorPool = pool
-
-	sets, err := vk.AllocateDescriptorSets(backend.device, vk.DescriptorSetAllocateInfo{
-		Pool:    pool,
-		Layouts: []vk.DescriptorSetLayout{layout},
-	})
-	fatal(err, "allocate descriptor set")
-	backend.descriptorSet = sets[0]
+	return second
 }
 
 func (backend *VKBackend) createGlobalPipelineLayout() {
@@ -566,85 +361,117 @@ func (backend *VKBackend) createGlobalPipelineLayout() {
 	backend.pipelineLayout = layout
 }
 
-// Uploads the white pixel and black cube that occupy slot 0 of each bindless array, and seeds the shadow descriptors with them
-func (backend *VKBackend) createDefaultTextures() {
-	// Fill 2D slot 0 (handle 0), the white pixel the engine uses for "no texture"
-	backend.uploadTexture([]byte{255, 255, 255, 255}, 1, 1, 1, false, backend.samplerRepeat)
-	// Fill cube slot 0 with a black dummy, sampled when no cubemap was ever set
-	backend.uploadTexture(make([]byte, 4*6), 1, 1, 6, true, backend.samplerCubeLinear)
+// Uploads the white pixel and black cube that occupy slot 0 of the two sampled
+// arrays, which is what an unset texture falls back to, and seeds the dedicated
+// descriptors so none of them is ever read unwritten
+func (backend *VKBackend) createDefaultImages() {
+	white := backend.CreateImage(renderer.ImageInfo{
+		Name: "white", Width: 1, Height: 1, Format: renderer.FormatRGBA8,
+		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
+	})
+	backend.UpdateImage(white, renderer.ImageData{Pixels: []byte{255, 255, 255, 255}})
+	backend.Slot(white)
 
-	// Seed both atlas descriptors with the white pixel: partially-bound tolerates
-	// holes, but a draw sampling one would still read undefined data. Both are 2D
-	// now that a cube face is an ordinary atlas tile
-	backend.writeDedicatedTexture(2, 0, backend.textures[0].view, backend.samplerShadow2D)
-	backend.writeDedicatedTexture(3, 0, backend.textures[0].view, backend.samplerShadow2D)
+	black := backend.CreateImage(renderer.ImageInfo{
+		Name: "blackCube", Width: 1, Height: 1, Layers: 6, Kind: renderer.ImageCube,
+		Format: renderer.FormatRGBA8, Usage: renderer.ImageSampled | renderer.ImageCopyDst,
+	})
+	backend.UpdateImage(black, renderer.ImageData{Pixels: make([]byte, 4*6), LayerCount: 6})
+	backend.Slot(black)
+
+	// Partially-bound tolerates a hole, but a draw sampling one would still read
+	// undefined data
+	entry := backend.image(white)
+	for i := uint32(0); i < maxHotTextures; i++ {
+		vk.UpdateDescriptorSets(backend.device, []vk.WriteDescriptorSet{{
+			DstSet: backend.descriptorSet, DstBinding: bindHot, DstArrayElement: i,
+			DescriptorType: vk.DescriptorTypeCombinedImageSampler,
+			ImageInfo: []vk.DescriptorImageInfo{{
+				Sampler: entry.sampler, ImageView: entry.view, ImageLayout: vk.ImageLayoutShaderReadOnlyOptimal,
+			}},
+		}})
+	}
 }
 
-// Waits for the GPU to go idle, then destroys every Vulkan object the backend owns, in reverse creation order
+// Records what the device can do and what the request actually got
+func (backend *VKBackend) buildCaps(req renderer.Request) {
+	features := renderer.Features{
+		renderer.FeatureCompute: true,
+	}
+	for _, frame := range req.Features {
+		if !features[frame] {
+			features[frame] = false
+		}
+	}
+	backend.caps = renderer.Capacities{
+		MaxAnisotropy:     backend.props.MaxSamplerAnisotropy,
+		SampleCounts:      int(backend.props.FramebufferColorSampleCounts & backend.props.FramebufferDepthSampleCounts),
+		BackbufferSamples: samplesToInt(backend.samples),
+		Features:          features,
+		Formats: func(format renderer.Format) bool {
+			props := vk.GetPhysicalDeviceFormatProperties2(backend.physicalDevice, backend.format(format))
+			return props.OptimalTilingFeatures&(vk.FormatFeatureSampledImage|vk.FormatFeatureColorAttachment|vk.FormatFeatureDepthStencilAttachment) != 0
+		},
+	}
+}
+
+func (backend *VKBackend) Capacities() renderer.Capacities { return backend.caps }
+
+// Waits for the GPU to go idle, then destroys every Vulkan object the backend
+// owns, in reverse creation order
 func (backend *VKBackend) Shutdown() {
 	if backend.device == 0 {
 		return
 	}
-	// Wait first, as nothing may be destroyed while the GPU might still read it
 	_ = vk.DeviceWaitIdle(backend.device)
 
-	// Age out the deferred-destruction queue, since an idle GPU references none
-	// of it any more
+	// An idle GPU references none of the retire queue any more
 	backend.frameCounter += framesInFlight + 1
 	backend.drainRetired()
 
-	for i := range backend.shaders {
-		s := &backend.shaders[i]
-		for p := range s.pipelines {
-			for l := range s.pipelines[p] {
-				if s.pipelines[p][l] != 0 {
-					vk.DestroyPipeline(backend.device, s.pipelines[p][l])
-				}
-			}
-		}
-		for _, m := range []vk.ShaderModule{s.vert, s.geo, s.frag} {
-			if m != 0 {
-				vk.DestroyShaderModule(backend.device, m)
-			}
+	for _, entry := range backend.pipelines {
+		if entry.valid {
+			vk.DestroyPipeline(backend.device, entry.pipeline)
 		}
 	}
-	for _, e := range backend.textures {
-		if !e.valid {
+	for _, module := range backend.modules {
+		vk.DestroyShaderModule(backend.device, module)
+	}
+	for _, entry := range backend.views {
+		if entry.valid {
+			vk.DestroyImageView(backend.device, entry.view)
+		}
+	}
+	for _, entry := range backend.images {
+		if !entry.valid {
 			continue
 		}
-		vk.DestroyImageView(backend.device, e.view)
-		if e.ownsImage {
-			backend.allocator.VmaDestroyImage(e.image, e.alloc)
+		vk.DestroyImageView(backend.device, entry.view)
+		if entry.ownsImage {
+			backend.allocator.VmaDestroyImage(entry.image, entry.alloc)
 		}
-		// Free the UI overlay's persistently mapped staging buffer
-		if e.staging != 0 {
-			backend.allocator.VmaDestroyBuffer(e.staging, e.stagingAlloc)
-		}
-	}
-	for _, e := range backend.targets {
-		if e.valid {
-			vk.DestroyImageView(backend.device, e.attachmentView)
-			backend.allocator.VmaDestroyImage(e.image, e.alloc)
+		if entry.staging != 0 {
+			backend.allocator.VmaDestroyBuffer(entry.staging, entry.stagingAlloc)
 		}
 	}
-	for _, e := range backend.meshes {
-		if e.valid {
-			backend.allocator.VmaDestroyBuffer(e.indexBuffer, e.indexAlloc)
+	for _, entry := range backend.meshes {
+		if entry.valid {
+			backend.allocator.VmaDestroyBuffer(entry.indexBuffer, entry.indexAlloc)
 		}
 	}
-	for _, e := range backend.buffers {
-		if e.valid {
-			backend.allocator.VmaDestroyBuffer(e.buffer, e.alloc)
+	for _, entry := range backend.buffers {
+		if entry.valid {
+			backend.allocator.VmaDestroyBuffer(entry.buffer, entry.alloc)
 		}
 	}
 	for i := range backend.frames {
-		f := &backend.frames[i]
-		vk.DestroyFence(backend.device, f.fence)
-		vk.DestroySemaphore(backend.device, f.acquireSem)
-		backend.allocator.VmaDestroyBuffer(f.arena, f.arenaAlloc)
+		frame := &backend.frames[i]
+		vk.DestroyFence(backend.device, frame.fence)
+		vk.DestroySemaphore(backend.device, frame.acquireSem)
+		backend.allocator.VmaDestroyBuffer(frame.arena, frame.arenaAlloc)
 	}
-	for _, s := range []vk.Sampler{backend.samplerRepeat, backend.samplerCubeLinear, backend.samplerShadow2D, backend.samplerShadowCube} {
-		vk.DestroySampler(backend.device, s)
+	for _, sampler := range backend.samplers {
+		vk.DestroySampler(backend.device, sampler)
 	}
 	backend.destroySwapchain()
 	vk.DestroyPipelineLayout(backend.device, backend.pipelineLayout)
@@ -658,532 +485,32 @@ func (backend *VKBackend) Shutdown() {
 	backend.device = 0
 }
 
-// --- frame -------------------------------------------------------------------
-
-// Waits for this frame slot to be free, acquires a swapchain image, resets the command buffer and records the pending uploads
-func (backend *VKBackend) BeginFrame() {
-	if backend.device == 0 {
-		return
-	}
-	frame := &backend.frames[backend.frameIndex]
-	// The depth image is not preserved between frames, so every frame's first
-	// pass on it discards rather than loads
-	backend.depthLayout = vk.ImageLayoutUndefined
-
-	// Throttle the CPU here, as without it frame N+2 would overwrite the arena
-	// and command buffer while the GPU still reads them
-	fatal(vk.WaitForFences(backend.device, []vk.Fence{frame.fence}, true, math.MaxUint64), "wait frame fence")
-
-	for {
-		idx, err := vk.AcquireNextImageKHR(backend.device, backend.swapchain, math.MaxUint64, frame.acquireSem, 0)
-		if err == vk.ErrOutOfDateKHR {
-			backend.recreateSwapchain()
-			continue
-		}
-		if err != nil && err != vk.SuboptimalKHR {
-			fmt.Fprintf(os.Stderr, "vulkan: acquire failed: %v\n", err)
-		}
-		backend.imageIndex = idx
-		break
-	}
-
-	fatal(vk.ResetFences(backend.device, []vk.Fence{frame.fence}), "reset frame fence")
-	frame.arenaUsed = 0
-	backend.frameCounter++
-	backend.drainRetired()
-
-	fatal(vk.ResetCommandBuffer(frame.cb), "reset command buffer")
-	fatal(vk.BeginCommandBuffer(frame.cb, vk.CommandBufferUsageOneTimeSubmit), "begin command buffer")
-	// Bind one descriptor set for the whole frame, only its contents changing
-	vk.CmdBindDescriptorSets(frame.cb, vk.PipelineBindPointGraphics, backend.pipelineLayout, 0,
-		[]vk.DescriptorSet{backend.descriptorSet})
-
-	// Flush anything staged during the previous frame's passes, copies being
-	// legal only outside a render pass
-	backend.flushPendingUploads(frame.cb)
-
-	// One empty record at the head of the arena, so a draw pushes a valid pointer
-	// even in a frame where nothing called BindShadowRecords. The shader only
-	// indexes it through a non-negative LightData.ShadowIndex, which no light has
-	// in that case, but the address itself is dereferenced by the pipeline setup
-	backend.recordAddr = writeArena(backend, renderer.ShadowTile{})
-
-	backend.boundPipeline = 0
-	backend.frameActive = true
-}
-
-// Transitions the swapchain image to present layout, submits the frame's command buffer and presents it
-func (backend *VKBackend) EndFrame() {
-	if !backend.frameActive {
-		return
-	}
-	f := &backend.frames[backend.frameIndex]
-
-	// Transition to present layout, the explicit version of what SwapBuffers hides
-	backend.imageBarrier(f.cb, backend.swapImages[backend.imageIndex], vk.ImageAspectColor, 1,
-		vk.ImageLayoutColorAttachmentOptimal, vk.ImageLayoutPresentSrcKHR,
-		vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite,
-		vk.PipelineStage2None, vk.Access2None)
-
-	fatal(vk.EndCommandBuffer(f.cb), "end command buffer")
-
-	// Wait on the frame's semaphore, signal the image's: present waits on the
-	// image's own, and the two index spaces are not interchangeable
-	fatal(vk.QueueSubmit2(backend.queue, []vk.SubmitInfo2{{
-		WaitSemaphores:   []vk.SemaphoreSubmitInfo{{Semaphore: f.acquireSem, StageMask: vk.PipelineStage2ColorAttachmentOutput}},
-		CommandBuffers:   []vk.CommandBuffer{f.cb},
-		SignalSemaphores: []vk.SemaphoreSubmitInfo{{Semaphore: backend.renderSems[backend.imageIndex], StageMask: vk.PipelineStage2AllCommands}},
-	}}, f.fence), "queue submit")
-
-	if err := vk.QueuePresentKHR(backend.queue, backend.renderSems[backend.imageIndex], backend.swapchain, backend.imageIndex); err != nil {
-		if err == vk.ErrOutOfDateKHR || err == vk.SuboptimalKHR {
-			backend.recreateSwapchain()
-		} else {
-			fmt.Fprintf(os.Stderr, "vulkan: present failed: %v\n", err)
-		}
-	}
-
-	backend.frameIndex = (backend.frameIndex + 1) % framesInFlight
-	backend.frameActive = false
-}
-
-// Begins a depth-only pass on the backbuffer's depth attachment
-//
-// No colour attachment, so nothing is shaded, blended or MSAA-resolved; StoreOp
-// is Store because the main pass loads what this leaves
-func (backend *VKBackend) BeginDepthPrepass() {
-	if !backend.frameActive {
-		return
-	}
-	cb := backend.frames[backend.frameIndex].cb
-	backend.passActive = true
-	backend.currentPass = passDepthPrepass
-	backend.currentTarget = 0
-
-	backend.barrierBackbufferDepth(cb)
-
-	depthAtt := depthAttachment(backend.depthView, false)
-	depthAtt.StoreOp = vk.AttachmentStoreOpStore
-
-	backend.beginRendering(cb, vk.RenderingInfo{
-		LayerCount:      1,
-		RenderArea:      vk.Rect2D{Extent: backend.swapExtent},
-		DepthAttachment: &depthAtt,
-	}, backend.viewportFor(passDepthPrepass, 0, 0,
-		int(backend.swapExtent.Width), int(backend.swapExtent.Height)))
-}
-
-// Begins a pass on target, sized from the target itself so a pass cannot be
-// given an extent that disagrees with its attachments
-//
-// A dispatcher: the three attachment shapes share almost nothing but the tail
-func (backend *VKBackend) BeginPass(target renderer.RenderTargetHandle, clear *[4]float32, keepDepth bool) {
-	if !backend.frameActive {
-		return
-	}
-	if target == renderer.Backbuffer {
-		backend.passActive = true
-		backend.beginBackbufferPass(clear, keepDepth)
-		return
-	}
-	t := backend.target(target)
-	if t == nil {
-		fmt.Fprintln(os.Stderr, "vulkan: BeginPass on an invalid target, ignored")
-		return
-	}
-	backend.passActive = true
-	if t.format == renderer.TargetColor {
-		backend.beginColorTargetPass(target, t, clear)
-		return
-	}
-	backend.beginDepthTargetPass(target, t, keepDepth)
-}
-
-// The swapchain image, resolved from the multisampled one when there is one,
-// over the depth the prepass left
-func (backend *VKBackend) beginBackbufferPass(clear *[4]float32, keepDepth bool) {
-	cb := backend.frames[backend.frameIndex].cb
-	backend.currentPass = passMain
-	backend.currentTarget = renderer.Backbuffer
-
-	backend.barrierDiscardToColor(cb, backend.swapImages[backend.imageIndex])
-	backend.barrierBackbufferDepth(cb)
-
-	colorAtt := colorAttachment(backend.swapViews[backend.imageIndex], clear)
-	// The pass draws into the multisampled image and resolves into the
-	// swapchain image, so the samples themselves never need storing
-	if backend.msaaView != 0 {
-		colorAtt.ResolveImageView = colorAtt.ImageView
-		colorAtt.ResolveImageLayout = vk.ImageLayoutColorAttachmentOptimal
-		colorAtt.ResolveMode = vk.ResolveModeAverage
-		colorAtt.ImageView = backend.msaaView
-		colorAtt.StoreOp = vk.AttachmentStoreOpDontCare
-
-		backend.barrierDiscardToColor(cb, backend.msaaImage)
-	}
-
-	// The backbuffer's depth is discarded every frame; only the prepass stores it
-	depthAtt := depthAttachment(backend.depthView, keepDepth)
-	depthAtt.StoreOp = vk.AttachmentStoreOpDontCare
-
-	backend.beginRendering(cb, vk.RenderingInfo{
-		LayerCount:       1,
-		RenderArea:       vk.Rect2D{Extent: backend.swapExtent},
-		ColorAttachments: []vk.RenderingAttachmentInfo{colorAtt},
-		DepthAttachment:  &depthAtt,
-	}, backend.viewportFor(passMain, 0, 0,
-		int(backend.swapExtent.Width), int(backend.swapExtent.Height)))
-}
-
-// An offscreen colour target, with no depth attachment at all
-//
-// Right for the post-processing quads this path exists for, which is why
-// keepDepth is not consulted here: there is nothing to keep
-func (backend *VKBackend) beginColorTargetPass(target renderer.RenderTargetHandle,
-	t *targetEntry, clear *[4]float32) {
-
-	cb := backend.frames[backend.frameIndex].cb
-	backend.currentPass = passOffscreenColor
-	backend.currentTarget = target
-
-	backend.imageBarrier(cb, t.image, vk.ImageAspectColor, t.layers(),
-		t.layout, vk.ImageLayoutColorAttachmentOptimal,
-		vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
-		vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
-	t.layout = vk.ImageLayoutColorAttachmentOptimal
-
-	colorAtt := colorAttachment(t.attachmentView, clear)
-	backend.beginRendering(cb, vk.RenderingInfo{
-		LayerCount:       t.layers(),
-		RenderArea:       t.renderArea(),
-		ColorAttachments: []vk.RenderingAttachmentInfo{colorAtt},
-	}, backend.viewportFor(passOffscreenColor, 0, 0, t.width, t.height))
-}
-
-// An offscreen depth target: the shadow atlases, whose tiles SetViewportScissor
-// narrows to one at a time inside the pass
-func (backend *VKBackend) beginDepthTargetPass(target renderer.RenderTargetHandle,
-	t *targetEntry, keepDepth bool) {
-
-	cb := backend.frames[backend.frameIndex].cb
-	backend.currentPass = t.pass()
-	backend.currentTarget = target
-
-	backend.imageBarrier(cb, t.image, vk.ImageAspectDepth, t.layers(),
-		t.layout, vk.ImageLayoutDepthAttachmentOptimal,
-		vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
-		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite)
-	t.layout = vk.ImageLayoutDepthAttachmentOptimal
-
-	depthAtt := depthAttachment(t.attachmentView, keepDepth)
-	depthAtt.StoreOp = vk.AttachmentStoreOpStore
-
-	backend.beginRendering(cb, vk.RenderingInfo{
-		LayerCount:      t.layers(),
-		RenderArea:      t.renderArea(),
-		DepthAttachment: &depthAtt,
-	}, backend.viewportFor(t.pass(), 0, 0, t.width, t.height))
-}
-
-// A colour attachment that stores, clearing first only when clear is non-nil
-func colorAttachment(view vk.ImageView, clear *[4]float32) vk.RenderingAttachmentInfo {
-	att := vk.RenderingAttachmentInfo{
-		ImageView:   view,
-		ImageLayout: vk.ImageLayoutColorAttachmentOptimal,
-		LoadOp:      vk.AttachmentLoadOpDontCare,
-		StoreOp:     vk.AttachmentStoreOpStore,
-	}
-	if clear != nil {
-		att.LoadOp = vk.AttachmentLoadOpClear
-		att.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
-	}
-	return att
-}
-
-// A depth attachment, loading what the target already holds when keepDepth
-func depthAttachment(view vk.ImageView, keepDepth bool) vk.RenderingAttachmentInfo {
-	att := vk.RenderingAttachmentInfo{
-		ImageView:   view,
-		ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
-		LoadOp:      vk.AttachmentLoadOpClear,
-		ClearValue:  vk.ClearDepthStencil(1, 0),
-	}
-	if keepDepth {
-		att.LoadOp = vk.AttachmentLoadOpLoad
-		att.ClearValue = vk.ClearValue{}
-	}
-	return att
-}
-
-// Opens dynamic rendering and re-issues the state every pass start owes the pipeline
-func (backend *VKBackend) beginRendering(cb vk.CommandBuffer, info vk.RenderingInfo, viewport vk.Viewport) {
-	vk.CmdBeginRendering(cb, info)
-	vk.CmdSetViewport(cb, viewport)
-	vk.CmdSetScissor(cb, info.RenderArea)
-	backend.applyDynamicState(cb)
-}
-
-// Ends dynamic rendering and, for a shadow pass, transitions the depth target into shader-read layout
-func (backend *VKBackend) EndPass() {
-	if !backend.frameActive || !backend.passActive {
-		return
-	}
-	cb := backend.frames[backend.frameIndex].cb
-	vk.CmdEndRendering(cb)
-	backend.passActive = false
-
-	// Offscreen targets move to shader-read before a later pass samples them; the
-	// swapchain image keeps its attachment layout until EndFrame
-	if t := backend.target(backend.currentTarget); t != nil {
-		backend.barrierToShaderRead(cb, t.image, t.aspect(), t.layers(), t.layout)
-		t.layout = vk.ImageLayoutShaderReadOnlyOptimal
-		backend.currentTarget = renderer.Backbuffer
-	}
-}
-
-// --- viewport and transfers --------------------------------------------------
-
-// Builds the viewport covering a rect of a pass's target, in target texels from the top left
-func (backend *VKBackend) viewportFor(pass passKind, x, y, w, h int) vk.Viewport {
-	vp := vk.Viewport{
-		X: float32(x), Y: float32(y),
-		Width: float32(w), Height: float32(h),
-		MaxDepth: 1,
-	}
-	if pass != passShadow2D && pass != passShadowCube {
-		vp.Y = float32(y + h)
-		vp.Height = -float32(h)
-	}
-	return vp
-}
-
-// Narrows the viewport and scissor to one rect of the current pass's target
-func (backend *VKBackend) SetViewportScissor(x, y, w, h int) {
-	if !backend.frameActive || !backend.passActive {
-		fmt.Fprintln(os.Stderr, "vulkan: SetViewportScissor outside a pass, ignored")
-		return
-	}
-	cb := backend.frames[backend.frameIndex].cb
-	vk.CmdSetViewport(cb, backend.viewportFor(backend.currentPass, x, y, w, h))
-	vk.CmdSetScissor(cb, vk.Rect2D{
-		Offset: vk.Offset2D{X: int32(x), Y: int32(y)},
-		Extent: vk.Extent2D{Width: uint32(w), Height: uint32(h)},
-	})
-}
-
-// Copies a depth rect between two targets, both of which end up back in shader-read layout
-//
-// Both return to ShaderReadOnlyOptimal so the source stays sampleable and the
-// destination's next BeginPass barrier starts from a layout it can name
-func (backend *VKBackend) CopyDepthRegion(src, dst renderer.RenderTargetHandle, srcX, srcY, dstX, dstY, w, h int) {
-	if !backend.frameActive {
-		return
-	}
-	// A copy inside CmdBeginRendering is invalid, and the attachment it would
-	// write is the one being rendered into
-	if backend.passActive {
-		fmt.Fprintln(os.Stderr, "vulkan: CopyDepthRegion inside a pass, ignored")
-		return
-	}
-	s, d := backend.target(src), backend.target(dst)
-	if s == nil || d == nil || s == d {
-		fmt.Fprintln(os.Stderr, "vulkan: CopyDepthRegion with an invalid target, ignored")
-		return
-	}
-	if s.format != renderer.TargetDepth || d.format != renderer.TargetDepth {
-		fmt.Fprintln(os.Stderr, "vulkan: CopyDepthRegion on a colour target, ignored")
-		return
-	}
-	// Out of bounds is a validation error and a device loss, not a clipped copy
-	if w <= 0 || h <= 0 ||
-		srcX < 0 || srcY < 0 || srcX+w > s.width || srcY+h > s.height ||
-		dstX < 0 || dstY < 0 || dstX+w > d.width || dstY+h > d.height {
-		fmt.Fprintf(os.Stderr, "vulkan: CopyDepthRegion %dx%d out of bounds, ignored\n", w, h)
-		return
-	}
-
-	cb := backend.frames[backend.frameIndex].cb
-	// From whatever each side holds: a tile baked this frame and a cached one
-	// from an earlier frame arrive here in different layouts
-	backend.imageBarrier(cb, s.image, vk.ImageAspectDepth, s.layers(),
-		s.layout, vk.ImageLayoutTransferSrcOptimal,
-		vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
-		vk.PipelineStage2Copy, vk.Access2TransferRead)
-	backend.imageBarrier(cb, d.image, vk.ImageAspectDepth, d.layers(),
-		d.layout, vk.ImageLayoutTransferDstOptimal,
-		vk.PipelineStage2AllCommands, vk.Access2MemoryRead|vk.Access2MemoryWrite,
-		vk.PipelineStage2Copy, vk.Access2TransferWrite)
-
-	vk.CmdCopyImage(cb,
-		s.image, vk.ImageLayoutTransferSrcOptimal,
-		d.image, vk.ImageLayoutTransferDstOptimal,
-		[]vk.ImageCopy{{
-			AspectMask: vk.ImageAspectDepth,
-			SrcOffset:  vk.Offset2D{X: int32(srcX), Y: int32(srcY)},
-			DstOffset:  vk.Offset2D{X: int32(dstX), Y: int32(dstY)},
-			Extent:     vk.Extent3D{Width: uint32(w), Height: uint32(h), Depth: 1},
-		}})
-
-	backend.barrierToShaderRead(cb, s.image, vk.ImageAspectDepth, s.layers(), vk.ImageLayoutTransferSrcOptimal)
-	s.layout = vk.ImageLayoutShaderReadOnlyOptimal
-	backend.barrierToShaderRead(cb, d.image, vk.ImageAspectDepth, d.layers(), vk.ImageLayoutTransferDstOptimal)
-	d.layout = vk.ImageLayoutShaderReadOnlyOptimal
-}
-
-// Resolves a render-target handle, or nil when it names no live target
-func (backend *VKBackend) target(h renderer.RenderTargetHandle) *targetEntry {
-	if h == 0 || int(h) >= len(backend.targets) || !backend.targets[h].valid {
-		return nil
-	}
-	return &backend.targets[h]
-}
-
-// --- dynamic state -----------------------------------------------------------
-
-// Cull mode and depth compare are Vulkan 1.3 dynamic state, so these stay
-// immediate calls instead of forcing a separate pipeline per combination.
-
-// Records the cull mode, remembering it for the next pass that starts
-func (backend *VKBackend) SetCullMode(m renderer.CullMode) {
-	backend.cullMode = m
-	if backend.frameActive {
-		vk.CmdSetCullMode(backend.frames[backend.frameIndex].cb, cullMode(m))
-	}
-}
-
-// Records the depth compare op, remembering it for the next pass that starts
-func (backend *VKBackend) SetDepthCompare(op renderer.CompareOp) {
-	backend.depthCompare = op
-	if backend.frameActive {
-		vk.CmdSetDepthCompareOp(backend.frames[backend.frameIndex].cb, compareOp(op))
-	}
-}
-
-// Re-issues the immediate state at pass start, the engine setting it between passes as often as inside them
-func (backend *VKBackend) applyDynamicState(cb vk.CommandBuffer) {
-	vk.CmdSetCullMode(cb, cullMode(backend.cullMode))
-	vk.CmdSetDepthCompareOp(cb, compareOp(backend.depthCompare))
-}
-
-// Translates the engine's cull mode into Vulkan's
-func cullMode(m renderer.CullMode) vk.CullModeFlags {
-	switch m {
-	case renderer.CullFront:
-		return vk.CullModeFront
-	case renderer.CullNone:
-		return vk.CullModeNone
-	default:
-		return vk.CullModeBack
-	}
-}
-
-// Translates the engine's depth compare op into Vulkan's
-func compareOp(op renderer.CompareOp) vk.CompareOp {
-	switch op {
-	case renderer.CompareLessEqual:
-		return vk.CompareOpLessOrEqual
-	case renderer.CompareEqual:
-		return vk.CompareOpEqual
-	case renderer.CompareAlways:
-		return vk.CompareOpAlways
-	default:
-		return vk.CompareOpLess
-	}
-}
-
-// --- capabilities ------------------------------------------------------------
-
-// Reports no optional capability, ray tracing and compute not being wired up yet (notes/FEATURES.md §3)
-func (backend *VKBackend) Supports(renderer.Feature) bool { return false }
-
-// --- helpers -----------------------------------------------------------------
-
-// Records one sync2 layout transition over every layer of an image
-func (backend *VKBackend) imageBarrier(cb vk.CommandBuffer, image vk.Image,
-	aspect vk.ImageAspectFlags, layerCount uint32,
-	from, to vk.ImageLayout,
-	srcStage vk.PipelineStageFlags2, srcAccess vk.AccessFlags2,
-	dstStage vk.PipelineStageFlags2, dstAccess vk.AccessFlags2) {
-
-	vk.CmdPipelineBarrier2(cb, []vk.ImageMemoryBarrier2{{
-		SrcStageMask: srcStage, SrcAccessMask: srcAccess,
-		DstStageMask: dstStage, DstAccessMask: dstAccess,
-		OldLayout: from, NewLayout: to,
-		SrcQueueFamilyIndex: vk.QueueFamilyIgnored, DstQueueFamilyIndex: vk.QueueFamilyIgnored,
-		Image: image,
-		SubresourceRange: vk.ImageSubresourceRange{
-			AspectMask: aspect, LevelCount: 1, LayerCount: layerCount,
-		},
-	}})
-}
-
-// --- named transitions -------------------------------------------------------
-
-// The three transitions with more than one call site; everything else spells its
-// masks out at the barrier, where the pass that needs them can be read beside it
-
-// Discards an image and makes it a colour attachment, for a target overwritten whole
-func (backend *VKBackend) barrierDiscardToColor(cb vk.CommandBuffer, image vk.Image) {
-	backend.imageBarrier(cb, image, vk.ImageAspectColor, 1,
-		vk.ImageLayoutUndefined, vk.ImageLayoutColorAttachmentOptimal,
-		vk.PipelineStage2ColorAttachmentOutput, vk.Access2None,
-		vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite)
-}
-
-// Re-establishes the backbuffer depth attachment, from what the last depth pass
-// left rather than from Undefined — keepDepth exists to read it back
-func (backend *VKBackend) barrierBackbufferDepth(cb vk.CommandBuffer) {
-	backend.imageBarrier(cb, backend.depthImage, vk.ImageAspectDepth, 1,
-		backend.depthLayout, vk.ImageLayoutDepthAttachmentOptimal,
-		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite,
-		vk.PipelineStage2EarlyFragmentTests|vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite)
-	backend.depthLayout = vk.ImageLayoutDepthAttachmentOptimal
-}
-
-// Moves an image into shader-read for a later pass to sample
-//
-// The source scope follows from the layout being left, which is what lets one
-// helper serve an ended pass, both ends of a copy and a texture upload
-func (backend *VKBackend) barrierToShaderRead(cb vk.CommandBuffer, image vk.Image,
-	aspect vk.ImageAspectFlags, layers uint32, from vk.ImageLayout) {
-
-	srcStage, srcAccess := vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite
-	switch from {
-	case vk.ImageLayoutColorAttachmentOptimal:
-		srcStage, srcAccess = vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite
-	case vk.ImageLayoutTransferSrcOptimal:
-		srcStage, srcAccess = vk.PipelineStage2Copy, vk.Access2TransferRead
-	case vk.ImageLayoutTransferDstOptimal:
-		srcStage, srcAccess = vk.PipelineStage2Copy, vk.Access2TransferWrite
-	}
-	backend.imageBarrier(cb, image, aspect, layers,
-		from, vk.ImageLayoutShaderReadOnlyOptimal,
-		srcStage, srcAccess,
-		vk.PipelineStage2FragmentShader, vk.Access2ShaderSampledRead)
-}
-
-// Records a one-off command buffer and blocks until the GPU has run it, used by the load-time upload paths
-func (backend *VKBackend) immediateSubmit(record func(cb vk.CommandBuffer)) {
+// --- one-off submits ---------------------------------------------------------
+
+// Records a one-off command buffer and blocks until the GPU has run it, which is
+// what the load-time upload paths use
+func (backend *VKBackend) immediateSubmit(record func(commandBuffer vk.CommandBuffer)) {
 	cbs, err := vk.AllocateCommandBuffers(backend.device, backend.commandPool, 1)
 	fatal(err, "allocate one-time command buffer")
-	cb := cbs[0]
+	commandBuffer := cbs[0]
 
-	fatal(vk.BeginCommandBuffer(cb, vk.CommandBufferUsageOneTimeSubmit), "begin one-time command buffer")
-	record(cb)
-	fatal(vk.EndCommandBuffer(cb), "end one-time command buffer")
+	fatal(vk.BeginCommandBuffer(commandBuffer, vk.CommandBufferUsageOneTimeSubmit), "begin one-time command buffer")
+	record(commandBuffer)
+	fatal(vk.EndCommandBuffer(commandBuffer), "end one-time command buffer")
 
-	fatal(vk.QueueSubmit2(backend.queue, []vk.SubmitInfo2{{CommandBuffers: []vk.CommandBuffer{cb}}}, 0), "submit one-time")
+	fatal(vk.QueueSubmit2(backend.queue, []vk.SubmitInfo2{{CommandBuffers: []vk.CommandBuffer{commandBuffer}}}, 0), "submit one-time")
 	fatal(vk.QueueWaitIdle(backend.queue), "wait one-time")
 }
 
-// Drains the frames in flight, required before destroying a resource an already-submitted frame might read
+// Drains the frames in flight, required before touching a resource an
+// already-submitted frame might read
 //
-// Skips the frame being recorded: its fence was reset in BeginFrame and is only
-// signalled by EndFrame, so waiting on it from inside the frame would deadlock.
+// Skips the frame being recorded: its fence was reset at the start of the frame
+// and is only signalled at the end, so waiting on it from inside would deadlock
 func (backend *VKBackend) waitAllFrames() {
 	fences := make([]vk.Fence, 0, framesInFlight)
 	for i := range backend.frames {
-		if backend.frameActive && i == backend.frameIndex {
+		if backend.recording && i == backend.frameIndex {
 			continue
 		}
 		fences = append(fences, backend.frames[i].fence)

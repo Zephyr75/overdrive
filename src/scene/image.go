@@ -10,14 +10,14 @@ import (
 )
 
 // Decodes an image file into tightly packed RGBA8 pixels
-func loadRGBA(path string) (pixels []byte, w, h int, err error) {
-	f, err := os.Open(path)
+func loadRGBA(path string) (pixels []byte, width, height int, err error) {
+	file, err := os.Open(path)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	defer f.Close()
+	defer file.Close()
 
-	img, _, err := image.Decode(f)
+	img, _, err := image.Decode(file)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -28,18 +28,18 @@ func loadRGBA(path string) (pixels []byte, w, h int, err error) {
 }
 
 // Decodes six cube faces, checking they agree on a size the backend can upload as one image
-func loadCubeFaces(paths [6]string) (faces [6][]byte, w, h int, err error) {
-	for i, p := range paths {
-		pix, fw, fh, e := loadRGBA(p)
-		if e != nil {
-			return faces, 0, 0, fmt.Errorf("cubemap face %s: %w", p, e)
+func loadCubeFaces(paths [6]string) (faces [6][]byte, width, height int, err error) {
+	for i, path := range paths {
+		pixels, faceWidth, faceHeight, faceErr := loadRGBA(path)
+		if faceErr != nil {
+			return faces, 0, 0, fmt.Errorf("cubemap face %s: %w", path, faceErr)
 		}
 		if i == 0 {
-			w, h = fw, fh
-		} else if fw != w || fh != h {
-			return faces, 0, 0, fmt.Errorf("cubemap face %s: %dx%d, expected %dx%d", p, fw, fh, w, h)
+			width, height = faceWidth, faceHeight
+		} else if faceWidth != width || faceHeight != height {
+			return faces, 0, 0, fmt.Errorf("cubemap face %s: %dx%d, expected %dx%d", path, faceWidth, faceHeight, width, height)
 		}
-		faces[i] = pix
+		faces[i] = pixels
 	}
-	return faces, w, h, nil
+	return faces, width, height, nil
 }

@@ -11,32 +11,32 @@ type World struct {
 }
 
 // Adds entities to the world
-func (w *World) AddEntities(entities ...Entity) {
-	w.entities = append(w.entities, entities...)
+func (world *World) AddEntities(entities ...Entity) {
+	world.entities = append(world.entities, entities...)
 }
 
 // Runs every entity's Init once, before the first frame
-func (w *World) Init() {
-	for _, entity := range w.entities {
-		entity.Init(w)
+func (world *World) Init() {
+	for _, entity := range world.entities {
+		entity.Init(world)
 	}
 }
 
 // Steps every entity, resolves collisions pairwise, then integrates the Verlet positions
-func (w *World) Update(timeInterval time.Duration) {
-	for _, entity := range w.entities {
-		entity.Update(w)
+func (world *World) Update(timeInterval time.Duration) {
+	for _, entity := range world.entities {
+		entity.Update(world)
 	}
 
 	// Collide every ordered pair, each collider resolving its own half
-	for i, entity := range w.entities {
-		for j, otherEntity := range w.entities {
+	for i, entity := range world.entities {
+		for j, otherEntity := range world.entities {
 			if i != j {
 				entity.Collider().Collide(otherEntity.Collider())
 			}
 		}
 	}
-	for _, entity := range w.entities {
+	for _, entity := range world.entities {
 		entity.Collider().Body().UpdatePosition(1.0 / 60.0)
 	}
 
@@ -49,9 +49,9 @@ func (w *World) Update(timeInterval time.Duration) {
 }
 
 // Returns every entity reporting a type
-func (w *World) Entities(entityType string) []Entity {
+func (world *World) Entities(entityType string) []Entity {
 	var entities []Entity
-	for _, entity := range w.entities {
+	for _, entity := range world.entities {
 		if entity.Type() == entityType {
 			entities = append(entities, entity)
 		}
@@ -60,8 +60,8 @@ func (w *World) Entities(entityType string) []Entity {
 }
 
 // Returns the first entity reporting a type, or nil
-func (w *World) FirstEntity(entityType string) Entity {
-	for _, entity := range w.entities {
+func (world *World) FirstEntity(entityType string) Entity {
+	for _, entity := range world.entities {
 		if entity.Type() == entityType {
 			return entity
 		}

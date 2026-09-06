@@ -7,7 +7,7 @@ import (
 
 type Collider interface {
 	// Resolves this collider against another, moving only itself
-	Collide(c Collider)
+	Collide(collider Collider)
 	// Returns the Verlet state the integrator steps, named Body because a method cannot share a name with the embedded field
 	Body() *Verlet
 }
@@ -25,17 +25,17 @@ func NewVerlet(pos mgl32.Vec3, fixed bool) Verlet {
 }
 
 // Runs one Verlet integration step, velocity being implied by the previous position
-func (v *Verlet) UpdatePosition(dt float32) {
-	if v.Fixed {
+func (verlet *Verlet) UpdatePosition(deltaTime float32) {
+	if verlet.Fixed {
 		return
 	}
-	velocity := v.Pos.Sub(v.PrevPos)
-	v.PrevPos = v.Pos
-	v.Pos = v.Pos.Add(velocity).Add(v.Accel.Mul(dt * dt))
-	v.Accel = mgl32.Vec3{0.0, 0.0, 0.0}
+	velocity := verlet.Pos.Sub(verlet.PrevPos)
+	verlet.PrevPos = verlet.Pos
+	verlet.Pos = verlet.Pos.Add(velocity).Add(verlet.Accel.Mul(deltaTime * deltaTime))
+	verlet.Accel = mgl32.Vec3{0.0, 0.0, 0.0}
 }
 
 // Accumulates acceleration for this step, cleared by UpdatePosition
-func (v *Verlet) Accelerate(accel mgl32.Vec3) {
-	v.Accel = v.Accel.Add(accel)
+func (verlet *Verlet) Accelerate(accel mgl32.Vec3) {
+	verlet.Accel = verlet.Accel.Add(accel)
 }

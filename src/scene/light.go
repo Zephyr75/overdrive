@@ -58,54 +58,54 @@ type Light struct {
 }
 
 // Offsets the light's position
-func (l *Light) Move(x float32, y float32, z float32) {
-	l.Pos = l.Pos.Add(mgl32.Vec3{x, y, z})
+func (light *Light) Move(x float32, y float32, z float32) {
+	light.Pos = light.Pos.Add(mgl32.Vec3{x, y, z})
 }
 
 // Converts a parsed XML light into engine coordinates and units
-func (l LightXml) toLight() Light {
-	t := renderer.LightSun
-	name := l.Name
-	pos := utils.ParseVec3(l.Pos)
-	dir := utils.ParseVec3(l.Dir)
-	color := utils.ParseVec3(l.Color)
+func (light LightXml) toLight() Light {
+	kind := renderer.LightSun
+	name := light.Name
+	pos := utils.ParseVec3(light.Pos)
+	dir := utils.ParseVec3(light.Dir)
+	color := utils.ParseVec3(light.Color)
 
 	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 	dir = mgl32.Vec3{-dir[0], -dir[2], dir[1]}
-	intensity := l.Intensity
+	intensity := light.Intensity
 	// Cone cosines, only meaningful for a spot. 1 and 1 make the smoothstep
 	// degenerate rather than lighting nothing, so a malformed spot is visible
 	cutoff, outerCutoff := float32(1.0), float32(1.0)
-	switch l.Type {
+	switch light.Type {
 	case "sun":
-		t = renderer.LightSun
+		kind = renderer.LightSun
 	case "point":
-		t = renderer.LightPoint
+		kind = renderer.LightPoint
 		intensity /= 1000
 	case "spot":
-		t = renderer.LightSpot
+		kind = renderer.LightSpot
 		intensity /= 1000
 		// Blender gives the full cone angle; the shader compares a half-angle
 		// cosine against dot(-lightDir, direction)
-		outer := mgl32.DegToRad(l.Cone) * 0.5
+		outer := mgl32.DegToRad(light.Cone) * 0.5
 		outerCutoff = float32(math.Cos(float64(outer)))
-		cutoff = float32(math.Cos(float64(outer * (1.0 - l.ConeBlend))))
+		cutoff = float32(math.Cos(float64(outer * (1.0 - light.ConeBlend))))
 	}
 
 	// After the /1000 above, never before: the raw Blender energy would give a
 	// radius sqrt(1000) too large
 	radius := float32(0)
-	if t != renderer.LightSun {
-		radius = lightRadius(color, l.Diffuse, intensity)
+	if kind != renderer.LightSun {
+		radius = lightRadius(color, light.Diffuse, intensity)
 	}
 
 	return Light{
 		Name:        name,
-		Type:        t,
+		Type:        kind,
 		Pos:         pos,
 		Dir:         dir,
 		Color:       color,
-		Diffuse:     l.Diffuse,
+		Diffuse:     light.Diffuse,
 		Intensity:   intensity,
 		Cutoff:      cutoff,
 		OuterCutoff: outerCutoff,

@@ -47,12 +47,12 @@ type Config struct {
 func Load(path string) error {
 	cfg := loadDefaults()
 
-	md, err := toml.DecodeFile(path, &cfg)
+	meta, err := toml.DecodeFile(path, &cfg)
 	if err != nil {
 		return fmt.Errorf("settings %s: %w", path, err)
 	}
 	// Explicitly declare misspelt keys
-	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		return fmt.Errorf("settings %s: unknown key %q", path, undecoded[0].String())
 	}
 	if err := apply(cfg); err != nil {
@@ -63,81 +63,81 @@ func Load(path string) error {
 
 // Returns the loadDefaults settings in Config form, which is what makes an absent key mean "keep the default"
 func loadDefaults() Config {
-	var c Config
-	c.Window.Width, c.Window.Height = WindowWidth, WindowHeight
-	c.Shadows.AtlasSize = ShadowAtlasSize
-	c.Shadows.SlotDivisors = ShadowSlotDivisors
-	c.Shadows.SlotCounts = ShadowSlotCounts
-	c.Shadows.TierScores = make([]float64, len(ShadowTierScores))
-	for i, v := range ShadowTierScores {
-		c.Shadows.TierScores[i] = float64(v)
+	var defaults Config
+	defaults.Window.Width, defaults.Window.Height = WindowWidth, WindowHeight
+	defaults.Shadows.AtlasSize = ShadowAtlasSize
+	defaults.Shadows.SlotDivisors = ShadowSlotDivisors
+	defaults.Shadows.SlotCounts = ShadowSlotCounts
+	defaults.Shadows.TierScores = make([]float64, len(ShadowTierScores))
+	for i, score := range ShadowTierScores {
+		defaults.Shadows.TierScores[i] = float64(score)
 	}
-	c.Shadows.DynamicAtlas = ShadowDynamicAtlas
-	c.Shadows.BakeBudgetMiB = ShadowBakeBudgetMiB
-	c.Shadows.PCF = string(ShadowPCF)
-	c.Shadows.NearPlane = float64(ShadowNearPlane)
-	c.Shadows.FarPlane = float64(ShadowFarPlane)
-	c.Renderer.Backend = Backend
-	c.Renderer.DepthPrepass = DepthPrepass
-	c.AntiAliasing.Mode = string(AntiAliasing)
-	c.AntiAliasing.Samples = MSAASamples
-	c.Textures.Anisotropy = Anisotropy
-	c.Debug.Validation = Validation
-	c.Debug.LockCamera = LockCamera
-	c.Debug.NoShadows = NoShadows
-	return c
+	defaults.Shadows.DynamicAtlas = ShadowDynamicAtlas
+	defaults.Shadows.BakeBudgetMiB = ShadowBakeBudgetMiB
+	defaults.Shadows.PCF = string(ShadowPCF)
+	defaults.Shadows.NearPlane = float64(ShadowNearPlane)
+	defaults.Shadows.FarPlane = float64(ShadowFarPlane)
+	defaults.Renderer.Backend = Backend
+	defaults.Renderer.DepthPrepass = DepthPrepass
+	defaults.AntiAliasing.Mode = string(AntiAliasing)
+	defaults.AntiAliasing.Samples = MSAASamples
+	defaults.Textures.Anisotropy = Anisotropy
+	defaults.Debug.Validation = Validation
+	defaults.Debug.LockCamera = LockCamera
+	defaults.Debug.NoShadows = NoShadows
+	return defaults
 }
 
 // Validates a decoded config and writes it into the package variables, rejecting the whole file if any value is wrong
-func apply(c Config) error {
-	if c.Window.Width <= 0 || c.Window.Height <= 0 {
-		return fmt.Errorf("window resolution must be positive, got %dx%d", c.Window.Width, c.Window.Height)
+func apply(cfg Config) error {
+	if cfg.Window.Width <= 0 || cfg.Window.Height <= 0 {
+		return fmt.Errorf("window resolution must be positive, got %dx%d", cfg.Window.Width, cfg.Window.Height)
 	}
-	if err := checkShadowAtlas(c); err != nil {
+	if err := checkShadowAtlas(cfg); err != nil {
 		return err
 	}
-	pcf, err := normalisePCF(c.Shadows.PCF)
+	pcf, err := normalisePCF(cfg.Shadows.PCF)
 	if err != nil {
 		return err
 	}
 
-	backend, err := normaliseBackend(c.Renderer.Backend)
+	backend, err := normaliseBackend(cfg.Renderer.Backend)
 	if err != nil {
 		return err
 	}
-	mode, err := normaliseAAMode(c.AntiAliasing.Mode)
+	mode, err := normaliseAAMode(cfg.AntiAliasing.Mode)
 	if err != nil {
 		return err
 	}
 	if mode == AAMSAA {
-		if err := checkSamples(c.AntiAliasing.Samples); err != nil {
+		if err := checkSamples(cfg.AntiAliasing.Samples); err != nil {
 			return err
 		}
 	}
 
-	if err := checkAnisotropy(c.Textures.Anisotropy); err != nil {
+	if err := checkAnisotropy(cfg.Textures.Anisotropy); err != nil {
 		return err
 	}
-	WindowWidth, WindowHeight = c.Window.Width, c.Window.Height
-	ShadowAtlasSize = c.Shadows.AtlasSize
-	ShadowSlotDivisors, ShadowSlotCounts = c.Shadows.SlotDivisors, c.Shadows.SlotCounts
-	ShadowTierScores = make([]float32, len(c.Shadows.TierScores))
-	for i, v := range c.Shadows.TierScores {
-		ShadowTierScores[i] = float32(v)
+	WindowWidth, WindowHeight = cfg.Window.Width, cfg.Window.Height
+	ShadowAtlasSize = cfg.Shadows.AtlasSize
+	ShadowSlotDivisors, ShadowSlotCounts = cfg.Shadows.SlotDivisors, cfg.Shadows.SlotCounts
+	ShadowTierScores = make([]float32, len(cfg.Shadows.TierScores))
+	for i, score := range cfg.Shadows.TierScores {
+		ShadowTierScores[i] = float32(score)
 	}
-	ShadowDynamicAtlas = c.Shadows.DynamicAtlas
-	ShadowBakeBudgetMiB = c.Shadows.BakeBudgetMiB
+	ShadowDynamicAtlas = cfg.Shadows.DynamicAtlas
+	ShadowBakeBudgetMiB = cfg.Shadows.BakeBudgetMiB
 	ShadowPCF = pcf
-	ShadowNearPlane = float32(c.Shadows.NearPlane)
-	ShadowFarPlane = float32(c.Shadows.FarPlane)
+	ShadowNearPlane = float32(cfg.Shadows.NearPlane)
+	ShadowFarPlane = float32(cfg.Shadows.FarPlane)
 	Backend = backend
-	DepthPrepass = c.Renderer.DepthPrepass
+	DepthPrepass = cfg.Renderer.DepthPrepass
 	AntiAliasing = mode
-	MSAASamples = c.AntiAliasing.Samples
-	Anisotropy = c.Textures.Anisotropy
-	Validation = c.Debug.Validation
-	LockCamera = c.Debug.LockCamera
-	NoShadows = c.Debug.NoShadows
+	MSAASamples = cfg.AntiAliasing.Samples
+	Anisotropy = cfg.Textures.Anisotropy
+	Validation = cfg.Debug.Validation
+	LockCamera = cfg.Debug.LockCamera
+	NoShadows = cfg.Debug.NoShadows
 	return nil
 }
 
@@ -156,54 +156,54 @@ func normalisePCF(name string) (PCFQuality, error) {
 //
 // The only place that can: a layout that does not pack silently leaves every
 // light with ShadowIndex = -1 and the scene unshadowed
-func checkShadowAtlas(c Config) error {
-	n := c.Shadows.AtlasSize
-	if n < 1024 || n > 8192 || n&(n-1) != 0 {
-		return fmt.Errorf("shadows.atlasSize must be a power of two from 1024 to 8192, got %d", n)
+func checkShadowAtlas(cfg Config) error {
+	atlasSize := cfg.Shadows.AtlasSize
+	if atlasSize < 1024 || atlasSize > 8192 || atlasSize&(atlasSize-1) != 0 {
+		return fmt.Errorf("shadows.atlasSize must be a power of two from 1024 to 8192, got %d", atlasSize)
 	}
-	div, count := c.Shadows.SlotDivisors, c.Shadows.SlotCounts
+	div, count := cfg.Shadows.SlotDivisors, cfg.Shadows.SlotCounts
 	if len(div) == 0 || len(div) != len(count) {
 		return fmt.Errorf("shadows.slotDivisors and slotCounts must be the same non-empty length, got %d and %d",
 			len(div), len(count))
 	}
-	if len(c.Shadows.TierScores) != len(div)-1 {
+	if len(cfg.Shadows.TierScores) != len(div)-1 {
 		return fmt.Errorf("shadows.tierScores must have one entry per slot row after the first, want %d, got %d",
-			len(div)-1, len(c.Shadows.TierScores))
+			len(div)-1, len(cfg.Shadows.TierScores))
 	}
 	texels := 0
-	for i, d := range div {
+	for i, divisor := range div {
 		// The layout is carved by halving, and buildLayout walks it in Z order:
 		// a size that is not a power-of-two division of the atlas has no cell
-		if d < 2 || d > n || d&(d-1) != 0 {
-			return fmt.Errorf("shadows.slotDivisors[%d] = %d must be a power of two from 2 to %d", i, d, n)
+		if divisor < 2 || divisor > atlasSize || divisor&(divisor-1) != 0 {
+			return fmt.Errorf("shadows.slotDivisors[%d] = %d must be a power of two from 2 to %d", i, divisor, atlasSize)
 		}
-		if i > 0 && d <= div[i-1] {
+		if i > 0 && divisor <= div[i-1] {
 			return fmt.Errorf("shadows.slotDivisors must ascend, so the rows run largest slot first; %d follows %d",
-				d, div[i-1])
+				divisor, div[i-1])
 		}
 		if count[i] <= 0 {
 			return fmt.Errorf("shadows.slotCounts[%d] = %d must be positive", i, count[i])
 		}
-		texels += count[i] * (n / d) * (n / d)
+		texels += count[i] * (atlasSize / divisor) * (atlasSize / divisor)
 	}
-	if texels > n*n {
+	if texels > atlasSize*atlasSize {
 		return fmt.Errorf("the shadow slot layout asks for %d texels, more than the %d a %d atlas has",
-			texels, n*n, n)
+			texels, atlasSize*atlasSize, atlasSize)
 	}
-	for i, sc := range c.Shadows.TierScores {
-		if sc <= 0 {
-			return fmt.Errorf("shadows.tierScores[%d] = %v must be positive", i, sc)
+	for i, score := range cfg.Shadows.TierScores {
+		if score <= 0 {
+			return fmt.Errorf("shadows.tierScores[%d] = %v must be positive", i, score)
 		}
-		if i > 0 && sc >= c.Shadows.TierScores[i-1] {
-			return fmt.Errorf("shadows.tierScores must descend; %v follows %v", sc, c.Shadows.TierScores[i-1])
+		if i > 0 && score >= cfg.Shadows.TierScores[i-1] {
+			return fmt.Errorf("shadows.tierScores must descend; %v follows %v", score, cfg.Shadows.TierScores[i-1])
 		}
 	}
-	if c.Shadows.BakeBudgetMiB < 0 {
-		return fmt.Errorf("shadows.bakeBudgetMiB must not be negative, got %d", c.Shadows.BakeBudgetMiB)
+	if cfg.Shadows.BakeBudgetMiB < 0 {
+		return fmt.Errorf("shadows.bakeBudgetMiB must not be negative, got %d", cfg.Shadows.BakeBudgetMiB)
 	}
-	if c.Shadows.NearPlane <= 0 || c.Shadows.FarPlane <= c.Shadows.NearPlane {
+	if cfg.Shadows.NearPlane <= 0 || cfg.Shadows.FarPlane <= cfg.Shadows.NearPlane {
 		return fmt.Errorf("shadows.farPlane must exceed nearPlane and both must be positive, got %v and %v",
-			c.Shadows.NearPlane, c.Shadows.FarPlane)
+			cfg.Shadows.NearPlane, cfg.Shadows.FarPlane)
 	}
 	return nil
 }
@@ -229,19 +229,19 @@ func normaliseAAMode(mode string) (AAMode, error) {
 }
 
 // Rejects sample counts not supported by the backend
-func checkSamples(n int) error {
-	switch n {
+func checkSamples(samples int) error {
+	switch samples {
 	case 1, 2, 4, 8:
 		return nil
 	}
-	return fmt.Errorf("antialiasing samples must be 1, 2, 4 or 8, got %d", n)
+	return fmt.Errorf("antialiasing samples must be 1, 2, 4 or 8, got %d", samples)
 }
 
 // Accepts the anisotropy levels, 1 meaning off; the device limit is clamped later in createSamplers
-func checkAnisotropy(n int) error {
-	switch n {
+func checkAnisotropy(level int) error {
+	switch level {
 	case 1, 2, 4, 8, 16:
 		return nil
 	}
-	return fmt.Errorf("texture anisotropy must be 1, 2, 4, 8 or 16, got %d", n)
+	return fmt.Errorf("texture anisotropy must be 1, 2, 4, 8 or 16, got %d", level)
 }

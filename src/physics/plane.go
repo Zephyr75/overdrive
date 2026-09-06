@@ -33,9 +33,9 @@ func NewPlane(p1 mgl32.Vec3, p2 mgl32.Vec3, p3 mgl32.Vec3, p4 mgl32.Vec3, fixed 
 }
 
 // Does nothing, the sphere side of the pair resolving plane contacts
-func (p *Plane) Collide(c Collider) {
+func (plane *Plane) Collide(collider Collider) {
 	// TODO: Implement
 }
 
 // Returns the Verlet state the integrator steps
-func (p *Plane) Body() *Verlet { return &p.Verlet }
+func (plane *Plane) Body() *Verlet { return &plane.Verlet }

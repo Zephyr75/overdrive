@@ -8,7 +8,12 @@ import (
 	"github.com/Zephyr75/overdrive/settings"
 )
 
-// Builds the swapchain, its image views, the per-image render semaphores and the shared depth buffer
+// The swapchain and the two images sized to it. They are the backend's rather
+// than the caller's because only the backend sees a resize, and the reserved
+// Backbuffer / BackbufferDepth views are how a pass names them.
+
+// Builds the swapchain, its image entries, the per-image render semaphores and
+// the depth and multisample images
 func (backend *VKBackend) createSwapchain() error {
 	caps, err := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(backend.physicalDevice, backend.surface)
 	if err != nil {
@@ -16,39 +21,39 @@ func (backend *VKBackend) createSwapchain() error {
 	}
 	extent := caps.CurrentExtent
 	// A currentExtent of 0xFFFFFFFF means "surface size is defined by the
-	// swapchain", so fall back to the window's own size.
+	// swapchain", so fall back to the window's own size
 	if extent.Width == 0xFFFFFFFF {
-		w, h := backend.window.GetSize()
-		extent = vk.Extent2D{Width: uint32(w), Height: uint32(h)}
+		width, height := backend.window.GetSize()
+		extent = vk.Extent2D{Width: uint32(width), Height: uint32(height)}
 	}
 	backend.swapExtent = extent
 
-	// Keep the create info on the backend, so recreation can reuse it with a
-	// new extent
 	backend.swapchainCI = vk.SwapchainCreateInfo{
 		Surface:         backend.surface,
 		MinImageCount:   caps.MinImageCount,
 		ImageFormat:     backend.swapFormat,
 		ImageColorSpace: vk.ColorSpaceSrgbNonlinearKHR,
 		ImageExtent:     extent,
-		ImageUsage:      vk.ImageUsageColorAttachment,
-		PreTransform:    vk.SurfaceTransformIdentityKHR,
-		CompositeAlpha:  vk.CompositeAlphaOpaqueKHR,
-		PresentMode:     vk.PresentModeFifoKHR, // vsync, always supported
+		// TransferSrc so a frame can be copied out: the screenshot and image-test path
+		ImageUsage:     vk.ImageUsageColorAttachment | vk.ImageUsageTransferSrc,
+		PreTransform:   vk.SurfaceTransformIdentityKHR,
+		CompositeAlpha: vk.CompositeAlphaOpaqueKHR,
+		PresentMode:    vk.PresentModeFifoKHR, // vsync, always supported
 	}
-	sc, err := vk.CreateSwapchainKHR(backend.device, backend.swapchainCI)
+	swapchain, err := vk.CreateSwapchainKHR(backend.device, backend.swapchainCI)
 	if err != nil {
 		return err
 	}
-	backend.swapchain = sc
+	backend.swapchain = swapchain
 
-	if backend.swapImages, err = vk.GetSwapchainImagesKHR(backend.device, sc); err != nil {
+	images, err := vk.GetSwapchainImagesKHR(backend.device, swapchain)
+	if err != nil {
 		return err
 	}
-	backend.swapViews = make([]vk.ImageView, len(backend.swapImages))
-	for i := range backend.swapImages {
-		backend.swapViews[i], err = vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
-			Image: backend.swapImages[i], ViewType: vk.ImageViewType2D, Format: backend.swapFormat,
+	backend.swapchainImages = make([]imageEntry, len(images))
+	for i, img := range images {
+		view, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
+			Image: img, ViewType: vk.ImageViewType2D, Format: backend.swapFormat,
 			SubresourceRange: vk.ImageSubresourceRange{
 				AspectMask: vk.ImageAspectColor, LevelCount: 1, LayerCount: 1,
 			},
@@ -56,27 +61,33 @@ func (backend *VKBackend) createSwapchain() error {
 		if err != nil {
 			return err
 		}
+		backend.swapchainImages[i] = imageEntry{
+			name: "swapchain", image: img, view: view, format: backend.swapFormat,
+			aspect: vk.ImageAspectColor, width: int(extent.Width), height: int(extent.Height),
+			layers: 1, samples: vk.SampleCount1Bit, binding: -1,
+			use: useNone, valid: true,
+		}
 	}
 
-	// Create one render-complete semaphore per swapchain image, present waiting
-	// on the semaphore belonging to the image it shows rather than to the frame slot
-	backend.renderSems = make([]vk.Semaphore, len(backend.swapImages))
+	// One render-complete semaphore per swapchain image: present waits on the
+	// semaphore belonging to the image it shows, not to the frame slot
+	backend.renderSems = make([]vk.Semaphore, len(images))
 	for i := range backend.renderSems {
 		if backend.renderSems[i], err = vk.CreateSemaphore(backend.device); err != nil {
 			return err
 		}
 	}
 
-	if err := backend.createMSAABuffer(); err != nil { // TODO: check if not abstractable
+	if err := backend.createMSAABuffer(); err != nil {
 		return err
 	}
-	return backend.createDepthBuffer() // TODO: check if we need the for loop line 264 in howtovulkan
+	return backend.createDepthBuffer()
 }
 
-// Resolves settings.MSAASamples against the device's limits, returning the main pass's sample count
+// Resolves settings.MSAASamples against the device's limits
 //
 // Colour and depth limits are intersected, the pass attaching one of each. The
-// spec guarantees 1 and 4 in both, so stepping down always terminates.
+// spec guarantees 1 and 4 in both, so stepping down always terminates
 func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags {
 	if !settings.MSAAEnabled() {
 		return vk.SampleCount1Bit
@@ -88,18 +99,17 @@ func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags {
 	case settings.MSAASamples >= 4:
 		want = vk.SampleCount4Bit
 	}
-
-	props := vk.GetPhysicalDeviceProperties2(backend.physicalDevice)
-	supported := props.FramebufferColorSampleCounts & props.FramebufferDepthSampleCounts
+	supported := backend.props.FramebufferColorSampleCounts & backend.props.FramebufferDepthSampleCounts
 	for want > vk.SampleCount1Bit && supported&want == 0 {
 		want >>= 1
 	}
 	return want
 }
 
-// Creates the multisampled colour image the main pass renders into, or nothing when MSAA is off
+// Creates the multisampled colour image the backbuffer view resolves out of, or
+// nothing when MSAA is off
 //
-// Transient: nothing samples it, so a tiler can keep it on-chip.
+// Transient: nothing samples it, so a tiler can keep it on-chip
 func (backend *VKBackend) createMSAABuffer() error {
 	if backend.samples == vk.SampleCount1Bit {
 		return nil
@@ -117,18 +127,25 @@ func (backend *VKBackend) createMSAABuffer() error {
 	if err != nil {
 		return err
 	}
-	backend.msaaImage, backend.msaaAlloc = img, alloc
-
-	backend.msaaView, err = vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
+	view, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
 		Image: img, ViewType: vk.ImageViewType2D, Format: backend.swapFormat,
 		SubresourceRange: vk.ImageSubresourceRange{
 			AspectMask: vk.ImageAspectColor, LevelCount: 1, LayerCount: 1,
 		},
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	backend.msaa = imageEntry{
+		name: "backbufferMSAA", image: img, alloc: alloc, view: view, format: backend.swapFormat,
+		aspect: vk.ImageAspectColor, width: int(backend.swapExtent.Width), height: int(backend.swapExtent.Height),
+		layers: 1, samples: backend.samples, ownsImage: true, binding: -1,
+		use: useNone, valid: true,
+	}
+	return nil
 }
 
-// Creates the one depth image and view every main pass renders into
+// Creates the depth image every pass on the screen shares
 func (backend *VKBackend) createDepthBuffer() error {
 	img, alloc, err := backend.allocator.VmaCreateImage(vk.ImageCreateInfo{
 		ImageType: vk.ImageType2D,
@@ -144,36 +161,43 @@ func (backend *VKBackend) createDepthBuffer() error {
 	if err != nil {
 		return err
 	}
-	backend.depthImage, backend.depthAlloc = img, alloc
-
-	backend.depthView, err = vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
+	view, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
 		Image: img, ViewType: vk.ImageViewType2D, Format: depthFormat,
 		SubresourceRange: vk.ImageSubresourceRange{
 			AspectMask: vk.ImageAspectDepth, LevelCount: 1, LayerCount: 1,
 		},
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	backend.depth = imageEntry{
+		name: "backbufferDepth", image: img, alloc: alloc, view: view, format: depthFormat,
+		aspect: vk.ImageAspectDepth, width: int(backend.swapExtent.Width), height: int(backend.swapExtent.Height),
+		layers: 1, samples: backend.samples, ownsImage: true, binding: -1,
+		use: useNone, valid: true,
+	}
+	return nil
 }
 
 // Destroys the swapchain and everything sized to it
 func (backend *VKBackend) destroySwapchain() {
-	for _, v := range backend.swapViews {
-		vk.DestroyImageView(backend.device, v)
+	for i := range backend.swapchainImages {
+		vk.DestroyImageView(backend.device, backend.swapchainImages[i].view)
 	}
-	backend.swapViews = nil
-	for _, s := range backend.renderSems {
-		vk.DestroySemaphore(backend.device, s)
+	backend.swapchainImages = nil
+	for _, semaphore := range backend.renderSems {
+		vk.DestroySemaphore(backend.device, semaphore)
 	}
 	backend.renderSems = nil
-	if backend.depthView != 0 {
-		vk.DestroyImageView(backend.device, backend.depthView)
-		backend.allocator.VmaDestroyImage(backend.depthImage, backend.depthAlloc)
-		backend.depthView = 0
+	if backend.depth.view != 0 {
+		vk.DestroyImageView(backend.device, backend.depth.view)
+		backend.allocator.VmaDestroyImage(backend.depth.image, backend.depth.alloc)
+		backend.depth = imageEntry{binding: -1}
 	}
-	if backend.msaaView != 0 {
-		vk.DestroyImageView(backend.device, backend.msaaView)
-		backend.allocator.VmaDestroyImage(backend.msaaImage, backend.msaaAlloc)
-		backend.msaaView, backend.msaaImage = 0, 0
+	if backend.msaa.view != 0 {
+		vk.DestroyImageView(backend.device, backend.msaa.view)
+		backend.allocator.VmaDestroyImage(backend.msaa.image, backend.msaa.alloc)
+		backend.msaa = imageEntry{binding: -1}
 	}
 	if backend.swapchain != 0 {
 		vk.DestroySwapchainKHR(backend.device, backend.swapchain)
@@ -181,13 +205,14 @@ func (backend *VKBackend) destroySwapchain() {
 	}
 }
 
-// Rebuilds everything sized to the window, after acquire or present reports the surface out of date, which is how a resize reaches a Vulkan app
+// Rebuilds everything sized to the window, after acquire or present reports the
+// surface out of date, which is how a resize reaches a Vulkan app
 func (backend *VKBackend) recreateSwapchain() {
-	// Block while minimised, as a zero-sized surface is one no swapchain accepts
-	w, h := backend.window.GetSize()
-	for w == 0 || h == 0 {
+	// Block while minimised: a zero-sized surface is one no swapchain accepts
+	width, height := backend.window.GetSize()
+	for width == 0 || height == 0 {
 		glfw.WaitEvents()
-		w, h = backend.window.GetSize()
+		width, height = backend.window.GetSize()
 	}
 
 	fatal(vk.DeviceWaitIdle(backend.device), "wait idle before swapchain recreate")

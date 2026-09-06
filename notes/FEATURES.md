@@ -34,7 +34,8 @@ Read alongside `ENGINE_FLOW.md` (the renderer contract, operationally) and
 ### The abstraction
 
 - The scene layer makes zero graphics-API calls. Everything goes through
-  `renderer.Backend` (28 methods), implemented in `vulkan/`. An OpenGL 4.1
+  `renderer.Backend`/`Frame`/`Pass`/`Compute` (24 methods), implemented in
+  `vulkan/`. An OpenGL 4.1
   backend existed until 2026-08-05; `tmp/BACKEND_DECISION.md` §1–2 is why it went and
   why the abstraction stayed
 - Shaders are authored in Slang (`shaders/slang/*.slang`) and compiled to SPIR-V
@@ -461,8 +462,8 @@ The theory behind all of this is in `cheatsheets/PBR.md`.
 ### UI overlay
 
 Widget trees from [Gutter](https://github.com/Zephyr75/gutter) are rasterised on
-the CPU into an RGBA image, uploaded with `UpdateTexture2D`, and composited as an
-ordinary fullscreen mesh built once by `core.createOverlayQuad`. It redraws only
+the CPU into an RGBA image, uploaded with `Backend.UpdateImage`, and composited
+as an ordinary fullscreen mesh built once by `core.newOverlay`. It redraws only
 when the tree or the hover state changed.
 
 On Vulkan the upload is _staged_ and copied at the top of the next frame, because
@@ -471,11 +472,12 @@ stall. `main.go` currently passes a nil widget, so only the debug crosshair draw
 
 ### Depth prepass — shade each visible pixel once
 
-`[renderer] depthPrepass`, on by default. `Scene.RunDepthPrepass` opens a
-`BeginDepthPrepass` of its own and draws every mesh through `prepass.slang` — position in, empty fragment stage — filling the
-backbuffer's depth with the nearest surface per pixel. The main pass then keeps
-that depth (`BeginPass(0, clear, true)`) and `RenderScene` shades with
-`CompareEqual`, so only the frontmost fragment survives to run `fsMain`.
+`[renderer] depthPrepass`, on by default. `Scene.RunDepthPrepass` opens a pass of
+its own — a depth attachment and no colour — and draws every mesh through
+`prepass.slang` (position in, empty fragment stage), filling the backbuffer's
+depth with the nearest surface per pixel. The main pass then keeps that depth (its
+depth `Attachment.Clear` is nil, so it loads) and the forward pipeline is built
+with `CompareEqual`, so only the frontmost fragment survives to run `fsMain`.
 
 **Why it is worth a whole extra geometry pass.** `forward.slang`'s `fsMain` is
 the most expensive shader in the engine: per fragment it loops `lightCount`
@@ -502,18 +504,23 @@ ambient-occlusion work also wants this depth buffer.
 
 **`EQUAL` is unforgiving, and that shaped the code.** `prepass.slang` cannot
 reuse `depth.slang`: that one projects through a single premultiplied
-`FRAME.bakeMatrix`, while `forward.slang:20` does
+`BAKE.worldToTile`, while `forward.slang:20` does
 `mul(projection, mul(view, float4(fragPos, 1.0)))` with `fragPos` already
 through `model`. Same value mathematically, different associativity, different
 rounding — and `EQUAL` compares bits, so the difference shows as speckle along
 every edge rather than as an error. `prepass.slang` exists only to repeat that
 arithmetic operation for operation. Keep them in step.
 
-The prepass binds **no colour attachment**, which is why it is its own `Backend`
-method rather than a `BeginPass` flag: attachments are pass state, and under
-dynamic rendering a pipeline declares the formats it will be used with. So
-"backbuffer, depth only" is a fifth `passKind`. The payoff is that it writes no
-colour, blends nothing and — under MSAA — resolves nothing.
+The prepass binds **no colour attachment**, which is a `PassSpec` with `Color`
+empty and `Depth` set — no special method, since attachments are pass state and
+under dynamic rendering a pipeline just declares the formats it will be used
+with. The payoff is that it writes no colour, blends nothing and — under MSAA —
+resolves nothing.
+
+It is also handed the *same uploaded `FrameUniforms` address* the forward pass
+gets, so the two read the same bytes rather than two independently rebuilt
+copies. That removes one of the two ways the arithmetic could drift; keeping
+`prepass.slang` in step with `forward.slang` removes the other.
 
 **Transparency has to stay out of it.** Nothing in the engine is transparent
 today (`Material.Alpha` is parsed and dropped; `fsMain` returns alpha 1.0), but
@@ -535,10 +542,9 @@ end of the main pass. The request is clamped to
 rather than failing device-side; 1 and 4 are guaranteed by the spec.
 
 MSAA rather than a post-process filter because it needs no new pass and no new
-render target: FXAA or TAA would mean rendering the scene offscreen, and an
-offscreen colour target has no depth attachment today
-(`passOffscreenColor` is colour-only, for post-processing that reads a finished
-image). It also only smooths geometric edges — shader aliasing (specular
+render target: FXAA or TAA would mean rendering the scene offscreen, which
+`PassSpec.Color []Attachment` plus `Depth` now expresses — nothing structural is
+in the way any more, it is simply not built. It also only smooths geometric edges — shader aliasing (specular
 highlights, normal-map shimmer) is untouched, which is what a post-process pass
 would buy.
 
@@ -604,14 +610,14 @@ a single skybox sample.
 
 **Why** unlocks intensities above 1 and physically meaningful lighting.
 
-**Files** `vulkan/`, `go-vulkan`, a new `tonemap` / `bloom` Slang pass, `core/app.go`.
+**Files** a new `tonemap` / `bloom` Slang pass, `scene/` or a new `effects/`, `core/app.go`. Not `vulkan/`.
 
-- Render the main pass into a colour render target instead of the swapchain.
-  `CreateRenderTarget(RenderTargetSpec{Format: TargetColor})` already exists —
-  **but** it allocates `R8G8B8A8_UNORM`, not the `R16G16B16A16_SFLOAT` HDR
-  actually needs, because the `go-vulkan` bindings expose no half-float format.
-  That is a one-constant change in `vulkan/backend.go` once the binding exists;
-  `go-vulkan/BINDINGS_GAP.md` §7 batch 1 is the hour of work that adds it
+- Render the main pass into a colour image instead of the swapchain.
+  `CreateImage(ImageSpec{Format: FormatRGBA16F, Usage: UsageSampled |
+  UsageColorAttachment})` is all it takes now — the half-float binding landed
+  with `go-vulkan` batch 1, and `Caps().Formats(FormatRGBA16F)` probes the device
+  rather than assuming. **Nothing under `vulkan/` has to change**, which is the
+  point: `INTERFACE_PLAN.md` §6 nominates this as the proof of that
 - Add a fullscreen post pass: bright-pass plus separable Gaussian blur for bloom,
   then ACES/Reinhard tonemap and gamma to the backbuffer. The stopgap Reinhard at
   the end of `forward.slang` moves here
@@ -640,12 +646,11 @@ Smaller items, all of them deliberate for now:
 | The score ignores whether a light is on screen at all                       | `lightScore` — the cluster gate is Part G                                    |
 | `MaxLights` is a fixed 64, and the score ignores what is off screen         | both are `tmp/CLUSTERED_FORWARD.md`, the one deferred part                   |
 | A light that moves does not dirty its own tiles                             | nothing moves a light yet; `Scene.UpdateShadows` when one can                |
-| The prepass image is unverified against the prepass-off image               | no readback path; needs two RenderDoc captures                              |
-| `GeometryShader` and `passShadowCube` are enabled and unused                 | `depth_cube.slang` retired with the atlas                                    |
-| No mipmaps on any texture                                                    | `vulkan/texture.go` — needs `CmdBlitImage`, `go-vulkan/BINDINGS_GAP.md` §5.2 |
+| ~~The prepass image is unverified against the prepass-off image~~           | verified: `-screenshot` on and off differ in 6 pixels of 2.07 M              |
+| `GeometryShader` is enabled and unused                                       | `depth_cube.slang` retired with the atlas; the feature stays for `PassSpec.Layers` |
+| No mipmaps on any texture                                                    | every image is one level; `Frame.GenerateMips` and the mip fields on the specs were deleted as unused and come back with the first caller |
 | Physical device is `devices[0]`, not scored                                  | `vulkan/backend.go`                                                          |
-| No rendered-image regression test                                            | nothing checks the frame, only that the scene parses                         |
-| No GPU timestamp queries, so a pass cannot be profiled                       | needs query-pool bindings, `go-vulkan/BINDINGS_GAP.md` §5.4                  |
+| No rendered-image regression test                                            | `-screenshot` makes one possible; nothing automates the comparison           |
 | The uniform structs still obey the dead 16-byte cell rule                    | `tmp/BACKEND_DECISION.md` §5.3                                               |
 
 ---

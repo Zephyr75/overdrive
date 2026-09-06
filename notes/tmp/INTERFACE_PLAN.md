@@ -19,7 +19,8 @@ Not here: why Vulkan only (`BACKEND_DECISION.md` §1), the lighting work
 5. [`go-vulkan` batches](#5-go-vulkan-batches)
 6. [Rollout](#6-rollout)
 7. [Verification](#7-verification)
-8. [Costs and open risks](#8-costs-and-open-risks)
+8. [What was built, and where it differs](#8-what-was-built-and-where-it-differs)
+9. [Costs and open risks](#9-costs-and-open-risks)
 
 ---
 
@@ -424,6 +425,8 @@ call site that rewrites it anyway, so the break and the fix land together.
 
 ## 6. Rollout
 
+> Built. §8 records what landed and where it differs from the plan below.
+
 Each stage compiles and runs. Bindings interleave rather than trail: the batch a
 stage needs is done immediately before it.
 
@@ -506,7 +509,87 @@ change, except where stage 1 splits the per-tile block out. If a shader does:
 
 ---
 
-## 8. Costs and open risks
+## 8. What was built, and where it differs
+
+**Status: built.** All six stages of §6 landed together rather than one at a
+time — the interface change is not separable into shippable halves once
+`BeginPass` stops existing — and `go-vulkan` batches 1-9 landed with them.
+Batch 10 (ray-query acceleration structures) is the only one left, so
+`CreateAccel` and `BuildAccel` are declared, report unimplemented on stderr, and
+`Caps().Features[FeatureRayTracing]` is false.
+
+The result was exactly the 29 methods §3 specifies: `Backend` 18, `Frame` 8,
+`Pass` 2, `Compute` 1.
+
+**Trimmed to 24 on 2026-09-05** — `Backend` 16, `Frame` 5, `Pass` 2, `Compute` 1.
+Five methods went, each with no caller in the engine: `Timings`/`Timestamp` and
+their query pools (RenderDoc profiles per pass, and nothing drew the numbers),
+`CreateAccel`/`BuildAccel` and the `Accel*` specs (batch 10 never landed, so they
+only printed "not built yet"), and `GenerateMips` with every mip field on the
+specs (nothing ever asked for more than one level). `go-vulkan` lost `debug.go` and `query.go`
+with them, then got the two label entry points back in `vk/label.go` the same
+day: a capture that does not group by pass is worse than the ~80 lines. This is a deliberate exception to §1's rule 2: a
+declaration of nothing is not an expressible technique, and `TODO.md` records
+what to restore alongside the caller that would need it.
+
+### 8.1 Deliberate differences from §3
+
+Each of these is a place the plan was wrong or under-specified, found by
+building it.
+
+| # | plan | built | why |
+|---|---|---|---|
+| 1 | `MeshSpec.Attributes []VertexAttr` | `PipelineSpec.Vertex VertexLayout`, `MeshSpec.Stride` | Vulkan bakes vertex input into the pipeline. Attributes on the mesh would have kept a pipeline variant per (pipeline, mesh layout) — the lazy `pipelines[pass][layout]` table this plan exists to delete |
+| 2 | a `Pass` learns what to transition from its attachments | `PassSpec.Reads []Handle` | An attachment is what a pass *writes*. What it *samples* is reached through descriptors, which the backend cannot inspect — the same argument §2.5 makes for `ComputeSpec`. Leaving it implicit was a missing barrier |
+| 3 | `Use` in the interface | `use` private to `vulkan/barrier.go` | No interface method takes one. Reads and Writes are handles, and the intent follows from which list they are in and what usage the image was created with |
+| 4 | `PassSpec.Samples` | derived from the attachments | A pass's sample count *is* its attachments'; a field could only disagree with them |
+| 5 | `Backbuffer` alone | `Backbuffer`, `BackbufferDepth`, `BackbufferImage` | The depth buffer is sized to the swapchain, so only the backend sees it resize. The third is the swapchain image as a copy source, which is what makes a screenshot possible |
+| 6 | the hot shadow descriptors stay "a private optimisation" | `ImageSpec.Hot` + `HotSlot`, `hotTextures[4]` at binding 3 | The backend cannot decide which images are hot without knowing what they are for. `Hot` says "tapped many times per fragment"; `HotSlot` is the number the shader indexes with a literal. Neither says "shadow" |
+| 7 | binding 3 = TLAS | binding 3 = the hot array | TLAS is batch 10's; it takes binding 4 when it lands |
+| 8 | — | `-screenshot out.png` | §7 says a captured buffer can be diffed once `ReadBuffer` lands. This is that, and it is what verified the rewrite |
+| 9 | — | a debug messenger behind `[debug] validation`, since deleted | The layer reports through `VK_EXT_debug_utils` and nowhere else, which made §7's "zero validation errors" gate verifiable. Removed on 2026-09-05: a `VK_LAYER_SETTINGS_PATH` file makes the layer log to stdout with no code in the engine, which was verified before the messenger was dropped |
+
+### 8.2 What the free wins actually came to
+
+- **The arena.** §2.1 predicted a full 337-slot atlas dropping from ~1.6 MiB a
+  frame to ~34 KiB. Measured: ~40 KiB, `arenaSize` back from 4 MiB to 2, and an
+  overflow now panics instead of wrapping to offset 0.
+- **`FrameUniforms`** lost the three per-tile fields and the two atlas handles:
+  4848 → 4760 bytes. `BakeUniforms` is the new 80-byte block.
+- **The eleven guards are gone**, along with `SetCullMode`, `SetDepthCompare`,
+  `BindShader`, `BindFrameUniforms`, `BindShadowRecords`, `BeginDepthPrepass`,
+  `CopyDepthRegion`, `SetViewportScissor` and the inferred `passKind` table.
+- **`vulkan/` did not get smaller** — 2251 lines before, ~2500 after with
+  compute, mips, readback, timing and labels added. The 2026-09-05 trim took mips,
+  timing and labels back out: 2857 lines before it, 2615 after. §8 said size was never the
+  metric; what changed is that it is nine files organised by concept.
+
+### 8.3 Verification that was actually run
+
+`go build ./...`, `gofmt -l`, `go vet ./...` (the two known `unsafe.Pointer`
+reports only), and `spirv-val --scalar-block-layout` on all twelve modules.
+
+Then, with `[debug] validation = true` and a stderr messenger registered:
+
+| check | result |
+|---|---|
+| `go run .` settled | `bakes: 0 static 0 dynamic`, zero validation output |
+| `-scene stress.xml` | 64 lights, zero validation output, arena well inside 2 MiB |
+| `-config low.toml` | 2048 atlas, no dynamic atlas, cheap PCF, no MSAA — renders, zero validation output |
+| `depthPrepass` on vs off | 6 pixels of 2.07 M differ by more than 2/255. No speckle, so `EQUAL` agrees with the prepass |
+| `noShadows` on vs off | 18.5% of pixels differ. The atlases are being sampled |
+| a caster forced to move | `bakes: 0 static 8 dynamic` every frame, static staying cached — the split works |
+| the messenger itself | proved by deliberately dropping the present transition, which reported four errors a frame |
+| compute, `GenerateMips`, `Clear`, `ReadBuffer`, `ReloadPipelines`, slot reuse | a throwaway harness ran each once and checked the bytes: all passed, then it was removed |
+
+**Still unverified:** nothing draws with `Timings()` or `ReloadPipelines` in the
+running engine, and §6's proof — HDR + tonemap + bloom built entirely above
+`renderer/` — has not been built. That is the item that would show the stack
+holds, and it is on `TODO.md`.
+
+---
+
+## 9. Costs and open risks
 
 - Stage 3 touches every draw site; stage 5 touches `core/app.go`,
   `scene/scene.go`, `scene/skybox.go`, `scene/shadowatlas.go` and `core/ui.go`.

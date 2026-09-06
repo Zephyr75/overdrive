@@ -29,51 +29,39 @@ type CameraXml struct {
 }
 
 // Teleports the camera to a position
-func (c *Camera) Move(pos mgl32.Vec3) {
-	c.Pos = pos
+func (camera *Camera) Move(pos mgl32.Vec3) {
+	camera.Pos = pos
 }
 
 // Points the camera's front vector at a position
-func (c *Camera) LookAt(pos mgl32.Vec3) {
-	c.Front = pos.Sub(c.Pos).Normalize()
+func (camera *Camera) LookAt(pos mgl32.Vec3) {
+	camera.Front = pos.Sub(camera.Pos).Normalize()
 }
 
 // Converts a parsed XML camera into engine coordinates, deriving front from yaw and pitch
-func (c CameraXml) toCamera() Camera {
-	pos := utils.ParseVec3(c.Pos)
-	front := utils.ParseVec3(c.Front)
-	up := utils.ParseVec3(c.Up)
+func (camera CameraXml) toCamera() Camera {
+	pos := utils.ParseVec3(camera.Pos)
+	front := utils.ParseVec3(camera.Front)
+	up := utils.ParseVec3(camera.Up)
 	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 	// front = mgl32.Vec3{front[0], front[2], front[1]}
 	// up = mgl32.Vec3{up[0], up[2], up[1]}
 	up = mgl32.Vec3{0.0, 1.0, 0.0}
 
 	var direction mgl32.Vec3
-	direction[2] = -float32(math.Cos(float64(mgl32.DegToRad(c.Pitch))) * math.Cos(float64(mgl32.DegToRad(c.Yaw))))
-	direction[1] = -float32(math.Sin(float64(mgl32.DegToRad(c.Pitch))))
-	direction[0] = -float32(math.Cos(float64(mgl32.DegToRad(c.Pitch))) * math.Sin(float64(mgl32.DegToRad(c.Yaw))))
+	direction[2] = -float32(math.Cos(float64(mgl32.DegToRad(camera.Pitch))) * math.Cos(float64(mgl32.DegToRad(camera.Yaw))))
+	direction[1] = -float32(math.Sin(float64(mgl32.DegToRad(camera.Pitch))))
+	direction[0] = -float32(math.Cos(float64(mgl32.DegToRad(camera.Pitch))) * math.Sin(float64(mgl32.DegToRad(camera.Yaw))))
 	front = direction.Normalize()
 
 	return Camera{
-		Name:  c.Name,
-		Type:  c.Type,
+		Name:  camera.Name,
+		Type:  camera.Type,
 		Pos:   pos,
 		Front: front,
 		Up:    up,
-		Yaw:   c.Yaw,
-		Pitch: c.Pitch,
-		Fov:   c.Fov,
-	}
-}
-
-// Returns a camera with the default overview position and 45° field of view
-func NewCamera() Camera {
-	return Camera{
-		Pos:   mgl32.Vec3{0.0, 20.0, 15.0},
-		Front: mgl32.Vec3{0.0, -1.0, 1.0},
-		Up:    mgl32.Vec3{0.0, 1.0, 1.0},
-		Yaw:   0.0,
-		Pitch: 0.0,
-		Fov:   45.0,
+		Yaw:   camera.Yaw,
+		Pitch: camera.Pitch,
+		Fov:   camera.Fov,
 	}
 }
