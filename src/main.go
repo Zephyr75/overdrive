@@ -26,10 +26,10 @@ type StaticCollider struct {
 	collider physics.Collider
 }
 
-func (collider *StaticCollider) Init(world *ecs.World)      {}
-func (collider *StaticCollider) Update(world *ecs.World)    {}
-func (collider *StaticCollider) Type() string               { return "StaticCollider" }
-func (collider *StaticCollider) Collider() physics.Collider { return collider.collider }
+func (collider *StaticCollider) Init(world *ecs.World)      {}                           // TODO: review
+func (collider *StaticCollider) Update(world *ecs.World)    {}                           // TODO: review
+func (collider *StaticCollider) Type() string               { return "StaticCollider" }  // TODO: review
+func (collider *StaticCollider) Collider() physics.Collider { return collider.collider } // TODO: review
 
 // A falling ball, its mesh following the collider each frame
 type Sphere struct {
@@ -37,16 +37,16 @@ type Sphere struct {
 	*scene.Mesh
 }
 
-func (sphere *Sphere) Init(world *ecs.World) {}
+func (sphere *Sphere) Init(world *ecs.World) {} // TODO: review
 
-func (sphere *Sphere) Update(world *ecs.World) {
+func (sphere *Sphere) Update(world *ecs.World) { // TODO: review
 	sphere.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
 	sphere.Mesh.MoveTo(sphere.Pos)
 }
 
-func (sphere *Sphere) Type() string { return "Sphere" }
+func (sphere *Sphere) Type() string { return "Sphere" } // TODO: review
 
-func (sphere *Sphere) Collider() physics.Collider { return sphere.Sphere }
+func (sphere *Sphere) Collider() physics.Collider { return sphere.Sphere } // TODO: review
 
 // A static ball the falling one collides against
 type Sphere2 struct {
@@ -55,12 +55,12 @@ type Sphere2 struct {
 	*scene.Mesh
 }
 
-func (sphere *Sphere2) Init(world *ecs.World)      {}
-func (sphere *Sphere2) Update(world *ecs.World)    {}
-func (sphere *Sphere2) Type() string               { return "Sphere2" }
-func (sphere *Sphere2) Collider() physics.Collider { return sphere.Sphere }
+func (sphere *Sphere2) Init(world *ecs.World)      {}                       // TODO: review
+func (sphere *Sphere2) Update(world *ecs.World)    {}                       // TODO: review
+func (sphere *Sphere2) Type() string               { return "Sphere2" }     // TODO: review
+func (sphere *Sphere2) Collider() physics.Collider { return sphere.Sphere } // TODO: review
 
-func main() {
+func main() { // TODO: review
 	// Must load before NewApp, which is where the window and backend read them
 	configName := flag.String("config", "vulkan.toml", "settings file: a bare name resolves under configs/, a path is used as given")
 	sceneName := flag.String("scene", "showcase.xml", "scene file, resolved under assets/")
@@ -88,7 +88,7 @@ func main() {
 }
 
 // Wires the physics bodies this demo needs, skipping any mesh the scene lacks so every scene still loads
-func createWorld(scene *scene.Scene) *ecs.World {
+func createWorld(scene *scene.Scene) *ecs.World { // TODO: review
 	world := ecs.World{}
 
 	if mesh := scene.Mesh("Ground"); mesh != nil {
@@ -110,7 +110,7 @@ var (
 )
 
 // Builds the demo's widget tree, one frame's worth of UI
-func MainWindow(app core.App) ui.UIElement {
+func MainWindow(app core.App) ui.UIElement { // TODO: review
 	return ui.Row{
 		Style: ui.Style{
 			Color: color.Transparent,

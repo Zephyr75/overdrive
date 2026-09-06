@@ -64,7 +64,7 @@ type Pipelines struct {
 }
 
 // Builds them, given the sample count the backbuffer rasterises at
-func NewPipelines(backend renderer.Backend) (Pipelines, error) {
+func NewPipelines(backend renderer.Backend) (Pipelines, error) { // TODO: review
 	samples := backend.Capacities().BackbufferSamples
 	var pipes Pipelines
 	var err error
@@ -147,7 +147,7 @@ type drawContext struct {
 }
 
 // Uploads this draw's block and records the draw
-func (ctx *drawContext) draw(mesh renderer.MeshHandle, uniforms *renderer.DrawUniforms) {
+func (ctx *drawContext) draw(mesh renderer.MeshHandle, uniforms *renderer.DrawUniforms) { // TODO: review
 	push := ctx.push
 	push[PushDraw] = ctx.frame.Upload(uniforms)
 	ctx.pass.Draw(renderer.DrawCall{Pipeline: ctx.pipeline, Mesh: mesh, Push: push})

@@ -91,7 +91,7 @@ type DrawUniforms struct {
 }
 
 // Guards the common.slang correspondence on every build
-func init() {
+func init() { // TODO: review
 	if unsafe.Sizeof(LightData{}) != 72 {
 		panic("renderer.LightData no longer matches common.slang")
 	}

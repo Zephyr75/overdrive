@@ -84,17 +84,17 @@ var (
 )
 
 // Reports whether material textures are sampled anisotropically, 1 meaning plain isotropic filtering
-func AnisotropyEnabled() bool {
+func AnisotropyEnabled() bool { // TODO: review
 	return Anisotropy > 1
 }
 
 // Reports whether the backbuffer is multisampled, which is MSAA asked for and a count that actually multisamples
-func MSAAEnabled() bool {
+func MSAAEnabled() bool { // TODO: review
 	return AntiAliasing == AAMSAA && MSAASamples > 1
 }
 
 // Returns the combined resolution of dynamic shadow tiles a frame may spend rebuilding
-func ShadowBakeBudget() int {
+func ShadowBakeBudget() int { // TODO: review
 	return ShadowBakeBudgetMiB << 20
 }
 
@@ -102,6 +102,6 @@ func ShadowBakeBudget() int {
 //
 // forward.slang's offsets are world-space constants tuned at 4096, so a smaller
 // atlas doubles a texel's world footprint and brings back the acne they hide
-func ShadowNormalScale() float32 {
+func ShadowNormalScale() float32 { // TODO: review
 	return float32(shadowReferenceAtlas) / float32(ShadowAtlasSize)
 }

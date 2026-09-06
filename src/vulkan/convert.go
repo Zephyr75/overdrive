@@ -12,7 +12,7 @@ import (
 // The Vulkan format an engine format names, the two backend-chosen entries
 // resolving to what the swapchain and the depth buffer were actually created
 // with
-func (backend *VKBackend) format(format renderer.Format) vk.Format {
+func (backend *VKBackend) format(format renderer.Format) vk.Format { // TODO: review
 	switch format {
 	case renderer.FormatNone:
 		return vk.FormatUndefined
@@ -58,7 +58,7 @@ func (backend *VKBackend) format(format renderer.Format) vk.Format {
 	return vk.FormatUndefined
 }
 
-func imageUsage(usage renderer.ImageUsage) vk.ImageUsageFlags {
+func imageUsage(usage renderer.ImageUsage) vk.ImageUsageFlags { // TODO: review
 	var out vk.ImageUsageFlags
 	if usage&renderer.ImageSampled != 0 {
 		out |= vk.ImageUsageSampled
@@ -81,7 +81,7 @@ func imageUsage(usage renderer.ImageUsage) vk.ImageUsageFlags {
 	return out
 }
 
-func bufferUsage(usage renderer.BufferUsage) vk.BufferUsageFlags {
+func bufferUsage(usage renderer.BufferUsage) vk.BufferUsageFlags { // TODO: review
 	var out vk.BufferUsageFlags
 	if usage&renderer.BufferVertex != 0 {
 		out |= vk.BufferUsageVertexBuffer
@@ -104,7 +104,7 @@ func bufferUsage(usage renderer.BufferUsage) vk.BufferUsageFlags {
 	return out
 }
 
-func sampleCount(n int) vk.SampleCountFlags {
+func sampleCount(n int) vk.SampleCountFlags { // TODO: review
 	switch {
 	case n >= 8:
 		return vk.SampleCount8Bit
@@ -116,7 +116,7 @@ func sampleCount(n int) vk.SampleCountFlags {
 	return vk.SampleCount1Bit
 }
 
-func samplesToInt(samples vk.SampleCountFlags) int {
+func samplesToInt(samples vk.SampleCountFlags) int { // TODO: review
 	switch samples {
 	case vk.SampleCount8Bit:
 		return 8
@@ -128,7 +128,7 @@ func samplesToInt(samples vk.SampleCountFlags) int {
 	return 1
 }
 
-func viewType(kind renderer.ImageKind, layers uint32) vk.ImageViewType {
+func viewType(kind renderer.ImageKind, layers uint32) vk.ImageViewType { // TODO: review
 	switch kind {
 	case renderer.Image2DArray:
 		return vk.ImageViewType2DArray
@@ -143,14 +143,14 @@ func viewType(kind renderer.ImageKind, layers uint32) vk.ImageViewType {
 	return vk.ImageViewType2D
 }
 
-func aspectOf(aspect vk.ImageAspectFlags) renderer.Aspect {
+func aspectOf(aspect vk.ImageAspectFlags) renderer.Aspect { // TODO: review
 	if aspect == vk.ImageAspectDepth {
 		return renderer.AspectDepth
 	}
 	return renderer.AspectColor
 }
 
-func cullMode(mode renderer.CullMode) vk.CullModeFlags {
+func cullMode(mode renderer.CullMode) vk.CullModeFlags { // TODO: review
 	switch mode {
 	case renderer.CullFront:
 		return vk.CullModeFront
@@ -160,14 +160,14 @@ func cullMode(mode renderer.CullMode) vk.CullModeFlags {
 	return vk.CullModeBack
 }
 
-func frontFace(winding renderer.WindingDirection) vk.FrontFace {
+func frontFace(winding renderer.WindingDirection) vk.FrontFace { // TODO: review
 	if winding == renderer.WindingClockwise {
 		return vk.FrontFaceClockwise
 	}
 	return vk.FrontFaceCounterClockwise
 }
 
-func compareOp(op renderer.CompareOperation) vk.CompareOp {
+func compareOp(op renderer.CompareOperation) vk.CompareOp { // TODO: review
 	switch op {
 	case renderer.CompareNever:
 		return vk.CompareOpNever
@@ -187,21 +187,21 @@ func compareOp(op renderer.CompareOperation) vk.CompareOp {
 	return vk.CompareOpLess
 }
 
-func filter(filterMode renderer.FilterType) vk.Filter {
+func filter(filterMode renderer.FilterType) vk.Filter { // TODO: review
 	if filterMode == renderer.FilterNearest {
 		return vk.FilterNearest
 	}
 	return vk.FilterLinear
 }
 
-func mipmapMode(filterMode renderer.FilterType) vk.SamplerMipmapMode {
+func mipmapMode(filterMode renderer.FilterType) vk.SamplerMipmapMode { // TODO: review
 	if filterMode == renderer.FilterNearest {
 		return vk.SamplerMipmapModeNearest
 	}
 	return vk.SamplerMipmapModeLinear
 }
 
-func addressMode(mode renderer.OutsideMode) vk.SamplerAddressMode {
+func addressMode(mode renderer.OutsideMode) vk.SamplerAddressMode { // TODO: review
 	switch mode {
 	case renderer.OutsideMirroredRepeat:
 		return vk.SamplerAddressModeMirroredRepeat
@@ -213,14 +213,14 @@ func addressMode(mode renderer.OutsideMode) vk.SamplerAddressMode {
 	return vk.SamplerAddressModeRepeat
 }
 
-func borderColor(color renderer.BorderColor) vk.BorderColor {
+func borderColor(color renderer.BorderColor) vk.BorderColor { // TODO: review
 	if color == renderer.BorderWhite {
 		return vk.BorderColorOpaqueWhiteFloat
 	}
 	return vk.BorderColorOpaqueBlackFloat
 }
 
-func shaderStage(stage renderer.ShaderStage) vk.ShaderStageFlags {
+func shaderStage(stage renderer.ShaderStage) vk.ShaderStageFlags { // TODO: review
 	switch stage {
 	case renderer.StageFragment:
 		return vk.ShaderStageFragment
@@ -233,7 +233,7 @@ func shaderStage(stage renderer.ShaderStage) vk.ShaderStageFlags {
 }
 
 // The blend state of one colour attachment
-func blendAttachment(mode renderer.BlendMode) vk.PipelineColorBlendAttachmentState {
+func blendAttachment(mode renderer.BlendMode) vk.PipelineColorBlendAttachmentState { // TODO: review
 	att := vk.PipelineColorBlendAttachmentState{
 		ColorWriteMask: vk.ColorComponentR | vk.ColorComponentG | vk.ColorComponentB | vk.ColorComponentA,
 	}
@@ -262,7 +262,7 @@ func blendAttachment(mode renderer.BlendMode) vk.PipelineColorBlendAttachmentSta
 
 // Creates a sampler from its whole state, the caller deciding filtering,
 // wrapping, border and whether it compares
-func (backend *VKBackend) CreateSampler(spec renderer.SamplerInfo) renderer.SamplerHandle {
+func (backend *VKBackend) CreateSampler(spec renderer.SamplerInfo) renderer.SamplerHandle { // TODO: review
 	aniso := spec.MaxAnisotropy
 	if limit := backend.props.MaxSamplerAnisotropy; aniso > limit {
 		// Lower a request the device cannot meet: the config file is written
@@ -289,7 +289,7 @@ func (backend *VKBackend) CreateSampler(spec renderer.SamplerInfo) renderer.Samp
 }
 
 // The Vulkan sampler a handle names, handle 0 being the built-in repeat sampler
-func (backend *VKBackend) samplerOf(handle renderer.SamplerHandle) vk.Sampler {
+func (backend *VKBackend) samplerOf(handle renderer.SamplerHandle) vk.Sampler { // TODO: review
 	if int(handle) >= len(backend.samplers) {
 		return backend.samplers[0]
 	}

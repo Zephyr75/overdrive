@@ -24,7 +24,7 @@ type pipelineEntry struct {
 //
 // Replaces the old lazy table that inferred winding, blending and sample count
 // from what a target looked like — a pass's conventions are the pipeline's now
-func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.PipelineHandle, error) {
+func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.PipelineHandle, error) { // TODO: review
 	entry := &pipelineEntry{spec: spec, valid: true}
 	if err := backend.buildPipeline(entry); err != nil {
 		return 0, err
@@ -37,7 +37,7 @@ func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.P
 //
 // The old objects are retired rather than destroyed: a frame in flight may still
 // reference them
-func (backend *VKBackend) ReloadPipelines() error {
+func (backend *VKBackend) ReloadPipelines() error { // TODO: review
 	_ = vk.DeviceWaitIdle(backend.device)
 	for name, module := range backend.modules {
 		vk.DestroyShaderModule(backend.device, module)
@@ -58,7 +58,7 @@ func (backend *VKBackend) ReloadPipelines() error {
 }
 
 // Creates the Vulkan pipeline an entry's spec describes, into e.pipeline
-func (backend *VKBackend) buildPipeline(entry *pipelineEntry) error {
+func (backend *VKBackend) buildPipeline(entry *pipelineEntry) error { // TODO: review
 	spec := entry.spec
 	stages := spec.Stages
 	if len(stages) == 0 {
@@ -143,7 +143,7 @@ func (backend *VKBackend) buildPipeline(entry *pipelineEntry) error {
 
 // Builds the vertex input state a layout describes, or none when it has no
 // attributes — a fullscreen pass generating its own positions has no stream
-func (backend *VKBackend) vertexInput(layout renderer.VertexLayout) *vk.PipelineVertexInputStateCreateInfo {
+func (backend *VKBackend) vertexInput(layout renderer.VertexLayout) *vk.PipelineVertexInputStateCreateInfo { // TODO: review
 	if len(layout.Attrs) == 0 {
 		return &vk.PipelineVertexInputStateCreateInfo{}
 	}
@@ -165,7 +165,7 @@ func (backend *VKBackend) vertexInput(layout renderer.VertexLayout) *vk.Pipeline
 }
 
 // Loads one precompiled SPIR-V stage, caching the module by set and stage
-func (backend *VKBackend) module(name string, stage renderer.ShaderStage) (vk.ShaderModule, error) {
+func (backend *VKBackend) module(name string, stage renderer.ShaderStage) (vk.ShaderModule, error) { // TODO: review
 	key := name + "." + stage.Suffix()
 	if module, ok := backend.modules[key]; ok {
 		return module, nil
@@ -184,7 +184,7 @@ func (backend *VKBackend) module(name string, stage renderer.ShaderStage) (vk.Sh
 }
 
 // Resolves a pipeline handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) pipeline(handle renderer.PipelineHandle) *pipelineEntry {
+func (backend *VKBackend) pipeline(handle renderer.PipelineHandle) *pipelineEntry { // TODO: review
 	if handle == 0 || int(handle) > len(backend.pipelines) || !backend.pipelines[handle-1].valid {
 		return nil
 	}

@@ -7,14 +7,14 @@ import (
 )
 
 // Parses a string of the form "x,y,z" into a mgl32.Vec3
-func ParseVec3(text string) mgl32.Vec3 {
+func ParseVec3(text string) mgl32.Vec3 { // TODO: review
 	var x, y, z float32
 	fmt.Sscanf(text, "%f,%f,%f", &x, &y, &z)
 	return mgl32.Vec3{x, y, z}
 }
 
 // Panics on a non-nil error, startup failures not being recoverable
-func HandleError(err error) {
+func HandleError(err error) { // TODO: review
 	if err != nil {
 		panic(err)
 	}

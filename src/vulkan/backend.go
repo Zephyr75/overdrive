@@ -110,7 +110,7 @@ type VKBackend struct {
 }
 
 // Builds an empty Vulkan backend, before any Vulkan object exists
-func New() *VKBackend {
+func New() *VKBackend { // TODO: review
 	backend := &VKBackend{
 		swapFormat: vk.FormatB8G8R8A8Unorm,
 		samples:    vk.SampleCount1Bit, // Init narrows this once the device is known
@@ -127,7 +127,7 @@ func New() *VKBackend {
 
 // Aborts on a failed Vulkan call: resource creation failing mid-run is not
 // recoverable, and error plumbing at every call site would bury the code
-func fatal(err error, what string) {
+func fatal(err error, what string) { // TODO: review
 	if err != nil {
 		panic(fmt.Sprintf("vulkan: %s: %v", what, err))
 	}
@@ -137,7 +137,7 @@ func fatal(err error, what string) {
 
 // Brings up the whole device stack: instance, surface, device, allocator,
 // swapchain, frames, descriptors and the default textures
-func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error {
+func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error { // TODO: review
 	backend.window = window
 
 	if err := backend.createInstance(); err != nil {
@@ -180,7 +180,7 @@ func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error 
 
 // Creates the instance with the extensions GLFW requires, the validation layers
 // when [debug] validation is set, and debug-utils when the loader has it
-func (backend *VKBackend) createInstance() error {
+func (backend *VKBackend) createInstance() error { // TODO: review
 	// Keep validation opt-in: the layers are a separate package on most
 	// distributions and instance creation fails outright when one is missing
 	var layers []string
@@ -220,7 +220,7 @@ func (backend *VKBackend) createInstance() error {
 
 // Creates the surface, picks a graphics-and-present queue family, and creates
 // the logical device with the features the engine needs
-func (backend *VKBackend) createSurfaceAndDevice() error {
+func (backend *VKBackend) createSurfaceAndDevice() error { // TODO: review
 	devices, err := vk.EnumeratePhysicalDevices(backend.instance)
 	if err != nil {
 		return err
@@ -291,7 +291,7 @@ func (backend *VKBackend) createSurfaceAndDevice() error {
 
 // Allocates the per-frame command buffer, fence, semaphore, mapped arena and
 // query pool, one set per frame in flight
-func (backend *VKBackend) createFrameData() error {
+func (backend *VKBackend) createFrameData() error { // TODO: review
 	cbs, err := vk.AllocateCommandBuffers(backend.device, backend.commandPool, framesInFlight)
 	if err != nil {
 		return err
@@ -325,7 +325,7 @@ func (backend *VKBackend) createFrameData() error {
 
 // Creates the sampler handle 0 names, which every image gets unless it asks for
 // another
-func (backend *VKBackend) createDefaultSampler() {
+func (backend *VKBackend) createDefaultSampler() { // TODO: review
 	aniso := float32(0)
 	if settings.AnisotropyEnabled() {
 		aniso = float32(settings.Anisotropy)
@@ -345,14 +345,14 @@ func (backend *VKBackend) createDefaultSampler() {
 	backend.samplers[0] = sampler
 }
 
-func minF32(first, second float32) float32 {
+func minF32(first, second float32) float32 { // TODO: review
 	if first < second {
 		return first
 	}
 	return second
 }
 
-func (backend *VKBackend) createGlobalPipelineLayout() {
+func (backend *VKBackend) createGlobalPipelineLayout() { // TODO: review
 	layout, err := vk.CreatePipelineLayout(backend.device, vk.PipelineLayoutCreateInfo{
 		SetLayouts:         []vk.DescriptorSetLayout{backend.setLayout},
 		PushConstantRanges: []vk.PushConstantRange{{StageFlags: pushStages, Size: pushConstantSize}},
@@ -364,7 +364,7 @@ func (backend *VKBackend) createGlobalPipelineLayout() {
 // Uploads the white pixel and black cube that occupy slot 0 of the two sampled
 // arrays, which is what an unset texture falls back to, and seeds the dedicated
 // descriptors so none of them is ever read unwritten
-func (backend *VKBackend) createDefaultImages() {
+func (backend *VKBackend) createDefaultImages() { // TODO: review
 	white := backend.CreateImage(renderer.ImageInfo{
 		Name: "white", Width: 1, Height: 1, Format: renderer.FormatRGBA8,
 		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
@@ -394,7 +394,7 @@ func (backend *VKBackend) createDefaultImages() {
 }
 
 // Records what the device can do and what the request actually got
-func (backend *VKBackend) buildCaps(req renderer.Request) {
+func (backend *VKBackend) buildCaps(req renderer.Request) { // TODO: review
 	features := renderer.Features{
 		renderer.FeatureCompute: true,
 	}
@@ -415,11 +415,11 @@ func (backend *VKBackend) buildCaps(req renderer.Request) {
 	}
 }
 
-func (backend *VKBackend) Capacities() renderer.Capacities { return backend.caps }
+func (backend *VKBackend) Capacities() renderer.Capacities { return backend.caps } // TODO: review
 
 // Waits for the GPU to go idle, then destroys every Vulkan object the backend
 // owns, in reverse creation order
-func (backend *VKBackend) Shutdown() {
+func (backend *VKBackend) Shutdown() { // TODO: review
 	if backend.device == 0 {
 		return
 	}
@@ -489,7 +489,7 @@ func (backend *VKBackend) Shutdown() {
 
 // Records a one-off command buffer and blocks until the GPU has run it, which is
 // what the load-time upload paths use
-func (backend *VKBackend) immediateSubmit(record func(commandBuffer vk.CommandBuffer)) {
+func (backend *VKBackend) immediateSubmit(record func(commandBuffer vk.CommandBuffer)) { // TODO: review
 	cbs, err := vk.AllocateCommandBuffers(backend.device, backend.commandPool, 1)
 	fatal(err, "allocate one-time command buffer")
 	commandBuffer := cbs[0]
@@ -507,7 +507,7 @@ func (backend *VKBackend) immediateSubmit(record func(commandBuffer vk.CommandBu
 //
 // Skips the frame being recorded: its fence was reset at the start of the frame
 // and is only signalled at the end, so waiting on it from inside would deadlock
-func (backend *VKBackend) waitAllFrames() {
+func (backend *VKBackend) waitAllFrames() { // TODO: review
 	fences := make([]vk.Fence, 0, framesInFlight)
 	for i := range backend.frames {
 		if backend.recording && i == backend.frameIndex {

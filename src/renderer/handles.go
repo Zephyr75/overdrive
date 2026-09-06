@@ -37,25 +37,25 @@ type (
 	AccelHandle    uint32
 )
 
-func (handle ImageHandle) kind() handleKind    { return kindImage }
-func (handle ImageHandle) index() uint32       { return uint32(handle) }
-func (handle ViewHandle) kind() handleKind     { return kindView }
-func (handle ViewHandle) index() uint32        { return uint32(handle) }
-func (handle BufferHandle) kind() handleKind   { return kindBuffer }
-func (handle BufferHandle) index() uint32      { return uint32(handle) }
-func (handle MeshHandle) kind() handleKind     { return kindMesh }
-func (handle MeshHandle) index() uint32        { return uint32(handle) }
-func (handle SamplerHandle) kind() handleKind  { return kindSampler }
-func (handle SamplerHandle) index() uint32     { return uint32(handle) }
-func (handle PipelineHandle) kind() handleKind { return kindPipeline }
-func (handle PipelineHandle) index() uint32    { return uint32(handle) }
-func (handle AccelHandle) kind() handleKind    { return kindAccel }
-func (handle AccelHandle) index() uint32       { return uint32(handle) }
+func (handle ImageHandle) kind() handleKind    { return kindImage }      // TODO: review
+func (handle ImageHandle) index() uint32       { return uint32(handle) } // TODO: review
+func (handle ViewHandle) kind() handleKind     { return kindView }       // TODO: review
+func (handle ViewHandle) index() uint32        { return uint32(handle) } // TODO: review
+func (handle BufferHandle) kind() handleKind   { return kindBuffer }     // TODO: review
+func (handle BufferHandle) index() uint32      { return uint32(handle) } // TODO: review
+func (handle MeshHandle) kind() handleKind     { return kindMesh }       // TODO: review
+func (handle MeshHandle) index() uint32        { return uint32(handle) } // TODO: review
+func (handle SamplerHandle) kind() handleKind  { return kindSampler }    // TODO: review
+func (handle SamplerHandle) index() uint32     { return uint32(handle) } // TODO: review
+func (handle PipelineHandle) kind() handleKind { return kindPipeline }   // TODO: review
+func (handle PipelineHandle) index() uint32    { return uint32(handle) } // TODO: review
+func (handle AccelHandle) kind() handleKind    { return kindAccel }      // TODO: review
+func (handle AccelHandle) index() uint32       { return uint32(handle) } // TODO: review
 
 // Kind and Index expose a handle's identity to a backend, which cannot see the
 // unexported methods from its own package
-func Kind(handle Handle) int     { return int(handle.kind()) }
-func Index(handle Handle) uint32 { return handle.index() }
+func Kind(handle Handle) int     { return int(handle.kind()) } // TODO: review
+func Index(handle Handle) uint32 { return handle.index() }     // TODO: review
 
 // The kinds, for a backend's type switch
 const (

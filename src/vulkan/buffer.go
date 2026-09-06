@@ -34,10 +34,7 @@ type meshEntry struct {
 }
 
 // Creates a buffer and returns its device address
-//
-// Every buffer is address-capable: that is how a shader reaches one here, so
-// there is no reason for a second kind
-func (backend *VKBackend) CreateBuffer(spec renderer.BufferInfo) (renderer.BufferHandle, renderer.Address) {
+func (backend *VKBackend) CreateBuffer(spec renderer.BufferInfo) (renderer.BufferHandle, renderer.Address) { // TODO: review
 	size := spec.Size
 	var src unsafe.Pointer
 	var dataLen uint64
@@ -85,7 +82,7 @@ func (backend *VKBackend) CreateBuffer(spec renderer.BufferInfo) (renderer.Buffe
 	return handle, renderer.Address(entry.addr)
 }
 
-func minU64(first, second uint64) uint64 {
+func minU64(first, second uint64) uint64 { // TODO: review
 	if first < second {
 		return first
 	}
@@ -97,7 +94,7 @@ func minU64(first, second uint64) uint64 {
 // A host buffer is a memcpy after the frames that might read it have drained;
 // a device buffer goes through a staging copy. Rare by design: per-frame motion
 // belongs in a model matrix, not a vertex rewrite
-func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offset uint64, data any) {
+func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offset uint64, data any) { // TODO: review
 	entry := backend.buffer(bufferHandle)
 	if entry == nil || data == nil {
 		return
@@ -131,7 +128,7 @@ func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offse
 //
 // Stalls on the frames in flight before mapping. Right for a screenshot or an
 // image test, wrong inside a frame loop — that is the intended trade
-func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte {
+func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { // TODO: review
 	entry := backend.buffer(handle)
 	if entry == nil {
 		return nil
@@ -162,7 +159,7 @@ func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte {
 }
 
 // Resolves a buffer handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufEntry {
+func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufEntry { // TODO: review
 	if handle == 0 || int(handle) >= len(backend.buffers) || !backend.buffers[handle].valid {
 		return nil
 	}
@@ -170,7 +167,7 @@ func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufEntry {
 }
 
 // Pairs a shared vertex buffer with one face group's index list
-func (backend *VKBackend) CreateMesh(spec renderer.MeshInfo) renderer.MeshHandle {
+func (backend *VKBackend) CreateMesh(spec renderer.MeshInfo) renderer.MeshHandle { // TODO: review
 	// A mesh may name no vertex buffer at all: a fullscreen pass whose shader
 	// generates its own positions still needs a vertex count to draw
 	vertexBuffer := backend.buffer(spec.Vertices)
@@ -206,7 +203,7 @@ func (backend *VKBackend) CreateMesh(spec renderer.MeshInfo) renderer.MeshHandle
 }
 
 // Resolves a mesh handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) mesh(handle renderer.MeshHandle) *meshEntry {
+func (backend *VKBackend) mesh(handle renderer.MeshHandle) *meshEntry { // TODO: review
 	if handle == 0 || int(handle) >= len(backend.meshes) || !backend.meshes[handle].valid {
 		return nil
 	}

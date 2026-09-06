@@ -37,7 +37,7 @@ var (
 )
 
 // Rebuilds the layout tables from settings, before any slot is carved
-func loadLayoutSettings() {
+func loadLayoutSettings() { // TODO: review
 	atlasSize = settings.ShadowAtlasSize
 	div, count := settings.ShadowSlotDivisors, settings.ShadowSlotCounts
 
@@ -118,7 +118,7 @@ type lightAlloc struct {
 // They take the two dedicated descriptor slots forward.slang indexes by a
 // literal: the static atlas is hot slot 0 and the dynamic one hot slot 1, which
 // is what ShadowRecord.Flags bit 0 selects between
-func (atlas *shadowAtlas) setup(backend renderer.Backend) {
+func (atlas *shadowAtlas) setup(backend renderer.Backend) { // TODO: review
 	atlas.reset()
 
 	// Nearest, because PCF does its own filtering and a comparison here would
@@ -155,7 +155,7 @@ func (atlas *shadowAtlas) setup(backend renderer.Backend) {
 }
 
 // Rebuilds the layout and forgets every allocation
-func (atlas *shadowAtlas) reset() {
+func (atlas *shadowAtlas) reset() { // TODO: review
 	loadLayoutSettings()
 	atlas.slotsPool = buildLayout()
 	atlas.lightAllocs = map[int32]*lightAlloc{}
@@ -165,7 +165,7 @@ func (atlas *shadowAtlas) reset() {
 //
 // Power-of-two divisions in descending size, so placement needs no search: Z
 // order is what a buddy tree filled largest-first emits, and cannot fragment
-func buildLayout() []slotsPool {
+func buildLayout() []slotsPool { // TODO: review
 	pools := make([]slotsPool, 0, len(slotLayout))
 	cell, side := 0, atlasSize/minTileSize
 	for _, spec := range slotLayout {
@@ -192,7 +192,7 @@ func buildLayout() []slotsPool {
 }
 
 // De-interleaves a Z-order cell index into the atlas pixels of its top-left corner
-func zOrder(cell int) (int, int) {
+func zOrder(cell int) (int, int) { // TODO: review
 	x, y := 0, 0
 	for bit := 0; cell != 0; bit, cell = bit+1, cell>>2 {
 		x |= (cell & 1) << bit
@@ -204,7 +204,7 @@ func zOrder(cell int) (int, int) {
 // --- allocation policy -------------------------------------------------------
 
 // The tier a raw score earns, len(shadowTiers) meaning no tile at all
-func rawTier(score float32) int {
+func rawTier(score float32) int { // TODO: review
 	for i, tier := range shadowTiers {
 		if score > tier.minScore {
 			return i
@@ -217,7 +217,7 @@ func rawTier(score float32) int {
 //
 // Both directions need the score to clear the threshold by nextTierThreshold;
 // between the two the light keeps what it has
-func tierFor(score float32, cur int) int {
+func tierFor(score float32, cur int) int { // TODO: review
 	switch want := rawTier(score); {
 	case want < cur: // a smaller index is a bigger tile
 		if score > shadowTiers[want].minScore*nextTierThreshold {
@@ -232,7 +232,7 @@ func tierFor(score float32, cur int) int {
 }
 
 // How many tiles a light needs: one per cube face, or one
-func tileCount(light *Light) int {
+func tileCount(light *Light) int { // TODO: review
 	if light.Type == renderer.LightPoint {
 		return 6
 	}
@@ -243,7 +243,7 @@ func tileCount(light *Light) int {
 //
 // A sun has no radius and no position that means anything to this, and it is the
 // one light every pixel sees, so it outranks everything scored.
-func lightScore(light *Light, camPos mgl32.Vec3) float32 {
+func lightScore(light *Light, camPos mgl32.Vec3) float32 { // TODO: review
 	if light.Type == renderer.LightSun {
 		return math.MaxFloat32
 	}
@@ -257,7 +257,7 @@ func lightScore(light *Light, camPos mgl32.Vec3) float32 {
 // Gives back everything a light holds
 //
 // Only the map entry: the free lists are rebuilt wholesale from what survives
-func (atlas *shadowAtlas) drop(light int32) {
+func (atlas *shadowAtlas) drop(light int32) { // TODO: review
 	delete(atlas.lightAllocs, light)
 }
 
@@ -273,7 +273,7 @@ type request struct {
 //
 // Rank picks the slot, the tier caps it. Running out costs the least important
 // light its resolution, a pool at a time, and never costs frame time
-func (atlas *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) {
+func (atlas *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) { // TODO: review
 	reqs := atlas.rankRequests(lights, camPos)
 	plan, avail := atlas.planByTier(reqs)
 	atlas.offerSpareSlots(reqs, plan, avail)
@@ -286,7 +286,7 @@ func (atlas *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) {
 //
 // A light already holding slots ranks above an equal challenger, so the two
 // either side of the last free slot do not trade it every frame
-func (atlas *shadowAtlas) rankRequests(lights []Light, camPos mgl32.Vec3) []request {
+func (atlas *shadowAtlas) rankRequests(lights []Light, camPos mgl32.Vec3) []request { // TODO: review
 	reqs := make([]request, 0, len(lights))
 	for i := range lights {
 		light := &lights[i]
@@ -321,7 +321,7 @@ func (atlas *shadowAtlas) rankRequests(lights []Light, camPos mgl32.Vec3) []requ
 // Phase 1: plans against slot counts alone, in rank order, before touching what
 // anyone holds — pools run largest first, so the first one both small enough and
 // deep enough is the best slot this light is allowed
-func (atlas *shadowAtlas) planByTier(reqs []request) (map[int32]int, []int) {
+func (atlas *shadowAtlas) planByTier(reqs []request) (map[int32]int, []int) { // TODO: review
 	plan := make(map[int32]int, len(reqs))
 	avail := make([]int, len(atlas.slotsPool))
 	for i := range atlas.slotsPool {
@@ -343,7 +343,7 @@ func (atlas *shadowAtlas) planByTier(reqs []request) (map[int32]int, []int) {
 // Phase 1b: re-offers spare slots to lights under their ceiling, never to lights
 // at it (LIGHTING_PLAN.md §4.3: offering to everyone stops the score selecting a
 // size at all)
-func (atlas *shadowAtlas) offerSpareSlots(reqs []request, plan map[int32]int, avail []int) {
+func (atlas *shadowAtlas) offerSpareSlots(reqs []request, plan map[int32]int, avail []int) { // TODO: review
 	for _, req := range reqs {
 		poolIdx, planned := plan[req.idx]
 		if planned && atlas.slotsPool[poolIdx].size >= req.want {
@@ -368,7 +368,7 @@ func (atlas *shadowAtlas) offerSpareSlots(reqs []request, plan map[int32]int, av
 
 // Phase 2: a light whose plan lands in the pool it already holds keeps its exact
 // slots, so Part E can leave the tile baked. Everyone else gives theirs back
-func (atlas *shadowAtlas) keepMatchingAllocs(reqs []request, plan map[int32]int) map[int32]bool {
+func (atlas *shadowAtlas) keepMatchingAllocs(reqs []request, plan map[int32]int) map[int32]bool { // TODO: review
 	keep := make(map[int32]bool, len(reqs))
 	for _, req := range reqs {
 		alloc, ok := atlas.lightAllocs[req.idx]
@@ -388,7 +388,7 @@ func (atlas *shadowAtlas) keepMatchingAllocs(reqs []request, plan map[int32]int)
 
 // Rebuilds every pool's free list from what the keepers hold, wholesale rather
 // than pushing and popping: it cannot leak a slot the way an incremental stack can
-func (atlas *shadowAtlas) rebuildFreeLists() {
+func (atlas *shadowAtlas) rebuildFreeLists() { // TODO: review
 	for poolIdx := range atlas.slotsPool {
 		pool := &atlas.slotsPool[poolIdx]
 		for i := range pool.used {
@@ -415,7 +415,7 @@ func (atlas *shadowAtlas) rebuildFreeLists() {
 //
 // The plan was made against the same counts and the keepers hold exactly what it
 // gave them, so a pool coming up short is a bug in the phases above
-func (atlas *shadowAtlas) assignPlanned(reqs []request, plan map[int32]int, keep map[int32]bool) {
+func (atlas *shadowAtlas) assignPlanned(reqs []request, plan map[int32]int, keep map[int32]bool) { // TODO: review
 	for _, req := range reqs {
 		if keep[req.idx] {
 			continue
@@ -454,7 +454,7 @@ var cubeFaceDirs = [6][2]mgl32.Vec3{
 
 // Bake a bit more than 90°, so the outer one-texel band of every face tile
 // holds real depth for geometry instead of sampling data outside the frustum
-func cubeFaceFov(tile int) float32 {
+func cubeFaceFov(tile int) float32 { // TODO: review
 	half := math.Tan(math.Pi/4) * float64(tile+2) / float64(tile)
 	return float32(2 * math.Atan(half))
 }
@@ -463,7 +463,7 @@ func cubeFaceFov(tile int) float32 {
 //
 // A sun reaches everything; anything else is the caster's bounding sphere
 // against the radius the shading already culls by, so the two agree.
-func (scene *Scene) casterInRange(light *Light, mesh *Mesh, center mgl32.Vec3) bool {
+func (scene *Scene) casterInRange(light *Light, mesh *Mesh, center mgl32.Vec3) bool { // TODO: review
 	if light.Type == renderer.LightSun {
 		return true
 	}
@@ -471,7 +471,7 @@ func (scene *Scene) casterInRange(light *Light, mesh *Mesh, center mgl32.Vec3) b
 }
 
 // Whether any movable caster is in range, which is what earns a dynamic tile
-func (scene *Scene) movableCasterInRange(light *Light) bool {
+func (scene *Scene) movableCasterInRange(light *Light) bool { // TODO: review
 	for i := range scene.Meshes {
 		mesh := &scene.Meshes[i]
 		if mesh.Movable && mesh.CastsShadow && scene.casterInRange(light, mesh, mesh.boundsCenter) {
@@ -485,7 +485,7 @@ func (scene *Scene) movableCasterInRange(light *Light) bool {
 //
 // Both centres, because a caster leaving a light's range has to dirty the tile
 // it is leaving: its new position alone would say it never mattered.
-func (scene *Scene) movedCasterInRange(light *Light) bool {
+func (scene *Scene) movedCasterInRange(light *Light) bool { // TODO: review
 	for _, i := range scene.movedMeshes {
 		mesh := &scene.Meshes[i]
 		if !mesh.CastsShadow {
@@ -510,7 +510,7 @@ type dynamicUpdate struct {
 //
 // Runs before FillFrameUniforms and before the bake, both of which read what it
 // leaves behind
-func (scene *Scene) UpdateShadows(nearPlane, farPlane float32) {
+func (scene *Scene) UpdateShadows(nearPlane, farPlane float32) { // TODO: review
 	scene.atlas.allocate(scene.Lights, scene.Cam.Pos)
 	scene.resetQueues()
 	dirty, runStatic := scene.markDirtyTiles()
@@ -521,7 +521,7 @@ func (scene *Scene) UpdateShadows(nearPlane, farPlane float32) {
 }
 
 // Empties this frame's tile and bake lists
-func (scene *Scene) resetQueues() {
+func (scene *Scene) resetQueues() { // TODO: review
 	scene.shadowTiles = scene.shadowTiles[:0]
 	scene.staticQueue = scene.staticQueue[:0]
 	scene.dynamicQueue = scene.dynamicQueue[:0]
@@ -529,7 +529,7 @@ func (scene *Scene) resetQueues() {
 
 // Decides per light whether its dynamic tile wants rebuilding, and reports
 // whether any static tile is stale
-func (scene *Scene) markDirtyTiles() ([]dynamicUpdate, bool) {
+func (scene *Scene) markDirtyTiles() ([]dynamicUpdate, bool) { // TODO: review
 	updates := make([]dynamicUpdate, 0, len(scene.Lights))
 	runStatic := false
 
@@ -558,7 +558,7 @@ func (scene *Scene) markDirtyTiles() ([]dynamicUpdate, bool) {
 // Queues the static atlas, all or nothing: a tile whose frustum holds no caster
 // writes nothing, so baking only the changed slots would leave one wearing its
 // last owner's depth
-func (scene *Scene) queueStaticBakes(runStatic bool) {
+func (scene *Scene) queueStaticBakes(runStatic bool) { // TODO: review
 	if !runStatic {
 		return
 	}
@@ -573,7 +573,7 @@ func (scene *Scene) queueStaticBakes(runStatic bool) {
 
 // Queues dynamic tiles in score order, within the frame's texel budget: a light
 // that misses out keeps the tile it has
-func (scene *Scene) queueDynamicBakes(updates []dynamicUpdate) {
+func (scene *Scene) queueDynamicBakes(updates []dynamicUpdate) { // TODO: review
 	sort.SliceStable(updates, func(i, j int) bool { return updates[i].score > updates[j].score })
 	budget := settings.ShadowBakeBudget()
 	for _, update := range updates {
@@ -589,7 +589,7 @@ func (scene *Scene) queueDynamicBakes(updates []dynamicUpdate) {
 }
 
 // Builds one ShadowRecord per tile and points each light at its first
-func (scene *Scene) buildRecords(nearPlane, farPlane float32) {
+func (scene *Scene) buildRecords(nearPlane, farPlane float32) { // TODO: review
 	for i := range scene.Lights {
 		light := &scene.Lights[i]
 		alloc, ok := scene.atlas.lightAllocs[int32(i)]
@@ -626,7 +626,7 @@ func (scene *Scene) buildRecords(nearPlane, farPlane float32) {
 //
 // Queueing marks a tile current, not the bake: BakeShadows draws exactly what
 // these queues hold and cannot fail partway
-func (scene *Scene) commitBakes() {
+func (scene *Scene) commitBakes() { // TODO: review
 	for _, idx := range scene.staticQueue {
 		scene.atlas.lightAllocs[idx].staticValid = true
 	}
@@ -646,7 +646,7 @@ func (scene *Scene) commitBakes() {
 // Takes the rect rather than reaching for it, so this stays a Light method with
 // no knowledge of the atlas
 func (light *Light) shadowRecord(tile slot, size int, face, faces int, dynamic bool,
-	nearPlane, farPlane float32) renderer.ShadowTile {
+	nearPlane, farPlane float32) renderer.ShadowTile { // TODO: review
 
 	// Bit 0 picks the atlas: set only once the dynamic tile actually holds this
 	// frame's copy, so a light never samples a tile that was not built for it.
@@ -695,7 +695,7 @@ func (light *Light) shadowRecord(tile slot, size int, face, faces int, dynamic b
 }
 
 // An up vector that is not parallel to dir, LookAtV producing NaNs when it is
-func spotUp(dir mgl32.Vec3) mgl32.Vec3 {
+func spotUp(dir mgl32.Vec3) mgl32.Vec3 { // TODO: review
 	if math.Abs(float64(dir[1])) > 0.99 {
 		return mgl32.Vec3{0, 0, 1}
 	}
@@ -706,7 +706,7 @@ func spotUp(dir mgl32.Vec3) mgl32.Vec3 {
 //
 // Gribb-Hartmann: each plane is a row of the matrix combined with the w row.
 // These matrices are the OpenGL convention, so near is row3 + row2
-func frustumPlanes(matrix mgl32.Mat4) [6]mgl32.Vec4 {
+func frustumPlanes(matrix mgl32.Mat4) [6]mgl32.Vec4 { // TODO: review
 	r0, r1, r2, r3 := matrix.Row(0), matrix.Row(1), matrix.Row(2), matrix.Row(3)
 	planes := [6]mgl32.Vec4{
 		r3.Add(r0), r3.Sub(r0),
@@ -725,7 +725,7 @@ func frustumPlanes(matrix mgl32.Mat4) [6]mgl32.Vec4 {
 //
 // Conservative at the corners by design: over-including costs a draw the
 // rasteriser discards, under-including costs a shadow
-func sphereInFrustum(planes *[6]mgl32.Vec4, center mgl32.Vec3, radius float32) bool {
+func sphereInFrustum(planes *[6]mgl32.Vec4, center mgl32.Vec3, radius float32) bool { // TODO: review
 	for _, plane := range planes {
 		if plane[0]*center[0]+plane[1]*center[1]+plane[2]*center[2]+plane[3] < -radius {
 			return false
@@ -740,7 +740,7 @@ func sphereInFrustum(planes *[6]mgl32.Vec4, center mgl32.Vec3, radius float32) b
 // own ~80-byte bake block rather than republishing the whole frame block, which
 // is what keeps a 337-tile atlas inside the arena
 func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
-	lightIdx int32, alloc *lightAlloc, movable bool) int {
+	lightIdx int32, alloc *lightAlloc, movable bool) int { // TODO: review
 
 	// Static mesh geometry is baked into the OBJ vertices, so the depth passes
 	// draw everything with an identity model matrix and no material at all
@@ -794,7 +794,7 @@ func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pi
 //
 // One pass per atlas rather than one per light, the target bind being the
 // expensive part; a settled scene queues nothing and does no GPU work at all
-func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) {
+func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) { // TODO: review
 	if len(scene.shadowTiles) == 0 {
 		return
 	}
@@ -849,7 +849,7 @@ func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) {
 }
 
 // Returns how many tiles the last frame baked into each atlas
-func (scene *Scene) BakeCounts() (static, dynamic int) { return scene.staticBakes, scene.dynamicBakes }
+func (scene *Scene) BakeCounts() (static, dynamic int) { return scene.staticBakes, scene.dynamicBakes } // TODO: review
 
 // Returns this frame's shadow tiles, which the caller uploads once per frame
-func (scene *Scene) ShadowRecords() []renderer.ShadowTile { return scene.shadowTiles }
+func (scene *Scene) ShadowRecords() []renderer.ShadowTile { return scene.shadowTiles } // TODO: review

@@ -14,7 +14,7 @@ import (
 
 // Builds the swapchain, its image entries, the per-image render semaphores and
 // the depth and multisample images
-func (backend *VKBackend) createSwapchain() error {
+func (backend *VKBackend) createSwapchain() error { // TODO: review
 	caps, err := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(backend.physicalDevice, backend.surface)
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func (backend *VKBackend) createSwapchain() error {
 //
 // Colour and depth limits are intersected, the pass attaching one of each. The
 // spec guarantees 1 and 4 in both, so stepping down always terminates
-func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags {
+func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags { // TODO: review
 	if !settings.MSAAEnabled() {
 		return vk.SampleCount1Bit
 	}
@@ -110,7 +110,7 @@ func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags {
 // nothing when MSAA is off
 //
 // Transient: nothing samples it, so a tiler can keep it on-chip
-func (backend *VKBackend) createMSAABuffer() error {
+func (backend *VKBackend) createMSAABuffer() error { // TODO: review
 	if backend.samples == vk.SampleCount1Bit {
 		return nil
 	}
@@ -146,7 +146,7 @@ func (backend *VKBackend) createMSAABuffer() error {
 }
 
 // Creates the depth image every pass on the screen shares
-func (backend *VKBackend) createDepthBuffer() error {
+func (backend *VKBackend) createDepthBuffer() error { // TODO: review
 	img, alloc, err := backend.allocator.VmaCreateImage(vk.ImageCreateInfo{
 		ImageType: vk.ImageType2D,
 		Format:    depthFormat,
@@ -180,7 +180,7 @@ func (backend *VKBackend) createDepthBuffer() error {
 }
 
 // Destroys the swapchain and everything sized to it
-func (backend *VKBackend) destroySwapchain() {
+func (backend *VKBackend) destroySwapchain() { // TODO: review
 	for i := range backend.swapchainImages {
 		vk.DestroyImageView(backend.device, backend.swapchainImages[i].view)
 	}
@@ -207,7 +207,7 @@ func (backend *VKBackend) destroySwapchain() {
 
 // Rebuilds everything sized to the window, after acquire or present reports the
 // surface out of date, which is how a resize reaches a Vulkan app
-func (backend *VKBackend) recreateSwapchain() {
+func (backend *VKBackend) recreateSwapchain() { // TODO: review
 	// Block while minimised: a zero-sized surface is one no swapchain accepts
 	width, height := backend.window.GetSize()
 	for width == 0 || height == 0 {

@@ -58,12 +58,12 @@ type Light struct {
 }
 
 // Offsets the light's position
-func (light *Light) Move(x float32, y float32, z float32) {
+func (light *Light) Move(x float32, y float32, z float32) { // TODO: review
 	light.Pos = light.Pos.Add(mgl32.Vec3{x, y, z})
 }
 
 // Converts a parsed XML light into engine coordinates and units
-func (light LightXml) toLight() Light {
+func (light LightXml) toLight() Light { // TODO: review
 	kind := renderer.LightSun
 	name := light.Name
 	pos := utils.ParseVec3(light.Pos)
@@ -117,7 +117,7 @@ func (light LightXml) toLight() Light {
 //
 // Peak channel, not the average, which would cull a saturated light while its
 // strong channel is still visible
-func lightRadius(color mgl32.Vec3, diffuse, intensity float32) float32 {
+func lightRadius(color mgl32.Vec3, diffuse, intensity float32) float32 { // TODO: review
 	peak := float32(math.Max(math.Max(float64(color[0]), float64(color[1])),
 		float64(color[2]))) * diffuse * intensity
 	return float32(math.Sqrt(math.Max(0, float64(peak/lightCutoff-lightConstant))))

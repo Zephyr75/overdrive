@@ -21,7 +21,7 @@ type screenshot struct {
 }
 
 // Records the copy out of this frame's swapchain image, if this is the frame to capture
-func (shot *screenshot) record(backend renderer.Backend, frame renderer.Frame, n int) bool {
+func (shot *screenshot) record(backend renderer.Backend, frame renderer.Frame, n int) bool { // TODO: review
 	if shot == nil || shot.taken || n != shot.frame {
 		return false
 	}
@@ -41,7 +41,7 @@ func (shot *screenshot) record(backend renderer.Backend, frame renderer.Frame, n
 
 // Reads the captured buffer back and writes it as a PNG, after the frame that
 // recorded the copy has been submitted
-func (shot *screenshot) write(backend renderer.Backend) error {
+func (shot *screenshot) write(backend renderer.Backend) error { // TODO: review
 	width, height := settings.WindowWidth, settings.WindowHeight
 	pixels := backend.ReadBuffer(shot.buffer)
 	if len(pixels) < width*height*4 {

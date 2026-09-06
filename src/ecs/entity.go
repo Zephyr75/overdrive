@@ -11,19 +11,19 @@ type World struct {
 }
 
 // Adds entities to the world
-func (world *World) AddEntities(entities ...Entity) {
+func (world *World) AddEntities(entities ...Entity) { // TODO: review
 	world.entities = append(world.entities, entities...)
 }
 
 // Runs every entity's Init once, before the first frame
-func (world *World) Init() {
+func (world *World) Init() { // TODO: review
 	for _, entity := range world.entities {
 		entity.Init(world)
 	}
 }
 
 // Steps every entity, resolves collisions pairwise, then integrates the Verlet positions
-func (world *World) Update(timeInterval time.Duration) {
+func (world *World) Update(timeInterval time.Duration) { // TODO: review
 	for _, entity := range world.entities {
 		entity.Update(world)
 	}
@@ -49,7 +49,7 @@ func (world *World) Update(timeInterval time.Duration) {
 }
 
 // Returns every entity reporting a type
-func (world *World) Entities(entityType string) []Entity {
+func (world *World) Entities(entityType string) []Entity { // TODO: review
 	var entities []Entity
 	for _, entity := range world.entities {
 		if entity.Type() == entityType {
@@ -60,7 +60,7 @@ func (world *World) Entities(entityType string) []Entity {
 }
 
 // Returns the first entity reporting a type, or nil
-func (world *World) FirstEntity(entityType string) Entity {
+func (world *World) FirstEntity(entityType string) Entity { // TODO: review
 	for _, entity := range world.entities {
 		if entity.Type() == entityType {
 			return entity

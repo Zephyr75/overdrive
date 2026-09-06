@@ -59,7 +59,7 @@ type retired struct {
 }
 
 // Creates the descriptor set layout, pool and set, once
-func (backend *VKBackend) createDescriptors() {
+func (backend *VKBackend) createDescriptors() { // TODO: review
 	const flags = vk.DescriptorBindingPartiallyBound | vk.DescriptorBindingUpdateAfterBind
 	bindings := []vk.DescriptorSetLayoutBinding{
 		{Binding: bind2D, DescriptorType: vk.DescriptorTypeCombinedImageSampler,
@@ -102,7 +102,7 @@ func (backend *VKBackend) createDescriptors() {
 //
 // The caller stores it in its own uniform block. This is the whole of the
 // handle-to-shader translation: nothing else in the backend reads that block
-func (backend *VKBackend) Slot(handle renderer.Handle) uint32 {
+func (backend *VKBackend) Slot(handle renderer.Handle) uint32 { // TODO: review
 	if renderer.Kind(handle) != renderer.KindImage {
 		return 0
 	}
@@ -142,7 +142,7 @@ func (backend *VKBackend) Slot(handle renderer.Handle) uint32 {
 }
 
 // Pops a free slot of a binding, or bumps its high-water mark
-func (backend *VKBackend) takeSlot(binding int) uint32 {
+func (backend *VKBackend) takeSlot(binding int) uint32 { // TODO: review
 	if n := len(backend.slotFree[binding]); n > 0 {
 		slot := backend.slotFree[binding][n-1]
 		backend.slotFree[binding] = backend.slotFree[binding][:n-1]
@@ -157,7 +157,7 @@ func (backend *VKBackend) takeSlot(binding int) uint32 {
 }
 
 // Writes an image's descriptor into the array it was given a slot in
-func (backend *VKBackend) writeSlot(entry *imageEntry) {
+func (backend *VKBackend) writeSlot(entry *imageEntry) { // TODO: review
 	info := vk.DescriptorImageInfo{
 		Sampler: entry.sampler, ImageView: entry.view,
 		ImageLayout: vk.ImageLayoutShaderReadOnlyOptimal,
@@ -176,7 +176,7 @@ func (backend *VKBackend) writeSlot(entry *imageEntry) {
 }
 
 // Destroys a resource once the frames that could reference it have retired
-func (backend *VKBackend) Destroy(handle renderer.Handle) {
+func (backend *VKBackend) Destroy(handle renderer.Handle) { // TODO: review
 	switch renderer.Kind(handle) {
 	case renderer.KindImage:
 		backend.destroyImage(renderer.ImageHandle(renderer.Index(handle)))
@@ -208,7 +208,7 @@ func (backend *VKBackend) Destroy(handle renderer.Handle) {
 
 // Queues GPU objects for destruction once every frame that could reference them
 // has completed
-func (backend *VKBackend) retire(resource retired) {
+func (backend *VKBackend) retire(resource retired) { // TODO: review
 	backend.retired = append(backend.retired, resource)
 }
 
@@ -217,7 +217,7 @@ func (backend *VKBackend) retire(resource retired) {
 //
 // An item retired in frame F is referenced by F's command buffer at the latest,
 // which has certainly completed once framesInFlight further frames have begun
-func (backend *VKBackend) drainRetired() {
+func (backend *VKBackend) drainRetired() { // TODO: review
 	kept := backend.retired[:0]
 	for _, resource := range backend.retired {
 		if backend.frameCounter-resource.frame <= framesInFlight {

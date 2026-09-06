@@ -60,7 +60,7 @@ type viewEntry struct {
 }
 
 // Creates an image and the whole-image view descriptors sample it through
-func (backend *VKBackend) CreateImage(spec renderer.ImageInfo) renderer.ImageHandle {
+func (backend *VKBackend) CreateImage(spec renderer.ImageInfo) renderer.ImageHandle { // TODO: review
 	layers := uint32(spec.Layers)
 	if spec.Kind == renderer.ImageCube && layers < 6 {
 		layers = 6
@@ -115,7 +115,7 @@ func (backend *VKBackend) CreateImage(spec renderer.ImageInfo) renderer.ImageHan
 }
 
 // Creates a view over one slice and one aspect
-func (backend *VKBackend) CreateView(handle renderer.ImageHandle, spec renderer.ViewInfo) renderer.ViewHandle {
+func (backend *VKBackend) CreateView(handle renderer.ImageHandle, spec renderer.ViewInfo) renderer.ViewHandle { // TODO: review
 	entry := backend.image(handle)
 	if entry == nil {
 		return renderer.NoView
@@ -132,7 +132,7 @@ func (backend *VKBackend) CreateView(handle renderer.ImageHandle, spec renderer.
 }
 
 // Builds the Vulkan view a ViewSpec describes, without registering it
-func (backend *VKBackend) makeView(entry *imageEntry, spec renderer.ViewInfo) vk.ImageView {
+func (backend *VKBackend) makeView(entry *imageEntry, spec renderer.ViewInfo) vk.ImageView { // TODO: review
 	layers := uint32(spec.LayerCount)
 	if layers == 0 {
 		layers = entry.layers - uint32(spec.BaseLayer)
@@ -157,7 +157,7 @@ func (backend *VKBackend) makeView(entry *imageEntry, spec renderer.ViewInfo) vk
 // Outside a frame the copy is submitted and waited on. Inside one it is staged
 // and recorded at the start of the next frame, a copy being illegal inside a
 // render pass and the UI overlay's update happening in the middle of one.
-func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer.ImageData) {
+func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer.ImageData) { // TODO: review
 	entry := backend.image(handle)
 	if entry == nil || len(data.Pixels) == 0 {
 		return
@@ -210,7 +210,7 @@ func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer
 }
 
 // Stages pixels and submits the copy immediately, the load-time path
-func (backend *VKBackend) uploadNow(entry *imageEntry, pixels []byte, region vk.BufferImageCopy) {
+func (backend *VKBackend) uploadNow(entry *imageEntry, pixels []byte, region vk.BufferImageCopy) { // TODO: review
 	staging, alloc, info, err := backend.allocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: uint64(len(pixels)), Usage: vk.BufferUsageTransferSrc},
 		vk.VmaAllocationCreateInfo{
@@ -227,14 +227,14 @@ func (backend *VKBackend) uploadNow(entry *imageEntry, pixels []byte, region vk.
 }
 
 // Records one staged copy into an image, between the two transitions it needs
-func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, entry *imageEntry, staging vk.Buffer, region vk.BufferImageCopy) {
+func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, entry *imageEntry, staging vk.Buffer, region vk.BufferImageCopy) { // TODO: review
 	backend.useImage(commandBuffer, entry, useCopyDst)
 	vk.CmdCopyBufferToImage(commandBuffer, staging, entry.image, vk.ImageLayoutTransferDstOptimal, []vk.BufferImageCopy{region})
 	backend.useImage(commandBuffer, entry, useSampled)
 }
 
 // Records the copies staged during the previous frame, from the top of this one
-func (backend *VKBackend) flushPendingUploads(commandBuffer vk.CommandBuffer) {
+func (backend *VKBackend) flushPendingUploads(commandBuffer vk.CommandBuffer) { // TODO: review
 	for _, handle := range backend.pendingUploads {
 		entry := backend.image(handle)
 		if entry == nil {
@@ -250,7 +250,7 @@ func (backend *VKBackend) flushPendingUploads(commandBuffer vk.CommandBuffer) {
 //
 // The reserved backbuffer handle names whichever swapchain image this frame
 // acquired, so a copy out of the screen is an ordinary copy
-func (backend *VKBackend) image(handle renderer.ImageHandle) *imageEntry {
+func (backend *VKBackend) image(handle renderer.ImageHandle) *imageEntry { // TODO: review
 	if handle == renderer.BackbufferImage {
 		if len(backend.swapchainImages) == 0 {
 			return nil
@@ -268,7 +268,7 @@ func (backend *VKBackend) image(handle renderer.ImageHandle) *imageEntry {
 // The two reserved views are the backend's own: Backbuffer is this frame's
 // swapchain image, or the multisampled image that resolves into it, and
 // BackbufferDepth the depth buffer sized to the window
-func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *imageEntry, int, int, uint32) {
+func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *imageEntry, int, int, uint32) { // TODO: review
 	switch handle {
 	case renderer.NoView:
 		return 0, nil, 0, 0, 0
@@ -291,7 +291,7 @@ func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *image
 }
 
 // Destroys an image's view and allocation once the frames in flight have retired
-func (backend *VKBackend) destroyImage(handle renderer.ImageHandle) {
+func (backend *VKBackend) destroyImage(handle renderer.ImageHandle) { // TODO: review
 	// The backbuffer is the swapchain's, not the caller's
 	if handle == renderer.BackbufferImage {
 		return

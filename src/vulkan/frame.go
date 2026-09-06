@@ -45,7 +45,7 @@ type vkCompute struct {
 }
 
 // Records and submits one frame
-func (backend *VKBackend) Frame(record func(renderer.Frame)) {
+func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 	if backend.device == 0 {
 		return
 	}
@@ -126,7 +126,7 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) {
 // Frame-scoped: the arena resets every frame, so an address kept across frames
 // points at another frame's data. An overflow panics rather than wrapping — an
 // overflowed frame is already wrong, and wrapping made it wrong silently
-func (frame *vkFrame) Upload(data any) renderer.Address {
+func (frame *vkFrame) Upload(data any) renderer.Address { // TODO: review
 	frameState := &frame.backend.frames[frame.backend.frameIndex]
 	ptr, n := dataPtr(data)
 	if n == 0 {
@@ -145,7 +145,7 @@ func (frame *vkFrame) Upload(data any) renderer.Address {
 
 // Runs one render pass: transitions everything it names, opens dynamic
 // rendering, and closes it again
-func (frame *vkFrame) Pass(spec renderer.PassInfo, record func(renderer.Pass)) {
+func (frame *vkFrame) Pass(spec renderer.PassInfo, record func(renderer.Pass)) { // TODO: review
 	backend, commandBuffer := frame.backend, frame.commandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
 
@@ -216,7 +216,7 @@ func (frame *vkFrame) Pass(spec renderer.PassInfo, record func(renderer.Pass)) {
 // A dispatch reaches its resources through descriptors and device addresses,
 // which the backend cannot inspect — so ComputeSpec names them and this is where
 // they are transitioned
-func (frame *vkFrame) Compute(spec renderer.ComputeInfo, record func(renderer.Compute)) {
+func (frame *vkFrame) Compute(spec renderer.ComputeInfo, record func(renderer.Compute)) { // TODO: review
 	backend, commandBuffer := frame.backend, frame.commandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
 	for _, height := range spec.Writes {
@@ -235,7 +235,7 @@ func (frame *vkFrame) Compute(spec renderer.ComputeInfo, record func(renderer.Co
 }
 
 // Transitions everything a pass declares it samples or reads
-func (backend *VKBackend) transitionReads(commandBuffer vk.CommandBuffer, reads []renderer.Handle) {
+func (backend *VKBackend) transitionReads(commandBuffer vk.CommandBuffer, reads []renderer.Handle) { // TODO: review
 	for _, height := range reads {
 		switch renderer.Kind(height) {
 		case renderer.KindImage:
@@ -256,7 +256,7 @@ func (backend *VKBackend) transitionReads(commandBuffer vk.CommandBuffer, reads 
 
 // Builds one colour attachment, resolving the reserved backbuffer view into the
 // multisampled image plus its resolve target when the backend multisamples
-func (backend *VKBackend) colorAttachment(commandBuffer vk.CommandBuffer, attachment renderer.Attachment) (vk.RenderingAttachmentInfo, int, int) {
+func (backend *VKBackend) colorAttachment(commandBuffer vk.CommandBuffer, attachment renderer.Attachment) (vk.RenderingAttachmentInfo, int, int) { // TODO: review
 	view, img, width, height, _ := backend.view(attachment.View)
 	if view == 0 {
 		return vk.RenderingAttachmentInfo{}, 0, 0
@@ -301,7 +301,7 @@ func (backend *VKBackend) colorAttachment(commandBuffer vk.CommandBuffer, attach
 	return att, width, height
 }
 
-func storeOp(store bool) vk.AttachmentStoreOp {
+func storeOp(store bool) vk.AttachmentStoreOp { // TODO: review
 	if store {
 		return vk.AttachmentStoreOpStore
 	}
@@ -309,7 +309,7 @@ func storeOp(store bool) vk.AttachmentStoreOp {
 }
 
 // Copies between images and buffers, outside any pass
-func (frame *vkFrame) Copy(spec renderer.CopySpec) {
+func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 	backend, commandBuffer := frame.backend, frame.commandBuffer
 	layers := uint32(spec.Layers)
 	if layers == 0 {
@@ -377,14 +377,14 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) {
 
 // Whether a rect fits inside an image, an out-of-bounds copy being a device loss
 // rather than a clipped one
-func (backend *VKBackend) inBounds(entry *imageEntry, off [3]int, ext [3]int) bool {
+func (backend *VKBackend) inBounds(entry *imageEntry, off [3]int, ext [3]int) bool { // TODO: review
 	return ext[0] > 0 && ext[1] > 0 &&
 		off[0] >= 0 && off[1] >= 0 &&
 		off[0]+ext[0] <= entry.width && off[1]+ext[1] <= entry.height
 }
 
 // Clears a colour image outside any pass
-func (frame *vkFrame) Clear(spec renderer.ClearSpec) {
+func (frame *vkFrame) Clear(spec renderer.ClearSpec) { // TODO: review
 	entry := frame.backend.image(spec.Image)
 	if entry == nil {
 		return
@@ -404,7 +404,7 @@ func (frame *vkFrame) Clear(spec renderer.ClearSpec) {
 // A flipped pass gets a negative-height viewport, which makes clip space y-up
 // and inverts winding with it — which is why a pipeline drawn there declares
 // counter-clockwise front faces
-func (pass *vkPass) Viewport(x, y, width, height int) {
+func (pass *vkPass) Viewport(x, y, width, height int) { // TODO: review
 	viewport := vk.Viewport{X: float32(x), Y: float32(y), Width: float32(width), Height: float32(height), MaxDepth: 1}
 	if pass.flipY {
 		viewport.Y = float32(y + height)
@@ -417,7 +417,7 @@ func (pass *vkPass) Viewport(x, y, width, height int) {
 	})
 }
 
-func (pass *vkPass) Draw(call renderer.DrawCall) {
+func (pass *vkPass) Draw(call renderer.DrawCall) { // TODO: review
 	backend := pass.backend
 	pipeline := backend.pipeline(call.Pipeline)
 	mesh := backend.mesh(call.Mesh)
@@ -459,7 +459,7 @@ func (pass *vkPass) Draw(call renderer.DrawCall) {
 
 // --- Compute -----------------------------------------------------------------
 
-func (compute *vkCompute) Dispatch(call renderer.DispatchCall) {
+func (compute *vkCompute) Dispatch(call renderer.DispatchCall) { // TODO: review
 	backend := compute.backend
 	pipeline := backend.pipeline(call.Pipeline)
 	if pipeline == nil {
@@ -480,7 +480,7 @@ func (compute *vkCompute) Dispatch(call renderer.DispatchCall) {
 }
 
 // A dispatch of zero groups is a no-op the caller never means
-func max1(value int) int {
+func max1(value int) int { // TODO: review
 	if value < 1 {
 		return 1
 	}
@@ -490,7 +490,7 @@ func max1(value int) int {
 // --- shared recording helpers ------------------------------------------------
 
 // Binds a pipeline, skipping the call when it is already bound
-func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelineEntry) {
+func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelineEntry) { // TODO: review
 	if pipeline.pipeline == backend.boundPipeline {
 		return
 	}
@@ -502,7 +502,7 @@ func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelin
 //
 // The backend never looks inside them: which block each slot points at is the
 // shader's declaration and the caller's business
-func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer.Address) {
+func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer.Address) { // TODO: review
 	vk.CmdPushConstants(commandBuffer, backend.pipelineLayout, pushStages, 0, pushConstantSize, unsafe.Pointer(&addrs))
 }
 
@@ -512,13 +512,13 @@ func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer
 //
 // An unnamed pass opens none, so the two calls are conditioned identically and
 // the regions cannot end up unbalanced
-func (backend *VKBackend) beginLabel(commandBuffer vk.CommandBuffer, name string) {
+func (backend *VKBackend) beginLabel(commandBuffer vk.CommandBuffer, name string) { // TODO: review
 	if backend.hasLabels && name != "" {
 		vk.CmdBeginDebugLabel(commandBuffer, name)
 	}
 }
 
-func (backend *VKBackend) endLabel(commandBuffer vk.CommandBuffer, name string) {
+func (backend *VKBackend) endLabel(commandBuffer vk.CommandBuffer, name string) { // TODO: review
 	if backend.hasLabels && name != "" {
 		vk.CmdEndDebugLabel(commandBuffer)
 	}

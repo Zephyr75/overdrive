@@ -51,7 +51,7 @@ var useTable = [...]useInfo{
 
 // Transitions a whole image into a use, recording nothing when it is already
 // there and the use only reads
-func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, entry *imageEntry, want use) {
+func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, entry *imageEntry, want use) { // TODO: review
 	if entry == nil || entry.image == 0 {
 		return
 	}
@@ -74,7 +74,7 @@ func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, entry *imageE
 }
 
 // Transitions a buffer, which is stage and access masks alone
-func (backend *VKBackend) useBuffer(commandBuffer vk.CommandBuffer, entry *bufEntry, want use) {
+func (backend *VKBackend) useBuffer(commandBuffer vk.CommandBuffer, entry *bufEntry, want use) { // TODO: review
 	if entry == nil || entry.buffer == 0 {
 		return
 	}

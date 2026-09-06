@@ -35,6 +35,6 @@ type Material struct {
 //
 // Roughness and Ao must not start at zero, or a material with no PBR keys reads
 // as a perfect mirror with no ambient light.
-func newMaterial() Material {
+func newMaterial() Material { // TODO: review
 	return Material{Metallic: 0, Roughness: 1, Ao: 1}
 }

@@ -20,12 +20,12 @@ type Verlet struct {
 }
 
 // Creates Verlet state at rest, fixed bodies never being integrated
-func NewVerlet(pos mgl32.Vec3, fixed bool) Verlet {
+func NewVerlet(pos mgl32.Vec3, fixed bool) Verlet { // TODO: review
 	return Verlet{pos, pos, mgl32.Vec3{0.0, 0.0, 0.0}, fixed}
 }
 
 // Runs one Verlet integration step, velocity being implied by the previous position
-func (verlet *Verlet) UpdatePosition(deltaTime float32) {
+func (verlet *Verlet) UpdatePosition(deltaTime float32) { // TODO: review
 	if verlet.Fixed {
 		return
 	}
@@ -36,6 +36,6 @@ func (verlet *Verlet) UpdatePosition(deltaTime float32) {
 }
 
 // Accumulates acceleration for this step, cleared by UpdatePosition
-func (verlet *Verlet) Accelerate(accel mgl32.Vec3) {
+func (verlet *Verlet) Accelerate(accel mgl32.Vec3) { // TODO: review
 	verlet.Accel = verlet.Accel.Add(accel)
 }

@@ -9,7 +9,7 @@ var (
 )
 
 // Applies the built-in keyboard bindings: WASDQE flight, shift to sprint, tab to release the cursor, escape to quit
-func DefaultInput(window *glfw.Window, deltaTime float32) {
+func DefaultInput(window *glfw.Window, deltaTime float32) { // TODO: review
 	if window.GetKey(glfw.KeyEscape) == glfw.Press {
 		window.SetShouldClose(true)
 	}

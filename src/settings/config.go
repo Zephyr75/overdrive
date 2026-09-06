@@ -44,7 +44,7 @@ type Config struct {
 }
 
 // Loads a settings file over the defaults
-func Load(path string) error {
+func Load(path string) error { // TODO: review
 	cfg := loadDefaults()
 
 	meta, err := toml.DecodeFile(path, &cfg)
@@ -62,7 +62,7 @@ func Load(path string) error {
 }
 
 // Returns the loadDefaults settings in Config form, which is what makes an absent key mean "keep the default"
-func loadDefaults() Config {
+func loadDefaults() Config { // TODO: review
 	var defaults Config
 	defaults.Window.Width, defaults.Window.Height = WindowWidth, WindowHeight
 	defaults.Shadows.AtlasSize = ShadowAtlasSize
@@ -89,7 +89,7 @@ func loadDefaults() Config {
 }
 
 // Validates a decoded config and writes it into the package variables, rejecting the whole file if any value is wrong
-func apply(cfg Config) error {
+func apply(cfg Config) error { // TODO: review
 	if cfg.Window.Width <= 0 || cfg.Window.Height <= 0 {
 		return fmt.Errorf("window resolution must be positive, got %dx%d", cfg.Window.Width, cfg.Window.Height)
 	}
@@ -142,7 +142,7 @@ func apply(cfg Config) error {
 }
 
 // Accepts the PCF quality names
-func normalisePCF(name string) (PCFQuality, error) {
+func normalisePCF(name string) (PCFQuality, error) { // TODO: review
 	switch PCFQuality(name) {
 	case PCFFull:
 		return PCFFull, nil
@@ -156,7 +156,7 @@ func normalisePCF(name string) (PCFQuality, error) {
 //
 // The only place that can: a layout that does not pack silently leaves every
 // light with ShadowIndex = -1 and the scene unshadowed
-func checkShadowAtlas(cfg Config) error {
+func checkShadowAtlas(cfg Config) error { // TODO: review
 	atlasSize := cfg.Shadows.AtlasSize
 	if atlasSize < 1024 || atlasSize > 8192 || atlasSize&(atlasSize-1) != 0 {
 		return fmt.Errorf("shadows.atlasSize must be a power of two from 1024 to 8192, got %d", atlasSize)
@@ -209,7 +209,7 @@ func checkShadowAtlas(cfg Config) error {
 }
 
 // Accepts the backend names
-func normaliseBackend(name string) (string, error) {
+func normaliseBackend(name string) (string, error) { // TODO: review
 	switch name {
 	case "", "vulkan", "vk":
 		return "vulkan", nil
@@ -218,7 +218,7 @@ func normaliseBackend(name string) (string, error) {
 }
 
 // Accepts the anti-aliasing mode names
-func normaliseAAMode(mode string) (AAMode, error) {
+func normaliseAAMode(mode string) (AAMode, error) { // TODO: review
 	switch AAMode(mode) {
 	case AANone:
 		return AANone, nil
@@ -229,7 +229,7 @@ func normaliseAAMode(mode string) (AAMode, error) {
 }
 
 // Rejects sample counts not supported by the backend
-func checkSamples(samples int) error {
+func checkSamples(samples int) error { // TODO: review
 	switch samples {
 	case 1, 2, 4, 8:
 		return nil
@@ -238,7 +238,7 @@ func checkSamples(samples int) error {
 }
 
 // Accepts the anisotropy levels, 1 meaning off; the device limit is clamped later in createSamplers
-func checkAnisotropy(level int) error {
+func checkAnisotropy(level int) error { // TODO: review
 	switch level {
 	case 1, 2, 4, 8, 16:
 		return nil

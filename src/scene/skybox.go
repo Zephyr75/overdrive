@@ -18,7 +18,7 @@ type Skybox struct {
 }
 
 // Uploads the skybox cube and loads its six face images as a cubemap
-func (skybox *Skybox) setup(backend renderer.Backend) error {
+func (skybox *Skybox) setup(backend renderer.Backend) error { // TODO: review
 	vertices := []float32{
 		// positions
 		-1.0, 1.0, -1.0,
@@ -112,7 +112,7 @@ func (skybox *Skybox) setup(backend renderer.Backend) error {
 // It uploads its own copy of the frame block with the view translation stripped,
 // so the cube follows the camera. The forward pass keeps using the address of
 // the untouched one, which is why nothing has to be restored afterwards
-func (scene *Scene) RenderSkybox(frame renderer.Frame, pass renderer.Pass, pipes Pipelines, base *renderer.FrameUniforms) {
+func (scene *Scene) RenderSkybox(frame renderer.Frame, pass renderer.Pass, pipes Pipelines, base *renderer.FrameUniforms) { // TODO: review
 	sky := *base
 	view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
 	sky.View = view.Mat3().Mat4()

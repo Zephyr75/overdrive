@@ -10,7 +10,7 @@ import (
 )
 
 // Decodes an image file into tightly packed RGBA8 pixels
-func loadRGBA(path string) (pixels []byte, width, height int, err error) {
+func loadRGBA(path string) (pixels []byte, width, height int, err error) { // TODO: review
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, 0, 0, err
@@ -28,7 +28,7 @@ func loadRGBA(path string) (pixels []byte, width, height int, err error) {
 }
 
 // Decodes six cube faces, checking they agree on a size the backend can upload as one image
-func loadCubeFaces(paths [6]string) (faces [6][]byte, width, height int, err error) {
+func loadCubeFaces(paths [6]string) (faces [6][]byte, width, height int, err error) { // TODO: review
 	for i, path := range paths {
 		pixels, faceWidth, faceHeight, faceErr := loadRGBA(path)
 		if faceErr != nil {

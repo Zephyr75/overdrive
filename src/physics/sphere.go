@@ -13,22 +13,22 @@ type Sphere struct {
 // func (Sphere) Collider() string { return "Sphere" }
 
 // Returns the Verlet state the integrator steps
-func (sphere *Sphere) Body() *Verlet { return &sphere.Verlet }
+func (sphere *Sphere) Body() *Verlet { return &sphere.Verlet } // TODO: review
 
 // Creates a sphere collider at a position
-func NewSphere(pos mgl32.Vec3, radius float32, fixed bool) *Sphere {
+func NewSphere(pos mgl32.Vec3, radius float32, fixed bool) *Sphere { // TODO: review
 	verlet := NewVerlet(pos, fixed)
 	return &Sphere{verlet, radius}
 }
 
 // Fits a sphere collider to a mesh, its radius being the distance to the first vertex
-func NewSphereFromMesh(mesh *scene.Mesh, fixed bool) *Sphere {
+func NewSphereFromMesh(mesh *scene.Mesh, fixed bool) *Sphere { // TODO: review
 	radius := mesh.Vertices[0].Sub(mesh.Position).Len()
 	return &Sphere{NewVerlet(mesh.Position, fixed), radius}
 }
 
 // Dispatches to the collision routine matching the other collider's shape
-func (sphere *Sphere) Collide(collider Collider) {
+func (sphere *Sphere) Collide(collider Collider) { // TODO: review
 	switch collider := collider.(type) {
 	case *Sphere:
 		sphere.sphereCollide(*collider)
@@ -39,7 +39,7 @@ func (sphere *Sphere) Collide(collider Collider) {
 }
 
 // Pushes this sphere half the overlap out along the axis between the two centres
-func (sphere *Sphere) sphereCollide(other Sphere) {
+func (sphere *Sphere) sphereCollide(other Sphere) { // TODO: review
 	colAxis := sphere.Pos.Sub(other.Pos)
 	colDist := colAxis.Len()
 	dist := sphere.Radius + other.Radius
@@ -51,7 +51,7 @@ func (sphere *Sphere) sphereCollide(other Sphere) {
 }
 
 // Lifts this sphere out of a plane, but only within the plane's finite extent
-func (sphere *Sphere) planeCollide(plane Plane) {
+func (sphere *Sphere) planeCollide(plane Plane) { // TODO: review
 	distNormal := sphere.Pos.Sub(plane.Pos).Dot(plane.Normal)
 	distMain := sphere.Pos.Sub(plane.Pos).Dot(plane.MainAxis)
 	distCross := sphere.Pos.Sub(plane.Pos).Dot(plane.CrossAxis)

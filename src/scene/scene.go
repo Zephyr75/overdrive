@@ -46,7 +46,7 @@ type Scene struct {
 }
 
 // Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
-func NewScene(path string, backend renderer.Backend) (Scene, error) {
+func NewScene(path string, backend renderer.Backend) (Scene, error) { // TODO: review
 	scene, err := LoadScene(path)
 	if err != nil {
 		return Scene{}, err
@@ -67,7 +67,7 @@ func NewScene(path string, backend renderer.Backend) (Scene, error) {
 }
 
 // Returns a scene with nothing in it, for running the app with UI only
-func EmptyScene() Scene {
+func EmptyScene() Scene { // TODO: review
 	var scene Scene
 	scene.Meshes = make([]Mesh, 0)
 	scene.Lights = make([]Light, 0)
@@ -77,7 +77,7 @@ func EmptyScene() Scene {
 }
 
 // Reuploads the vertices of every mesh a physics step moved this frame
-func (scene *Scene) UpdateMeshes() {
+func (scene *Scene) UpdateMeshes() { // TODO: review
 	if scene == nil {
 		return
 	}
@@ -90,7 +90,7 @@ func (scene *Scene) UpdateMeshes() {
 }
 
 // Finds a mesh by name, returning nil when the scene has none
-func (scene *Scene) Mesh(name string) *Mesh {
+func (scene *Scene) Mesh(name string) *Mesh { // TODO: review
 	for i, mesh := range scene.Meshes {
 		if mesh.Name == name {
 			return &scene.Meshes[i]
@@ -100,7 +100,7 @@ func (scene *Scene) Mesh(name string) *Mesh {
 }
 
 // Finds a light by name, returning nil when the scene has none
-func (scene *Scene) Light(name string) *Light {
+func (scene *Scene) Light(name string) *Light { // TODO: review
 	for i, light := range scene.Lights {
 		if light.Name == name {
 			return &scene.Lights[i]
@@ -110,12 +110,12 @@ func (scene *Scene) Light(name string) *Light {
 }
 
 // Returns the scene's camera
-func (scene *Scene) Camera() *Camera {
+func (scene *Scene) Camera() *Camera { // TODO: review
 	return &scene.Cam
 }
 
 // Parses a scene XML file into meshes, lights and a camera, with no GPU work
-func LoadScene(path string) (Scene, error) {
+func LoadScene(path string) (Scene, error) { // TODO: review
 	xmlFile, err := os.Open(path)
 	if err != nil {
 		return Scene{}, fmt.Errorf("open scene: %w", err)
@@ -154,7 +154,7 @@ func LoadScene(path string) (Scene, error) {
 }
 
 // Writes the per-frame values into u: camera matrices, the light array, and the scene-wide texture handles
-func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) {
+func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) { // TODO: review
 	uniforms.View = mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
 	uniforms.Projection = mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov),
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
@@ -206,7 +206,7 @@ func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) {
 // read the same bytes rather than two rebuilt copies of them. An EQUAL depth
 // test rejects a difference down to the last bit, and prepass.slang combines the
 // matrices in exactly the order forward.slang's vsMain does
-func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frameAddr renderer.Address) {
+func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frameAddr renderer.Address) { // TODO: review
 	clear := [4]float32{1, 0, 0, 0}
 	frame.Pass(renderer.PassInfo{
 		Name:  "depthPrepass",
@@ -225,7 +225,7 @@ func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frame
 
 // Draws every mesh of the scene with the forward pipeline, inside the main pass
 func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
-	frameAddr, recordAddr renderer.Address) {
+	frameAddr, recordAddr renderer.Address) { // TODO: review
 
 	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Forward}
 	ctx.push[PushFrame] = frameAddr
@@ -241,6 +241,6 @@ func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes 
 
 // The images the main pass samples, which it must declare so they are
 // transitioned out of the layout the bake left them in
-func (scene *Scene) ShadowImages() []renderer.Handle {
+func (scene *Scene) ShadowImages() []renderer.Handle { // TODO: review
 	return []renderer.Handle{scene.atlas.staticImage, scene.atlas.dynamicImage}
 }

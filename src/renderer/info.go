@@ -136,9 +136,9 @@ type MeshInfo struct {
 	Vertices BufferHandle // several meshes share one vertex buffer
 	Indices  []uint32
 	// bytes per vertex, used to derive the vertex count of a non-indexed mesh
-	Stride int 
+	Stride int
 	// how many vertices to draw when there are no indices, 0 derives it from stride
-	Count int 
+	Count int
 }
 
 // --- samplers ----------------------------------------------------------------
@@ -173,7 +173,7 @@ type SamplerInfo struct {
 	Border                       BorderColor
 	MaxAnisotropy                float32
 	MinLod, MaxLod               float32
-	Compare CompareOperation
+	Compare                      CompareOperation
 }
 
 // --- pipelines ---------------------------------------------------------------
@@ -229,7 +229,7 @@ const (
 )
 
 // The file suffix build_shaders.sh writes for a stage
-func (spec ShaderStage) Suffix() string {
+func (spec ShaderStage) Suffix() string { // TODO: review
 	switch spec {
 	case StageFragment:
 		return "frag"
@@ -282,8 +282,8 @@ type PipelineSpec struct {
 
 	Vertex VertexLayout
 
-	Cull      CullMode
-	FrontFace WindingDirection
+	Cull         CullMode
+	FrontFace    WindingDirection
 	DepthCompare CompareOperation
 	DepthWrite   bool
 	Blend        BlendMode

@@ -42,7 +42,7 @@ type overlay struct {
 }
 
 // Builds the overlay's quad, pipeline and first canvas image
-func newOverlay(backend renderer.Backend) (*overlay, error) {
+func newOverlay(backend renderer.Backend) (*overlay, error) { // TODO: review
 	ovl := &overlay{backend: backend, lastMap: map[string]bool{}}
 
 	buf, _ := backend.CreateBuffer(renderer.BufferInfo{
@@ -81,7 +81,7 @@ func newOverlay(backend renderer.Backend) (*overlay, error) {
 //
 // The old one goes through Destroy, which retires it behind the frames in
 // flight and only then gives its bindless slot back
-func (ovl *overlay) resize(width, height int) {
+func (ovl *overlay) resize(width, height int) { // TODO: review
 	if ovl.image != 0 && ovl.width == width && ovl.height == height {
 		return
 	}
@@ -101,7 +101,7 @@ func (ovl *overlay) resize(width, height int) {
 
 // Rasterises the widget tree into the canvas, uploads it and draws it as a
 // fullscreen quad, inside the main pass
-func (ovl *overlay) draw(frame renderer.Frame, pass renderer.Pass, app App, widget func(app App) ui.UIElement) {
+func (ovl *overlay) draw(frame renderer.Frame, pass renderer.Pass, app App, widget func(app App) ui.UIElement) { // TODO: review
 	window := app.Window
 	ovl.resize(settings.WindowWidth, settings.WindowHeight)
 

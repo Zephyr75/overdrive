@@ -29,17 +29,17 @@ type CameraXml struct {
 }
 
 // Teleports the camera to a position
-func (camera *Camera) Move(pos mgl32.Vec3) {
+func (camera *Camera) Move(pos mgl32.Vec3) { // TODO: review
 	camera.Pos = pos
 }
 
 // Points the camera's front vector at a position
-func (camera *Camera) LookAt(pos mgl32.Vec3) {
+func (camera *Camera) LookAt(pos mgl32.Vec3) { // TODO: review
 	camera.Front = pos.Sub(camera.Pos).Normalize()
 }
 
 // Converts a parsed XML camera into engine coordinates, deriving front from yaw and pitch
-func (camera CameraXml) toCamera() Camera {
+func (camera CameraXml) toCamera() Camera { // TODO: review
 	pos := utils.ParseVec3(camera.Pos)
 	front := utils.ParseVec3(camera.Front)
 	up := utils.ParseVec3(camera.Up)

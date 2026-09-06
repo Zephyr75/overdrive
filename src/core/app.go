@@ -29,17 +29,17 @@ type App struct {
 }
 
 // Pins the package to the main OS thread, where GLFW event handling must run
-func init() {
+func init() { // TODO: review
 	runtime.LockOSThread()
 }
 
 // Asks the window to close, ending the frame loop after the current iteration
-func (app App) Quit() {
+func (app App) Quit() { // TODO: review
 	app.Window.SetShouldClose(true)
 }
 
 // Creates the backend, the window and its input callbacks, then initialises the backend on that window
-func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App {
+func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App { // TODO: review
 
 	app := App{
 		Name:          name,
@@ -86,7 +86,7 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 }
 
 // Builds the pipelines and runs the frame loop until the window closes
-func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) {
+func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) { // TODO: review
 	backend := app.Backend
 
 	pipelines, err := scene.NewPipelines(backend)

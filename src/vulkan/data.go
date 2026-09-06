@@ -12,7 +12,7 @@ import (
 // invents. A pointer or a slice is required rather than a bare struct: only
 // those have an address Go will hand out, and asking for one is cheaper than
 // the copy the alternative would make.
-func dataPtr(data any) (unsafe.Pointer, uint64) {
+func dataPtr(data any) (unsafe.Pointer, uint64) { // TODO: review
 	value := reflect.ValueOf(data)
 	switch value.Kind() {
 	case reflect.Slice:
@@ -31,7 +31,7 @@ func dataPtr(data any) (unsafe.Pointer, uint64) {
 }
 
 // Raw byte copy, the one operation every upload path reduces to
-func memcpy(dst, src unsafe.Pointer, n uint64) {
+func memcpy(dst, src unsafe.Pointer, n uint64) { // TODO: review
 	if n == 0 || dst == nil || src == nil {
 		return
 	}
