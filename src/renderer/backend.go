@@ -18,13 +18,13 @@ type Backend interface {
 	// --- resources
 
 	// Creates an image, sampled, stored into, attached, or any mix
-	CreateImage(ImageInfo) ImageHandle
+	CreateImage(ImageSpec) ImageHandle
 	// Creates a view of one slice and one aspect of an image
-	CreateView(ImageHandle, ViewInfo) ViewHandle
+	CreateView(ImageHandle, ViewSpec) ViewHandle
 	// Uploads CPU pixels into an image, whole or a region
 	UpdateImage(ImageHandle, ImageData)
 	// Creates a buffer and returns its device address
-	CreateBuffer(BufferInfo) (BufferHandle, Address)
+	CreateBuffer(BufferSpec) (BufferHandle, Address)
 	// Rewrites part of a buffer from a pointer to a value or a slice
 	UpdateBuffer(handle BufferHandle, offset uint64, data any)
 	// Copies a buffer back to the CPU
@@ -33,8 +33,8 @@ type Backend interface {
 	// screenshot or an image test, wrong inside a frame loop
 	ReadBuffer(BufferHandle) []byte
 	// Pairs a vertex buffer with one face group's indices
-	CreateMesh(MeshInfo) MeshHandle
-	CreateSampler(SamplerInfo) SamplerHandle
+	CreateMesh(MeshSpec) MeshHandle
+	CreateSampler(SamplerSpec) SamplerHandle
 	// Builds a pipeline object from its whole state, shaders included
 	CreatePipeline(PipelineSpec) (PipelineHandle, error)
 
@@ -66,9 +66,9 @@ type Frame interface {
 	Upload(data any) Address
 
 	// Runs one render pass. Attachments and Reads are transitioned first
-	Pass(PassInfo, func(Pass))
+	Pass(PassSpec, func(Pass))
 	// Runs one compute pass, outside any render pass
-	Compute(ComputeInfo, func(Compute))
+	Compute(ComputeSpec, func(Compute))
 
 	// Copies between images and buffers, outside any pass
 	Copy(CopySpec)

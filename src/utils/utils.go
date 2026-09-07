@@ -14,7 +14,7 @@ func ParseVec3(text string) mgl32.Vec3 { // TODO: review
 }
 
 // Panics on a non-nil error, startup failures not being recoverable
-func HandleError(err error) { // TODO: review
+func HandleError(err error) { 
 	if err != nil {
 		panic(err)
 	}

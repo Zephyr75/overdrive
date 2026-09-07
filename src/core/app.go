@@ -29,18 +29,17 @@ type App struct {
 }
 
 // Pins the package to the main OS thread, where GLFW event handling must run
-func init() { // TODO: review
+func init() { 
 	runtime.LockOSThread()
 }
 
 // Asks the window to close, ending the frame loop after the current iteration
-func (app App) Quit() { // TODO: review
+func (app App) Quit() {
 	app.Window.SetShouldClose(true)
 }
 
 // Creates the backend, the window and its input callbacks, then initialises the backend on that window
 func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App { // TODO: review
-
 	app := App{
 		Name:          name,
 		Width:         width,
@@ -52,12 +51,15 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 	// Create the backend before the window, so it can set its own hints
 	app.Backend = vulkan.New()
 
+	// Initialize GLFW and verify Vulkan support
 	glfw.Init()
 	if !glfw.VulkanSupported() {
 		utils.HandleError(fmt.Errorf("GLFW reports no Vulkan loader"))
 	}
+	// Set the GLFW window to use no API, indicating that we will handle rendering ourselves
 	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
 
+	// Create the GLFW window with specified width, height, and title
 	window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, name, nil, nil)
 	if err != nil {
 		glfw.Terminate()
@@ -175,7 +177,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 			if !prepass {
 				depth.Clear = &depthClear
 			}
-			frame.Pass(renderer.PassInfo{
+			frame.Pass(renderer.PassSpec{
 				Name:  "main",
 				Color: []renderer.Attachment{{View: renderer.Backbuffer, Clear: &clearColor, Store: true}},
 				Depth: &depth,

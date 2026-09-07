@@ -12,7 +12,7 @@ import (
 
 // One image: its allocation, the view descriptors reach it through, and the use
 // the barrier table transitions it out of
-type imageEntry struct {
+type imageInfo struct {
 	name          string
 	image         vk.Image
 	alloc         vk.VmaAllocation
@@ -50,7 +50,7 @@ type imageEntry struct {
 
 // One view: a mip, a slice and an aspect of an image, which is what an
 // attachment names
-type viewEntry struct {
+type viewInfo struct {
 	image renderer.ImageHandle
 	view  vk.ImageView
 	// Extent of the mip this view covers, which is a pass's render area
@@ -60,7 +60,7 @@ type viewEntry struct {
 }
 
 // Creates an image and the whole-image view descriptors sample it through
-func (backend *VKBackend) CreateImage(spec renderer.ImageInfo) renderer.ImageHandle { // TODO: review
+func (backend *VKBackend) CreateImage(spec renderer.ImageSpec) renderer.ImageHandle { // TODO: review
 	layers := uint32(spec.Layers)
 	if spec.Kind == renderer.ImageCube && layers < 6 {
 		layers = 6
@@ -99,7 +99,7 @@ func (backend *VKBackend) CreateImage(spec renderer.ImageInfo) renderer.ImageHan
 	}, vk.VmaAllocationCreateInfo{Usage: vk.VmaMemoryUsageAuto})
 	fatal(err, "create image "+spec.Name)
 
-	entry := &imageEntry{
+	entry := &imageInfo{
 		name: spec.Name, image: img, alloc: alloc, format: format, aspect: aspect,
 		kind: spec.Kind, width: spec.Width, height: spec.Height, depth: depth,
 		layers: layers, samples: sampleCount(spec.Samples),
@@ -107,7 +107,7 @@ func (backend *VKBackend) CreateImage(spec renderer.ImageInfo) renderer.ImageHan
 		hot: spec.Hot, hotSlot: spec.HotSlot, use: useNone, valid: true,
 	}
 	entry.sampler = backend.samplerOf(spec.Sampler)
-	entry.view = backend.makeView(entry, renderer.ViewInfo{Kind: spec.Kind, Aspect: aspectOf(aspect)})
+	entry.view = backend.makeView(entry, renderer.ViewSpec{Kind: spec.Kind, Aspect: aspectOf(aspect)})
 
 	backend.images = append(backend.images, entry)
 	handle := renderer.ImageHandle(len(backend.images) - 1)
@@ -115,7 +115,7 @@ func (backend *VKBackend) CreateImage(spec renderer.ImageInfo) renderer.ImageHan
 }
 
 // Creates a view over one slice and one aspect
-func (backend *VKBackend) CreateView(handle renderer.ImageHandle, spec renderer.ViewInfo) renderer.ViewHandle { // TODO: review
+func (backend *VKBackend) CreateView(handle renderer.ImageHandle, spec renderer.ViewSpec) renderer.ViewHandle { // TODO: review
 	entry := backend.image(handle)
 	if entry == nil {
 		return renderer.NoView
@@ -124,7 +124,7 @@ func (backend *VKBackend) CreateView(handle renderer.ImageHandle, spec renderer.
 	if layers == 0 {
 		layers = entry.layers - uint32(spec.BaseLayer)
 	}
-	backend.views = append(backend.views, &viewEntry{
+	backend.views = append(backend.views, &viewInfo{
 		image: handle, view: backend.makeView(entry, spec), width: entry.width, height: entry.height,
 		layers: layers, valid: true,
 	})
@@ -132,7 +132,7 @@ func (backend *VKBackend) CreateView(handle renderer.ImageHandle, spec renderer.
 }
 
 // Builds the Vulkan view a ViewSpec describes, without registering it
-func (backend *VKBackend) makeView(entry *imageEntry, spec renderer.ViewInfo) vk.ImageView { // TODO: review
+func (backend *VKBackend) makeView(entry *imageInfo, spec renderer.ViewSpec) vk.ImageView { // TODO: review
 	layers := uint32(spec.LayerCount)
 	if layers == 0 {
 		layers = entry.layers - uint32(spec.BaseLayer)
@@ -210,7 +210,7 @@ func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer
 }
 
 // Stages pixels and submits the copy immediately, the load-time path
-func (backend *VKBackend) uploadNow(entry *imageEntry, pixels []byte, region vk.BufferImageCopy) { // TODO: review
+func (backend *VKBackend) uploadNow(entry *imageInfo, pixels []byte, region vk.BufferImageCopy) { // TODO: review
 	staging, alloc, info, err := backend.allocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: uint64(len(pixels)), Usage: vk.BufferUsageTransferSrc},
 		vk.VmaAllocationCreateInfo{
@@ -227,7 +227,7 @@ func (backend *VKBackend) uploadNow(entry *imageEntry, pixels []byte, region vk.
 }
 
 // Records one staged copy into an image, between the two transitions it needs
-func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, entry *imageEntry, staging vk.Buffer, region vk.BufferImageCopy) { // TODO: review
+func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, entry *imageInfo, staging vk.Buffer, region vk.BufferImageCopy) { // TODO: review
 	backend.useImage(commandBuffer, entry, useCopyDst)
 	vk.CmdCopyBufferToImage(commandBuffer, staging, entry.image, vk.ImageLayoutTransferDstOptimal, []vk.BufferImageCopy{region})
 	backend.useImage(commandBuffer, entry, useSampled)
@@ -250,7 +250,7 @@ func (backend *VKBackend) flushPendingUploads(commandBuffer vk.CommandBuffer) { 
 //
 // The reserved backbuffer handle names whichever swapchain image this frame
 // acquired, so a copy out of the screen is an ordinary copy
-func (backend *VKBackend) image(handle renderer.ImageHandle) *imageEntry { // TODO: review
+func (backend *VKBackend) image(handle renderer.ImageHandle) *imageInfo { // TODO: review
 	if handle == renderer.BackbufferImage {
 		if len(backend.swapchainImages) == 0 {
 			return nil
@@ -268,7 +268,7 @@ func (backend *VKBackend) image(handle renderer.ImageHandle) *imageEntry { // TO
 // The two reserved views are the backend's own: Backbuffer is this frame's
 // swapchain image, or the multisampled image that resolves into it, and
 // BackbufferDepth the depth buffer sized to the window
-func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *imageEntry, int, int, uint32) { // TODO: review
+func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *imageInfo, int, int, uint32) { // TODO: review
 	switch handle {
 	case renderer.NoView:
 		return 0, nil, 0, 0, 0

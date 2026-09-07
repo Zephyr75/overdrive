@@ -9,7 +9,7 @@ import (
 )
 
 // One buffer, its allocation and its persistent mapping when it has one
-type bufEntry struct {
+type bufferInfo struct {
 	name   string
 	buffer vk.Buffer
 	alloc  vk.VmaAllocation
@@ -23,7 +23,7 @@ type bufEntry struct {
 // One drawable: a shared vertex buffer, this face group's indices, and
 // everything a draw needs. Several meshes may name one vertex buffer, which is
 // how a multi-material OBJ loads
-type meshEntry struct {
+type meshInfo struct {
 	name        string
 	vertices    renderer.BufferHandle
 	indexBuffer vk.Buffer
@@ -34,7 +34,7 @@ type meshEntry struct {
 }
 
 // Creates a buffer and returns its device address
-func (backend *VKBackend) CreateBuffer(spec renderer.BufferInfo) (renderer.BufferHandle, renderer.Address) { // TODO: review
+func (backend *VKBackend) CreateBuffer(spec renderer.BufferSpec) (renderer.BufferHandle, renderer.Address) { // TODO: review
 	size := spec.Size
 	var src unsafe.Pointer
 	var dataLen uint64
@@ -67,7 +67,7 @@ func (backend *VKBackend) CreateBuffer(spec renderer.BufferInfo) (renderer.Buffe
 		memcpy(info.MappedData, src, minU64(size, dataLen))
 	}
 
-	entry := &bufEntry{
+	entry := &bufferInfo{
 		name: spec.Name, buffer: buf, alloc: alloc, mapped: info.MappedData,
 		size: size, addr: vk.GetBufferDeviceAddress(backend.device, buf), valid: true,
 	}
@@ -159,7 +159,7 @@ func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { // T
 }
 
 // Resolves a buffer handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufEntry { // TODO: review
+func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufferInfo { // TODO: review
 	if handle == 0 || int(handle) >= len(backend.buffers) || !backend.buffers[handle].valid {
 		return nil
 	}
@@ -167,7 +167,7 @@ func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufEntry { // TO
 }
 
 // Pairs a shared vertex buffer with one face group's index list
-func (backend *VKBackend) CreateMesh(spec renderer.MeshInfo) renderer.MeshHandle { // TODO: review
+func (backend *VKBackend) CreateMesh(spec renderer.MeshSpec) renderer.MeshHandle { // TODO: review
 	// A mesh may name no vertex buffer at all: a fullscreen pass whose shader
 	// generates its own positions still needs a vertex count to draw
 	vertexBuffer := backend.buffer(spec.Vertices)
@@ -195,7 +195,7 @@ func (backend *VKBackend) CreateMesh(spec renderer.MeshInfo) renderer.MeshHandle
 		memcpy(info.MappedData, unsafe.Pointer(&spec.Indices[0]), uint64(len(spec.Indices)*4))
 	}
 
-	backend.meshes = append(backend.meshes, &meshEntry{
+	backend.meshes = append(backend.meshes, &meshInfo{
 		name: spec.Name, vertices: spec.Vertices, indexBuffer: buf, indexAlloc: alloc,
 		count: count, indexed: indexed, valid: true,
 	})
@@ -203,7 +203,7 @@ func (backend *VKBackend) CreateMesh(spec renderer.MeshInfo) renderer.MeshHandle
 }
 
 // Resolves a mesh handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) mesh(handle renderer.MeshHandle) *meshEntry { // TODO: review
+func (backend *VKBackend) mesh(handle renderer.MeshHandle) *meshInfo { // TODO: review
 	if handle == 0 || int(handle) >= len(backend.meshes) || !backend.meshes[handle].valid {
 		return nil
 	}

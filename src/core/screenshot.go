@@ -27,7 +27,7 @@ func (shot *screenshot) record(backend renderer.Backend, frame renderer.Frame, n
 	}
 	width, height := settings.WindowWidth, settings.WindowHeight
 	if shot.buffer == 0 {
-		shot.buffer, _ = backend.CreateBuffer(renderer.BufferInfo{
+		shot.buffer, _ = backend.CreateBuffer(renderer.BufferSpec{
 			Name: "screenshot", Size: uint64(width * height * 4),
 			Usage: renderer.BufferCopyDst, Location: renderer.LocationHost,
 		})

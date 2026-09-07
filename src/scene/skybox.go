@@ -66,10 +66,10 @@ func (skybox *Skybox) setup(backend renderer.Backend) error { // TODO: review
 
 	// The cube owns its own buffer and carries no indices, unlike scene meshes
 	// which share one buffer across their face groups
-	buf, _ := backend.CreateBuffer(renderer.BufferInfo{
+	buf, _ := backend.CreateBuffer(renderer.BufferSpec{
 		Name: "skyboxCube", Usage: renderer.BufferVertex, Location: renderer.LocationHost, Data: vertices,
 	})
-	skybox.mesh = backend.CreateMesh(renderer.MeshInfo{Name: "skyboxCube", Vertices: buf, Stride: positionStride})
+	skybox.mesh = backend.CreateMesh(renderer.MeshSpec{Name: "skyboxCube", Vertices: buf, Stride: positionStride})
 	faces, width, height, err := loadCubeFaces([6]string{
 		paths.Texture("skybox/right.png"),
 		paths.Texture("skybox/left.png"),
@@ -83,7 +83,7 @@ func (skybox *Skybox) setup(backend renderer.Backend) error { // TODO: review
 	}
 	// A skybox is never viewed at a grazing angle, so no anisotropy; clamped so
 	// a face's edge texels do not wrap into the opposite side
-	sampler := backend.CreateSampler(renderer.SamplerInfo{
+	sampler := backend.CreateSampler(renderer.SamplerSpec{
 		Name: "skybox", Mag: renderer.FilterLinear, Min: renderer.FilterLinear,
 		Mipmap:   renderer.FilterLinear,
 		OutsideU: renderer.OutsideClampToEdge,
@@ -91,7 +91,7 @@ func (skybox *Skybox) setup(backend renderer.Backend) error { // TODO: review
 		OutsideW: renderer.OutsideClampToEdge,
 		MaxLod:   1,
 	})
-	skybox.Texture = backend.CreateImage(renderer.ImageInfo{
+	skybox.Texture = backend.CreateImage(renderer.ImageSpec{
 		Name: "skybox", Width: width, Height: height, Layers: 6, Kind: renderer.ImageCube,
 		Format:  renderer.FormatRGBA8,
 		Usage:   renderer.ImageSampled | renderer.ImageCopyDst,

@@ -262,9 +262,9 @@ func blendAttachment(mode renderer.BlendMode) vk.PipelineColorBlendAttachmentSta
 
 // Creates a sampler from its whole state, the caller deciding filtering,
 // wrapping, border and whether it compares
-func (backend *VKBackend) CreateSampler(spec renderer.SamplerInfo) renderer.SamplerHandle { // TODO: review
+func (backend *VKBackend) CreateSampler(spec renderer.SamplerSpec) renderer.SamplerHandle { // TODO: review
 	aniso := spec.MaxAnisotropy
-	if limit := backend.props.MaxSamplerAnisotropy; aniso > limit {
+	if limit := backend.physicalDeviceProperties.MaxSamplerAnisotropy; aniso > limit {
 		// Lower a request the device cannot meet: the config file is written
 		// once, the GPU it runs on is not
 		aniso = limit

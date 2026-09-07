@@ -12,7 +12,7 @@ import (
 
 // One pipeline object, and the spec it was built from so ReloadPipelines can
 // rebuild it after the SPIR-V on disk changed
-type pipelineEntry struct {
+type pipelineInfo struct {
 	spec      renderer.PipelineSpec
 	pipeline  vk.Pipeline
 	bindPoint vk.PipelineBindPoint
@@ -25,7 +25,7 @@ type pipelineEntry struct {
 // Replaces the old lazy table that inferred winding, blending and sample count
 // from what a target looked like — a pass's conventions are the pipeline's now
 func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.PipelineHandle, error) { // TODO: review
-	entry := &pipelineEntry{spec: spec, valid: true}
+	entry := &pipelineInfo{spec: spec, valid: true}
 	if err := backend.buildPipeline(entry); err != nil {
 		return 0, err
 	}
@@ -58,7 +58,7 @@ func (backend *VKBackend) ReloadPipelines() error { // TODO: review
 }
 
 // Creates the Vulkan pipeline an entry's spec describes, into e.pipeline
-func (backend *VKBackend) buildPipeline(entry *pipelineEntry) error { // TODO: review
+func (backend *VKBackend) buildPipeline(entry *pipelineInfo) error { // TODO: review
 	spec := entry.spec
 	stages := spec.Stages
 	if len(stages) == 0 {
@@ -184,7 +184,7 @@ func (backend *VKBackend) module(name string, stage renderer.ShaderStage) (vk.Sh
 }
 
 // Resolves a pipeline handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) pipeline(handle renderer.PipelineHandle) *pipelineEntry { // TODO: review
+func (backend *VKBackend) pipeline(handle renderer.PipelineHandle) *pipelineInfo { // TODO: review
 	if handle == 0 || int(handle) > len(backend.pipelines) || !backend.pipelines[handle-1].valid {
 		return nil
 	}

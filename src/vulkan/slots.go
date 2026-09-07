@@ -157,7 +157,7 @@ func (backend *VKBackend) takeSlot(binding int) uint32 { // TODO: review
 }
 
 // Writes an image's descriptor into the array it was given a slot in
-func (backend *VKBackend) writeSlot(entry *imageEntry) { // TODO: review
+func (backend *VKBackend) writeSlot(entry *imageInfo) { // TODO: review
 	info := vk.DescriptorImageInfo{
 		Sampler: entry.sampler, ImageView: entry.view,
 		ImageLayout: vk.ImageLayoutShaderReadOnlyOptimal,

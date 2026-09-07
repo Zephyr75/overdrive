@@ -4,6 +4,7 @@
 package vulkan
 
 import (
+	"slices"
 	"fmt"
 	"math"
 	"unsafe"
@@ -53,7 +54,7 @@ type VKBackend struct {
 	queueFamily    uint32
 	queue          vk.Queue
 	allocator      *vk.VmaAllocator
-	props          vk.PhysicalDeviceProperties
+	physicalDeviceProperties          vk.PhysicalDeviceProperties
 	caps           renderer.Capacities
 
 	// swapchain and everything sized to it
@@ -61,13 +62,13 @@ type VKBackend struct {
 	swapchain       vk.SwapchainKHR
 	swapFormat      vk.Format
 	swapExtent      vk.Extent2D
-	swapchainImages []imageEntry
+	swapchainImages []imageInfo
 	renderSems      []vk.Semaphore
 	// The depth buffer and, when the backend multisamples, the colour image the
 	// backbuffer view resolves out of. Both are the backend's because both are
 	// sized to a swapchain only it sees resize
-	depth   imageEntry
-	msaa    imageEntry
+	depth   imageInfo
+	msaa    imageInfo
 	samples vk.SampleCountFlags
 
 	// frame state
@@ -91,11 +92,11 @@ type VKBackend struct {
 
 	// Resource tables, the handle being the index. Entry 0 is reserved in the
 	// tables whose handle 0 means "none"
-	images    []*imageEntry
-	views     []*viewEntry
-	buffers   []*bufEntry
-	meshes    []*meshEntry
-	pipelines []*pipelineEntry
+	images    []*imageInfo
+	views     []*viewInfo
+	buffers   []*bufferInfo
+	meshes    []*meshInfo
+	pipelines []*pipelineInfo
 	samplers  []vk.Sampler
 	modules   map[string]vk.ShaderModule
 
@@ -110,24 +111,24 @@ type VKBackend struct {
 }
 
 // Builds an empty Vulkan backend, before any Vulkan object exists
-func New() *VKBackend { // TODO: review
+func New() *VKBackend {
 	backend := &VKBackend{
-		swapFormat: vk.FormatB8G8R8A8Unorm,
-		samples:    vk.SampleCount1Bit, // Init narrows this once the device is known
+		swapFormat: vk.FormatB8G8R8A8Unorm, // no gamma encoding : already done in shader
+		samples:    vk.SampleCount1Bit, // 1 sample per pixel : MSAA off
 		modules:    map[string]vk.ShaderModule{},
 	}
-	// Reserve index 0 in the tables whose handle 0 means "none", and index 1 in
-	// the image table for renderer.BackbufferImage, which image() resolves to
-	// whichever swapchain image this frame acquired
-	backend.images = append(backend.images, &imageEntry{binding: -1}, &imageEntry{binding: -1})
-	backend.buffers = append(backend.buffers, &bufEntry{})
-	backend.meshes = append(backend.meshes, &meshEntry{})
+	// Reserve handle 0 for "none"
+	// Reserve handle 1 for backbuffer (redirects to swapchainImages)
+	backend.images = append(backend.images, &imageInfo{binding: -1}, &imageInfo{binding: -1})
+	// Reserve handle 0 for "none"
+	backend.buffers = append(backend.buffers, &bufferInfo{})
+	// Reserve handle 0 for "none"
+	backend.meshes = append(backend.meshes, &meshInfo{})
 	return backend
 }
 
-// Aborts on a failed Vulkan call: resource creation failing mid-run is not
-// recoverable, and error plumbing at every call site would bury the code
-func fatal(err error, what string) { // TODO: review
+// Aborts on a failed Vulkan call
+func fatal(err error, what string) { 
 	if err != nil {
 		panic(fmt.Sprintf("vulkan: %s: %v", what, err))
 	}
@@ -180,28 +181,23 @@ func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error 
 
 // Creates the instance with the extensions GLFW requires, the validation layers
 // when [debug] validation is set, and debug-utils when the loader has it
-func (backend *VKBackend) createInstance() error { // TODO: review
-	// Keep validation opt-in: the layers are a separate package on most
-	// distributions and instance creation fails outright when one is missing
+func (backend *VKBackend) createInstance() error { 
+	// Add validation layers if required to help catch misuse in driver API calls
 	var layers []string
 	if settings.Validation {
 		layers = append(layers, "VK_LAYER_KHRONOS_validation")
 	}
 
-	// Ask before enabling: an extension the loader does not have fails instance
-	// creation outright, and this one is absent on a machine with neither the
-	// validation layers nor RenderDoc installed
+	// Add debug-utils extensions if available to label command buffers and queues for RenderDoc debugging
 	extensions := backend.window.GetRequiredInstanceExtensions()
 	if available, err := vk.EnumerateInstanceExtensionProperties(); err == nil {
-		for _, entry := range available {
-			if entry == vk.ExtDebugUtils {
-				extensions = append(extensions, vk.ExtDebugUtils)
-				backend.hasLabels = true
-				break
-			}
+		if slices.Contains(available, vk.ExtDebugUtils) {
+			extensions = append(extensions, vk.ExtDebugUtils)
+			backend.hasLabels = true
 		}
 	}
 
+	// Create vulkan instance
 	inst, err := vk.CreateInstance(vk.InstanceCreateInfo{
 		AppName:    "Overdrive",
 		APIVersion: vk.ApiVersion13,
@@ -212,15 +208,18 @@ func (backend *VKBackend) createInstance() error { // TODO: review
 		return err
 	}
 	backend.instance = inst
-	// The extension's entry points are not exported by the loader, so they are
-	// fetched here; without this every label call is a no-op
-	vk.LoadDebugUtils(inst)
+	
+	// Load debug-utils on instance
+	if backend.hasLabels { 
+		vk.LoadDebugUtils(inst)
+	}
 	return nil
 }
 
 // Creates the surface, picks a graphics-and-present queue family, and creates
 // the logical device with the features the engine needs
 func (backend *VKBackend) createSurfaceAndDevice() error { // TODO: review
+	// List all GPUs
 	devices, err := vk.EnumeratePhysicalDevices(backend.instance)
 	if err != nil {
 		return err
@@ -229,8 +228,8 @@ func (backend *VKBackend) createSurfaceAndDevice() error { // TODO: review
 		return fmt.Errorf("no Vulkan physical devices")
 	}
 	backend.physicalDevice = devices[0]
-	backend.props = vk.GetPhysicalDeviceProperties2(backend.physicalDevice)
-	fmt.Printf("Vulkan device: %s\n", backend.props.DeviceName)
+	backend.physicalDeviceProperties = vk.GetPhysicalDeviceProperties2(backend.physicalDevice)
+	fmt.Printf("Vulkan device: %s\n", backend.physicalDeviceProperties.DeviceName)
 
 	found := false
 	for i, queueFamily := range vk.GetPhysicalDeviceQueueFamilyProperties(backend.physicalDevice) {
@@ -338,7 +337,7 @@ func (backend *VKBackend) createDefaultSampler() { // TODO: review
 		AddressModeV:     vk.SamplerAddressModeRepeat,
 		AddressModeW:     vk.SamplerAddressModeRepeat,
 		AnisotropyEnable: aniso > 1,
-		MaxAnisotropy:    minF32(aniso, backend.props.MaxSamplerAnisotropy),
+		MaxAnisotropy:    minF32(aniso, backend.physicalDeviceProperties.MaxSamplerAnisotropy),
 		MaxLod:           16,
 	})
 	fatal(err, "create default sampler")
@@ -365,14 +364,14 @@ func (backend *VKBackend) createGlobalPipelineLayout() { // TODO: review
 // arrays, which is what an unset texture falls back to, and seeds the dedicated
 // descriptors so none of them is ever read unwritten
 func (backend *VKBackend) createDefaultImages() { // TODO: review
-	white := backend.CreateImage(renderer.ImageInfo{
+	white := backend.CreateImage(renderer.ImageSpec{
 		Name: "white", Width: 1, Height: 1, Format: renderer.FormatRGBA8,
 		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
 	})
 	backend.UpdateImage(white, renderer.ImageData{Pixels: []byte{255, 255, 255, 255}})
 	backend.Slot(white)
 
-	black := backend.CreateImage(renderer.ImageInfo{
+	black := backend.CreateImage(renderer.ImageSpec{
 		Name: "blackCube", Width: 1, Height: 1, Layers: 6, Kind: renderer.ImageCube,
 		Format: renderer.FormatRGBA8, Usage: renderer.ImageSampled | renderer.ImageCopyDst,
 	})
@@ -404,8 +403,8 @@ func (backend *VKBackend) buildCaps(req renderer.Request) { // TODO: review
 		}
 	}
 	backend.caps = renderer.Capacities{
-		MaxAnisotropy:     backend.props.MaxSamplerAnisotropy,
-		SampleCounts:      int(backend.props.FramebufferColorSampleCounts & backend.props.FramebufferDepthSampleCounts),
+		MaxAnisotropy:     backend.physicalDeviceProperties.MaxSamplerAnisotropy,
+		SampleCounts:      int(backend.physicalDeviceProperties.FramebufferColorSampleCounts & backend.physicalDeviceProperties.FramebufferDepthSampleCounts),
 		BackbufferSamples: samplesToInt(backend.samples),
 		Features:          features,
 		Formats: func(format renderer.Format) bool {

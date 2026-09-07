@@ -124,7 +124,7 @@ func (atlas *shadowAtlas) setup(backend renderer.Backend) { // TODO: review
 	// Nearest, because PCF does its own filtering and a comparison here would
 	// average depths rather than occlusions. The white border is what says
 	// "fully lit" outside a sun's frustum
-	sampler := backend.CreateSampler(renderer.SamplerInfo{
+	sampler := backend.CreateSampler(renderer.SamplerSpec{
 		Name: "shadowAtlas", Mag: renderer.FilterNearest, Min: renderer.FilterNearest,
 		Mipmap:   renderer.FilterNearest,
 		OutsideU: renderer.OutsideClampToBorder,
@@ -135,7 +135,7 @@ func (atlas *shadowAtlas) setup(backend renderer.Backend) { // TODO: review
 	})
 	// Transfer on both ends: one atlas is the source of a cached tile and the
 	// destination of another's copy
-	spec := renderer.ImageInfo{
+	spec := renderer.ImageSpec{
 		Width: atlasSize, Height: atlasSize, Format: renderer.FormatDepth32F,
 		Usage: renderer.ImageSampled | renderer.ImageDepthAttachment |
 			renderer.ImageCopySrc | renderer.ImageCopyDst,
@@ -146,8 +146,8 @@ func (atlas *shadowAtlas) setup(backend renderer.Backend) { // TODO: review
 	spec.Name, spec.HotSlot = "shadowAtlasDynamic", 1
 	atlas.dynamicImage = backend.CreateImage(spec)
 
-	atlas.staticView = backend.CreateView(atlas.staticImage, renderer.ViewInfo{Name: "shadowAtlasStatic", Aspect: renderer.AspectDepth})
-	atlas.dynamicView = backend.CreateView(atlas.dynamicImage, renderer.ViewInfo{Name: "shadowAtlasDynamic", Aspect: renderer.AspectDepth})
+	atlas.staticView = backend.CreateView(atlas.staticImage, renderer.ViewSpec{Name: "shadowAtlasStatic", Aspect: renderer.AspectDepth})
+	atlas.dynamicView = backend.CreateView(atlas.dynamicImage, renderer.ViewSpec{Name: "shadowAtlasDynamic", Aspect: renderer.AspectDepth})
 
 	// Writes the dedicated descriptors, which is what Slot does for a hot image
 	backend.Slot(atlas.staticImage)
@@ -804,7 +804,7 @@ func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) { // TODO
 	// empty — see UpdateShadows for why the static side is all-or-nothing
 	if len(scene.staticQueue) > 0 {
 		clear := [4]float32{1, 0, 0, 0}
-		frame.Pass(renderer.PassInfo{
+		frame.Pass(renderer.PassSpec{
 			Name:  "shadowStatic",
 			Depth: &renderer.Attachment{View: scene.atlas.staticView, Clear: &clear, Store: true},
 		}, func(pass renderer.Pass) {
@@ -836,7 +836,7 @@ func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) { // TODO
 		// Loads rather than clears: every queued tile was just overwritten by its
 		// copy, and every tile not queued is holding the frame it was built for.
 		// That cache is the whole point of the split
-		frame.Pass(renderer.PassInfo{
+		frame.Pass(renderer.PassSpec{
 			Name:  "shadowDynamic",
 			Depth: &renderer.Attachment{View: scene.atlas.dynamicView, Store: true},
 		}, func(pass renderer.Pass) {

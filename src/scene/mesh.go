@@ -323,13 +323,13 @@ func (mesh *Mesh) setup(backend renderer.Backend) error { // TODO: review
 
 	// Share one vertex buffer across the face groups, each group owning only
 	// its index list
-	mesh.vertexBuf, _ = backend.CreateBuffer(renderer.BufferInfo{
+	mesh.vertexBuf, _ = backend.CreateBuffer(renderer.BufferSpec{
 		Name: mesh.Name, Usage: renderer.BufferVertex, Location: renderer.LocationHost,
 		Data: mesh.vertexData,
 	})
 	mesh.gpu = make([]renderer.MeshHandle, len(mesh.indexGroups))
 	for i, face := range mesh.indexGroups {
-		mesh.gpu[i] = backend.CreateMesh(renderer.MeshInfo{
+		mesh.gpu[i] = backend.CreateMesh(renderer.MeshSpec{
 			Name: mesh.Name, Vertices: mesh.vertexBuf, Indices: face, Stride: meshStride,
 		})
 	}
@@ -359,7 +359,7 @@ func (mesh *Mesh) setup(backend renderer.Backend) error { // TODO: review
 
 // Uploads tightly packed RGBA8 pixels as a sampled 2D image
 func uploadTexture(backend renderer.Backend, name string, pixels []byte, width, height int) renderer.ImageHandle { // TODO: review
-	img := backend.CreateImage(renderer.ImageInfo{
+	img := backend.CreateImage(renderer.ImageSpec{
 		Name: name, Width: width, Height: height, Format: renderer.FormatRGBA8,
 		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
 	})

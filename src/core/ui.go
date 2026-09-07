@@ -45,11 +45,11 @@ type overlay struct {
 func newOverlay(backend renderer.Backend) (*overlay, error) { // TODO: review
 	ovl := &overlay{backend: backend, lastMap: map[string]bool{}}
 
-	buf, _ := backend.CreateBuffer(renderer.BufferInfo{
+	buf, _ := backend.CreateBuffer(renderer.BufferSpec{
 		Name: "overlayQuad", Usage: renderer.BufferVertex,
 		Location: renderer.LocationHost, Data: quadVertices,
 	})
-	ovl.mesh = backend.CreateMesh(renderer.MeshInfo{Name: "overlayQuad", Vertices: buf, Stride: 5 * 4})
+	ovl.mesh = backend.CreateMesh(renderer.MeshSpec{Name: "overlayQuad", Vertices: buf, Stride: 5 * 4})
 
 	// Tests depth but does not write it: the overlay composites over the
 	// finished scene from the near plane
@@ -88,7 +88,7 @@ func (ovl *overlay) resize(width, height int) { // TODO: review
 	if ovl.image != 0 {
 		ovl.backend.Destroy(ovl.image)
 	}
-	ovl.image = ovl.backend.CreateImage(renderer.ImageInfo{
+	ovl.image = ovl.backend.CreateImage(renderer.ImageSpec{
 		Name: "uiOverlay", Width: width, Height: height, Format: renderer.FormatRGBA8,
 		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
 	})

@@ -145,7 +145,7 @@ func (frame *vkFrame) Upload(data any) renderer.Address { // TODO: review
 
 // Runs one render pass: transitions everything it names, opens dynamic
 // rendering, and closes it again
-func (frame *vkFrame) Pass(spec renderer.PassInfo, record func(renderer.Pass)) { // TODO: review
+func (frame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) { // TODO: review
 	backend, commandBuffer := frame.backend, frame.commandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
 
@@ -216,7 +216,7 @@ func (frame *vkFrame) Pass(spec renderer.PassInfo, record func(renderer.Pass)) {
 // A dispatch reaches its resources through descriptors and device addresses,
 // which the backend cannot inspect — so ComputeSpec names them and this is where
 // they are transitioned
-func (frame *vkFrame) Compute(spec renderer.ComputeInfo, record func(renderer.Compute)) { // TODO: review
+func (frame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Compute)) { // TODO: review
 	backend, commandBuffer := frame.backend, frame.commandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
 	for _, height := range spec.Writes {
@@ -283,7 +283,7 @@ func (backend *VKBackend) colorAttachment(commandBuffer vk.CommandBuffer, attach
 	}
 	if resolve != renderer.NoView {
 		var resolveView vk.ImageView
-		var rimg *imageEntry
+		var rimg *imageInfo
 		if resolve == renderer.Backbuffer {
 			rimg = &backend.swapchainImages[backend.imageIndex]
 			resolveView = rimg.view
@@ -377,7 +377,7 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 
 // Whether a rect fits inside an image, an out-of-bounds copy being a device loss
 // rather than a clipped one
-func (backend *VKBackend) inBounds(entry *imageEntry, off [3]int, ext [3]int) bool { // TODO: review
+func (backend *VKBackend) inBounds(entry *imageInfo, off [3]int, ext [3]int) bool { // TODO: review
 	return ext[0] > 0 && ext[1] > 0 &&
 		off[0] >= 0 && off[1] >= 0 &&
 		off[0]+ext[0] <= entry.width && off[1]+ext[1] <= entry.height
@@ -490,7 +490,7 @@ func max1(value int) int { // TODO: review
 // --- shared recording helpers ------------------------------------------------
 
 // Binds a pipeline, skipping the call when it is already bound
-func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelineEntry) { // TODO: review
+func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelineInfo) { // TODO: review
 	if pipeline.pipeline == backend.boundPipeline {
 		return
 	}

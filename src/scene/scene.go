@@ -208,7 +208,7 @@ func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) { // TOD
 // matrices in exactly the order forward.slang's vsMain does
 func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frameAddr renderer.Address) { // TODO: review
 	clear := [4]float32{1, 0, 0, 0}
-	frame.Pass(renderer.PassInfo{
+	frame.Pass(renderer.PassSpec{
 		Name:  "depthPrepass",
 		Depth: &renderer.Attachment{View: renderer.BackbufferDepth, Clear: &clear, Store: true},
 		FlipY: true,

@@ -61,8 +61,8 @@ const (
 	AspectDepth
 )
 
-// ImageInfo describes an image by what it is, never by what it is for
-type ImageInfo struct {
+// ImageSpec describes an image by what it is, never by what it is for
+type ImageSpec struct {
 	Name          string // debug label, and the name a validation message shows
 	Width, Height int
 	Depth         int // 3D only : 0 gets default value of 1
@@ -76,9 +76,9 @@ type ImageInfo struct {
 	HotSlot       int  // index dedicated descriptor used by the shader to access it
 }
 
-// ViewInfo narrows an image to one mip, one slice and one aspect, which is how a
+// ViewSpec narrows an image to one mip, one slice and one aspect, which is how a
 // mip chain or a cube face becomes an attachment
-type ViewInfo struct {
+type ViewSpec struct {
 	Name       string
 	Kind       ImageKind
 	BaseLayer  int
@@ -120,7 +120,7 @@ const (
 	LocationDevice
 )
 
-type BufferInfo struct {
+type BufferSpec struct {
 	Name     string
 	Size     uint64
 	Usage    BufferUsage
@@ -130,8 +130,8 @@ type BufferInfo struct {
 
 // --- meshes ------------------------------------------------------------------
 
-// MeshInfo pairs a vertex buffer with this face group's index list
-type MeshInfo struct {
+// MeshSpec pairs a vertex buffer with this face group's index list
+type MeshSpec struct {
 	Name     string
 	Vertices BufferHandle // several meshes share one vertex buffer
 	Indices  []uint32
@@ -166,7 +166,7 @@ const (
 	BorderWhite
 )
 
-type SamplerInfo struct {
+type SamplerSpec struct {
 	Name                         string
 	Mag, Min, Mipmap             FilterType // magnification, minification, mipmap
 	OutsideU, OutsideV, OutsideW OutsideMode
@@ -310,9 +310,9 @@ type Attachment struct {
 	Store bool
 }
 
-// PassInfo is a whole render pass: what it draws into, what it samples, and what
+// PassSpec is a whole render pass: what it draws into, what it samples, and what
 // it is called in a capture and in Timings
-type PassInfo struct {
+type PassSpec struct {
 	Name string
 	// Plural: a G-buffer, a velocity target, a probe capture
 	Color []Attachment
@@ -357,12 +357,12 @@ type DispatchCall struct {
 	Indirect *IndirectRef
 }
 
-// ComputeInfo names what a dispatch touches
+// ComputeSpec names what a dispatch touches
 //
 // The one asymmetry in the design: a Pass learns what to transition from its
 // attachments, but a dispatch reaches its resources through descriptors and
 // device addresses, which the backend cannot inspect. So it is told.
-type ComputeInfo struct {
+type ComputeSpec struct {
 	Name   string
 	Reads  []Handle
 	Writes []Handle

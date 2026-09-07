@@ -50,7 +50,7 @@ func (backend *VKBackend) createSwapchain() error { // TODO: review
 	if err != nil {
 		return err
 	}
-	backend.swapchainImages = make([]imageEntry, len(images))
+	backend.swapchainImages = make([]imageInfo, len(images))
 	for i, img := range images {
 		view, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
 			Image: img, ViewType: vk.ImageViewType2D, Format: backend.swapFormat,
@@ -61,7 +61,7 @@ func (backend *VKBackend) createSwapchain() error { // TODO: review
 		if err != nil {
 			return err
 		}
-		backend.swapchainImages[i] = imageEntry{
+		backend.swapchainImages[i] = imageInfo{
 			name: "swapchain", image: img, view: view, format: backend.swapFormat,
 			aspect: vk.ImageAspectColor, width: int(extent.Width), height: int(extent.Height),
 			layers: 1, samples: vk.SampleCount1Bit, binding: -1,
@@ -99,7 +99,7 @@ func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags { // TODO: revie
 	case settings.MSAASamples >= 4:
 		want = vk.SampleCount4Bit
 	}
-	supported := backend.props.FramebufferColorSampleCounts & backend.props.FramebufferDepthSampleCounts
+	supported := backend.physicalDeviceProperties.FramebufferColorSampleCounts & backend.physicalDeviceProperties.FramebufferDepthSampleCounts
 	for want > vk.SampleCount1Bit && supported&want == 0 {
 		want >>= 1
 	}
@@ -136,7 +136,7 @@ func (backend *VKBackend) createMSAABuffer() error { // TODO: review
 	if err != nil {
 		return err
 	}
-	backend.msaa = imageEntry{
+	backend.msaa = imageInfo{
 		name: "backbufferMSAA", image: img, alloc: alloc, view: view, format: backend.swapFormat,
 		aspect: vk.ImageAspectColor, width: int(backend.swapExtent.Width), height: int(backend.swapExtent.Height),
 		layers: 1, samples: backend.samples, ownsImage: true, binding: -1,
@@ -170,7 +170,7 @@ func (backend *VKBackend) createDepthBuffer() error { // TODO: review
 	if err != nil {
 		return err
 	}
-	backend.depth = imageEntry{
+	backend.depth = imageInfo{
 		name: "backbufferDepth", image: img, alloc: alloc, view: view, format: depthFormat,
 		aspect: vk.ImageAspectDepth, width: int(backend.swapExtent.Width), height: int(backend.swapExtent.Height),
 		layers: 1, samples: backend.samples, ownsImage: true, binding: -1,
@@ -192,12 +192,12 @@ func (backend *VKBackend) destroySwapchain() { // TODO: review
 	if backend.depth.view != 0 {
 		vk.DestroyImageView(backend.device, backend.depth.view)
 		backend.allocator.VmaDestroyImage(backend.depth.image, backend.depth.alloc)
-		backend.depth = imageEntry{binding: -1}
+		backend.depth = imageInfo{binding: -1}
 	}
 	if backend.msaa.view != 0 {
 		vk.DestroyImageView(backend.device, backend.msaa.view)
 		backend.allocator.VmaDestroyImage(backend.msaa.image, backend.msaa.alloc)
-		backend.msaa = imageEntry{binding: -1}
+		backend.msaa = imageInfo{binding: -1}
 	}
 	if backend.swapchain != 0 {
 		vk.DestroySwapchainKHR(backend.device, backend.swapchain)
