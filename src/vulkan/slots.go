@@ -111,34 +111,34 @@ func (backend *VKBackend) Slot(handle renderer.Handle) uint32 { // TODO: review
 		// descriptor
 		return 0
 	}
-	entry := backend.image(renderer.ImageHandle(renderer.Index(handle)))
-	if entry == nil {
+	info := backend.image(renderer.ImageHandle(renderer.Index(handle)))
+	if info == nil {
 		return 0
 	}
-	if entry.binding >= 0 {
-		return entry.slot
+	if info.binding >= 0 {
+		return info.slot
 	}
 
 	binding := bind2D
 	switch {
-	case entry.hot:
+	case info.hot:
 		binding = bindHot
-	case entry.kind == renderer.ImageCube:
+	case info.kind == renderer.ImageCube:
 		binding = bindCube
-	case entry.usage&renderer.ImageSampled == 0 && entry.usage&renderer.ImageStorage != 0:
+	case info.usage&renderer.ImageSampled == 0 && info.usage&renderer.ImageStorage != 0:
 		binding = bindStorage
 	}
 
-	if entry.hot {
-		if entry.hotSlot < 0 || entry.hotSlot >= maxHotTextures {
-			panic(fmt.Sprintf("vulkan: image %q asked for hot slot %d of %d", entry.name, entry.hotSlot, maxHotTextures))
+	if info.hot {
+		if info.hotSlot < 0 || info.hotSlot >= maxHotTextures {
+			panic(fmt.Sprintf("vulkan: image %q asked for hot slot %d of %d", info.name, info.hotSlot, maxHotTextures))
 		}
-		entry.binding, entry.slot = bindHot, uint32(entry.hotSlot)
+		info.binding, info.slot = bindHot, uint32(info.hotSlot)
 	} else {
-		entry.binding, entry.slot = binding, backend.takeSlot(binding)
+		info.binding, info.slot = binding, backend.takeSlot(binding)
 	}
-	backend.writeSlot(entry)
-	return entry.slot
+	backend.writeSlot(info)
+	return info.slot
 }
 
 // Pops a free slot of a binding, or bumps its high-water mark
@@ -157,21 +157,21 @@ func (backend *VKBackend) takeSlot(binding int) uint32 { // TODO: review
 }
 
 // Writes an image's descriptor into the array it was given a slot in
-func (backend *VKBackend) writeSlot(entry *imageInfo) { // TODO: review
-	info := vk.DescriptorImageInfo{
-		Sampler: entry.sampler, ImageView: entry.view,
+func (backend *VKBackend) writeSlot(info *imageInfo) { // TODO: review
+	descriptorInfo := vk.DescriptorImageInfo{
+		Sampler: info.sampler, ImageView: info.view,
 		ImageLayout: vk.ImageLayoutShaderReadOnlyOptimal,
 	}
 	kind := vk.DescriptorTypeCombinedImageSampler
-	if entry.binding == bindStorage {
+	if info.binding == bindStorage {
 		// A storage image is bound with no sampler, in the layout a compute
 		// pass writes it in
-		info.Sampler, info.ImageLayout = 0, vk.ImageLayoutGeneral
+		descriptorInfo.Sampler, descriptorInfo.ImageLayout = 0, vk.ImageLayoutGeneral
 		kind = vk.DescriptorTypeStorageImage
 	}
 	vk.UpdateDescriptorSets(backend.device, []vk.WriteDescriptorSet{{
-		DstSet: backend.descriptorSet, DstBinding: uint32(entry.binding), DstArrayElement: entry.slot,
-		DescriptorType: kind, ImageInfo: []vk.DescriptorImageInfo{info},
+		DstSet: backend.descriptorSet, DstBinding: uint32(info.binding), DstArrayElement: info.slot,
+		DescriptorType: kind, ImageInfo: []vk.DescriptorImageInfo{descriptorInfo},
 	}})
 }
 
@@ -187,21 +187,21 @@ func (backend *VKBackend) Destroy(handle renderer.Handle) { // TODO: review
 			backend.views[i].valid = false
 		}
 	case renderer.KindBuffer:
-		if entry := backend.buffer(renderer.BufferHandle(renderer.Index(handle))); entry != nil {
-			backend.retire(retired{frame: backend.frameCounter, buffer: entry.buffer, bufferAlloc: entry.alloc, binding: -1})
-			entry.valid = false
+		if info := backend.buffer(renderer.BufferHandle(renderer.Index(handle))); info != nil {
+			backend.retire(retired{frame: backend.frameCounter, buffer: info.buffer, bufferAlloc: info.alloc, binding: -1})
+			info.valid = false
 		}
 	case renderer.KindMesh:
 		// The vertex buffer is shared across a multi-material mesh's groups, so
 		// only the index buffer belongs to this handle
-		if entry := backend.mesh(renderer.MeshHandle(renderer.Index(handle))); entry != nil {
-			backend.retire(retired{frame: backend.frameCounter, buffer: entry.indexBuffer, bufferAlloc: entry.indexAlloc, binding: -1})
-			entry.valid = false
+		if info := backend.mesh(renderer.MeshHandle(renderer.Index(handle))); info != nil {
+			backend.retire(retired{frame: backend.frameCounter, buffer: info.indexBuffer, bufferAlloc: info.indexAlloc, binding: -1})
+			info.valid = false
 		}
 	case renderer.KindPipeline:
-		if entry := backend.pipeline(renderer.PipelineHandle(renderer.Index(handle))); entry != nil {
-			vk.DestroyPipeline(backend.device, entry.pipeline)
-			entry.valid = false
+		if info := backend.pipeline(renderer.PipelineHandle(renderer.Index(handle))); info != nil {
+			vk.DestroyPipeline(backend.device, info.pipeline)
+			info.valid = false
 		}
 	}
 }

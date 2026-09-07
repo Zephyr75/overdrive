@@ -25,11 +25,11 @@ type pipelineInfo struct {
 // Replaces the old lazy table that inferred winding, blending and sample count
 // from what a target looked like — a pass's conventions are the pipeline's now
 func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.PipelineHandle, error) { // TODO: review
-	entry := &pipelineInfo{spec: spec, valid: true}
-	if err := backend.buildPipeline(entry); err != nil {
+	info := &pipelineInfo{spec: spec, valid: true}
+	if err := backend.buildPipeline(info); err != nil {
 		return 0, err
 	}
-	backend.pipelines = append(backend.pipelines, entry)
+	backend.pipelines = append(backend.pipelines, info)
 	return renderer.PipelineHandle(len(backend.pipelines) - 1 + 1), nil
 }
 
@@ -43,13 +43,13 @@ func (backend *VKBackend) ReloadPipelines() error { // TODO: review
 		vk.DestroyShaderModule(backend.device, module)
 		delete(backend.modules, name)
 	}
-	for _, entry := range backend.pipelines {
-		if !entry.valid {
+	for _, info := range backend.pipelines {
+		if !info.valid {
 			continue
 		}
-		old := entry.pipeline
-		if err := backend.buildPipeline(entry); err != nil {
-			entry.pipeline = old
+		old := info.pipeline
+		if err := backend.buildPipeline(info); err != nil {
+			info.pipeline = old
 			return err
 		}
 		vk.DestroyPipeline(backend.device, old)
@@ -58,8 +58,8 @@ func (backend *VKBackend) ReloadPipelines() error { // TODO: review
 }
 
 // Creates the Vulkan pipeline an entry's spec describes, into e.pipeline
-func (backend *VKBackend) buildPipeline(entry *pipelineInfo) error { // TODO: review
-	spec := entry.spec
+func (backend *VKBackend) buildPipeline(info *pipelineInfo) error { // TODO: review
+	spec := info.spec
 	stages := spec.Stages
 	if len(stages) == 0 {
 		if spec.Kind == renderer.PipelineCompute {
@@ -83,7 +83,7 @@ func (backend *VKBackend) buildPipeline(entry *pipelineInfo) error { // TODO: re
 		if err != nil {
 			return err
 		}
-		entry.pipeline, entry.bindPoint = pipeline, vk.PipelineBindPointCompute
+		info.pipeline, info.bindPoint = pipeline, vk.PipelineBindPointCompute
 		return nil
 	}
 
@@ -137,7 +137,7 @@ func (backend *VKBackend) buildPipeline(entry *pipelineInfo) error { // TODO: re
 	if err != nil {
 		return err
 	}
-	entry.pipeline, entry.bindPoint = pipeline, vk.PipelineBindPointGraphics
+	info.pipeline, info.bindPoint = pipeline, vk.PipelineBindPointGraphics
 	return nil
 }
 

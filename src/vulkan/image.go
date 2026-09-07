@@ -99,56 +99,56 @@ func (backend *VKBackend) CreateImage(spec renderer.ImageSpec) renderer.ImageHan
 	}, vk.VmaAllocationCreateInfo{Usage: vk.VmaMemoryUsageAuto})
 	fatal(err, "create image "+spec.Name)
 
-	entry := &imageInfo{
+	info := &imageInfo{
 		name: spec.Name, image: img, alloc: alloc, format: format, aspect: aspect,
 		kind: spec.Kind, width: spec.Width, height: spec.Height, depth: depth,
 		layers: layers, samples: sampleCount(spec.Samples),
 		usage: spec.Usage, ownsImage: true, binding: -1,
 		hot: spec.Hot, hotSlot: spec.HotSlot, use: useNone, valid: true,
 	}
-	entry.sampler = backend.samplerOf(spec.Sampler)
-	entry.view = backend.makeView(entry, renderer.ViewSpec{Kind: spec.Kind, Aspect: aspectOf(aspect)})
+	info.sampler = backend.samplerOf(spec.Sampler)
+	info.view = backend.makeView(info, renderer.ViewSpec{Kind: spec.Kind, Aspect: aspectOf(aspect)})
 
-	backend.images = append(backend.images, entry)
+	backend.images = append(backend.images, info)
 	handle := renderer.ImageHandle(len(backend.images) - 1)
 	return handle
 }
 
 // Creates a view over one slice and one aspect
 func (backend *VKBackend) CreateView(handle renderer.ImageHandle, spec renderer.ViewSpec) renderer.ViewHandle { // TODO: review
-	entry := backend.image(handle)
-	if entry == nil {
+	info := backend.image(handle)
+	if info == nil {
 		return renderer.NoView
 	}
 	layers := uint32(spec.LayerCount)
 	if layers == 0 {
-		layers = entry.layers - uint32(spec.BaseLayer)
+		layers = info.layers - uint32(spec.BaseLayer)
 	}
 	backend.views = append(backend.views, &viewInfo{
-		image: handle, view: backend.makeView(entry, spec), width: entry.width, height: entry.height,
+		image: handle, view: backend.makeView(info, spec), width: info.width, height: info.height,
 		layers: layers, valid: true,
 	})
 	return renderer.ViewHandle(len(backend.views) - 1 + firstUserView)
 }
 
 // Builds the Vulkan view a ViewSpec describes, without registering it
-func (backend *VKBackend) makeView(entry *imageInfo, spec renderer.ViewSpec) vk.ImageView { // TODO: review
+func (backend *VKBackend) makeView(info *imageInfo, spec renderer.ViewSpec) vk.ImageView { // TODO: review
 	layers := uint32(spec.LayerCount)
 	if layers == 0 {
-		layers = entry.layers - uint32(spec.BaseLayer)
+		layers = info.layers - uint32(spec.BaseLayer)
 	}
-	aspect := entry.aspect
+	aspect := info.aspect
 	if spec.Aspect == renderer.AspectDepth {
 		aspect = vk.ImageAspectDepth
 	}
 	imageView, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
-		Image: entry.image, ViewType: viewType(spec.Kind, layers), Format: entry.format,
+		Image: info.image, ViewType: viewType(spec.Kind, layers), Format: info.format,
 		SubresourceRange: vk.ImageSubresourceRange{
 			AspectMask: aspect, BaseMipLevel: 0, LevelCount: 1,
 			BaseArrayLayer: uint32(spec.BaseLayer), LayerCount: layers,
 		},
 	})
-	fatal(err, "create image view "+entry.name)
+	fatal(err, "create image view "+info.name)
 	return imageView
 }
 
@@ -158,90 +158,90 @@ func (backend *VKBackend) makeView(entry *imageInfo, spec renderer.ViewSpec) vk.
 // and recorded at the start of the next frame, a copy being illegal inside a
 // render pass and the UI overlay's update happening in the middle of one.
 func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer.ImageData) { // TODO: review
-	entry := backend.image(handle)
-	if entry == nil || len(data.Pixels) == 0 {
+	info := backend.image(handle)
+	if info == nil || len(data.Pixels) == 0 {
 		return
 	}
 	width, height := data.Width, data.Height
 	if width == 0 {
-		width = entry.width
+		width = info.width
 	}
 	if height == 0 {
-		height = entry.height
+		height = info.height
 	}
 	layers := uint32(data.LayerCount)
 	if layers == 0 {
-		layers = entry.layers
+		layers = info.layers
 	}
 	region := vk.BufferImageCopy{
-		AspectMask:     entry.aspect,
+		AspectMask:     info.aspect,
 		BaseArrayLayer: uint32(data.BaseLayer), LayerCount: layers,
 		ImageOffset: vk.Offset2D{X: int32(data.X), Y: int32(data.Y)},
 		ImageExtent: vk.Extent3D{Width: uint32(width), Height: uint32(height), Depth: 1},
 	}
 
 	if !backend.recording {
-		backend.uploadNow(entry, data.Pixels, region)
+		backend.uploadNow(info, data.Pixels, region)
 		return
 	}
 
-	// Keep a persistently mapped staging buffer on the entry, so the per-frame
+	// Keep a persistently mapped staging buffer on the info, so the per-frame
 	// update is a memcpy and the copy costs one frame of latency
 	size := uint64(len(data.Pixels))
-	if entry.staging == 0 || entry.stagingSize != size {
-		if entry.staging != 0 {
-			backend.retire(retired{frame: backend.frameCounter, staging: entry.staging, stagingAlloc: entry.stagingAlloc})
+	if info.staging == 0 || info.stagingSize != size {
+		if info.staging != 0 {
+			backend.retire(retired{frame: backend.frameCounter, staging: info.staging, stagingAlloc: info.stagingAlloc})
 		}
-		buf, alloc, info, err := backend.allocator.VmaCreateBuffer(
+		buf, alloc, allocInfo, err := backend.allocator.VmaCreateBuffer(
 			vk.BufferCreateInfo{Size: size, Usage: vk.BufferUsageTransferSrc},
 			vk.VmaAllocationCreateInfo{
 				Flags: vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped,
 				Usage: vk.VmaMemoryUsageAuto,
 			})
 		fatal(err, "create image staging buffer")
-		entry.staging, entry.stagingAlloc, entry.stagingMapped, entry.stagingSize = buf, alloc, info.MappedData, size
+		info.staging, info.stagingAlloc, info.stagingMapped, info.stagingSize = buf, alloc, allocInfo.MappedData, size
 	}
-	memcpy(entry.stagingMapped, unsafe.Pointer(&data.Pixels[0]), size)
-	entry.pendingCopy = region
-	if !entry.pending {
-		entry.pending = true
+	memcpy(info.stagingMapped, unsafe.Pointer(&data.Pixels[0]), size)
+	info.pendingCopy = region
+	if !info.pending {
+		info.pending = true
 		backend.pendingUploads = append(backend.pendingUploads, handle)
 	}
 }
 
 // Stages pixels and submits the copy immediately, the load-time path
-func (backend *VKBackend) uploadNow(entry *imageInfo, pixels []byte, region vk.BufferImageCopy) { // TODO: review
-	staging, alloc, info, err := backend.allocator.VmaCreateBuffer(
+func (backend *VKBackend) uploadNow(info *imageInfo, pixels []byte, region vk.BufferImageCopy) { // TODO: review
+	staging, alloc, createInfo, err := backend.allocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: uint64(len(pixels)), Usage: vk.BufferUsageTransferSrc},
 		vk.VmaAllocationCreateInfo{
 			Flags: vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped,
 			Usage: vk.VmaMemoryUsageAuto,
 		})
 	fatal(err, "create image staging buffer")
-	memcpy(info.MappedData, unsafe.Pointer(&pixels[0]), uint64(len(pixels)))
+	memcpy(createInfo.MappedData, unsafe.Pointer(&pixels[0]), uint64(len(pixels)))
 
 	backend.immediateSubmit(func(commandBuffer vk.CommandBuffer) {
-		backend.recordImageCopy(commandBuffer, entry, staging, region)
+		backend.recordImageCopy(commandBuffer, info, staging, region)
 	})
 	backend.allocator.VmaDestroyBuffer(staging, alloc)
 }
 
 // Records one staged copy into an image, between the two transitions it needs
-func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, entry *imageInfo, staging vk.Buffer, region vk.BufferImageCopy) { // TODO: review
-	backend.useImage(commandBuffer, entry, useCopyDst)
-	vk.CmdCopyBufferToImage(commandBuffer, staging, entry.image, vk.ImageLayoutTransferDstOptimal, []vk.BufferImageCopy{region})
-	backend.useImage(commandBuffer, entry, useSampled)
+func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, info *imageInfo, staging vk.Buffer, region vk.BufferImageCopy) { // TODO: review
+	backend.useImage(commandBuffer, info, useCopyDst)
+	vk.CmdCopyBufferToImage(commandBuffer, staging, info.image, vk.ImageLayoutTransferDstOptimal, []vk.BufferImageCopy{region})
+	backend.useImage(commandBuffer, info, useSampled)
 }
 
 // Records the copies staged during the previous frame, from the top of this one
 func (backend *VKBackend) flushPendingUploads(commandBuffer vk.CommandBuffer) { // TODO: review
 	for _, handle := range backend.pendingUploads {
-		entry := backend.image(handle)
-		if entry == nil {
+		info := backend.image(handle)
+		if info == nil {
 			continue
 		}
-		backend.recordImageCopy(commandBuffer, entry, entry.staging, entry.pendingCopy)
-		entry.pending = false
+		backend.recordImageCopy(commandBuffer, info, info.staging, info.pendingCopy)
+		info.pending = false
 	}
 	backend.pendingUploads = backend.pendingUploads[:0]
 }
@@ -276,8 +276,8 @@ func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *image
 		if backend.msaa.image != 0 {
 			return backend.msaa.view, &backend.msaa, int(backend.swapExtent.Width), int(backend.swapExtent.Height), 1
 		}
-		entry := &backend.swapchainImages[backend.imageIndex]
-		return entry.view, entry, int(backend.swapExtent.Width), int(backend.swapExtent.Height), 1
+		info := &backend.swapchainImages[backend.imageIndex]
+		return info.view, info, int(backend.swapExtent.Width), int(backend.swapExtent.Height), 1
 	case renderer.BackbufferDepth:
 		return backend.depth.view, &backend.depth, int(backend.swapExtent.Width), int(backend.swapExtent.Height), 1
 	}
@@ -296,15 +296,15 @@ func (backend *VKBackend) destroyImage(handle renderer.ImageHandle) { // TODO: r
 	if handle == renderer.BackbufferImage {
 		return
 	}
-	entry := backend.image(handle)
-	if entry == nil {
+	info := backend.image(handle)
+	if info == nil {
 		return
 	}
 	backend.retire(retired{
-		frame: backend.frameCounter, view: entry.view,
-		image: entry.image, alloc: entry.alloc, owns: entry.ownsImage,
-		staging: entry.staging, stagingAlloc: entry.stagingAlloc,
-		binding: entry.binding, slot: entry.slot,
+		frame: backend.frameCounter, view: info.view,
+		image: info.image, alloc: info.alloc, owns: info.ownsImage,
+		staging: info.staging, stagingAlloc: info.stagingAlloc,
+		binding: info.binding, slot: info.slot,
 	})
-	entry.valid = false
+	info.valid = false
 }

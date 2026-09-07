@@ -380,13 +380,13 @@ func (backend *VKBackend) createDefaultImages() { // TODO: review
 
 	// Partially-bound tolerates a hole, but a draw sampling one would still read
 	// undefined data
-	entry := backend.image(white)
+	info := backend.image(white)
 	for i := uint32(0); i < maxHotTextures; i++ {
 		vk.UpdateDescriptorSets(backend.device, []vk.WriteDescriptorSet{{
 			DstSet: backend.descriptorSet, DstBinding: bindHot, DstArrayElement: i,
 			DescriptorType: vk.DescriptorTypeCombinedImageSampler,
 			ImageInfo: []vk.DescriptorImageInfo{{
-				Sampler: entry.sampler, ImageView: entry.view, ImageLayout: vk.ImageLayoutShaderReadOnlyOptimal,
+				Sampler: info.sampler, ImageView: info.view, ImageLayout: vk.ImageLayoutShaderReadOnlyOptimal,
 			}},
 		}})
 	}
@@ -428,39 +428,39 @@ func (backend *VKBackend) Shutdown() { // TODO: review
 	backend.frameCounter += framesInFlight + 1
 	backend.drainRetired()
 
-	for _, entry := range backend.pipelines {
-		if entry.valid {
-			vk.DestroyPipeline(backend.device, entry.pipeline)
+	for _, info := range backend.pipelines {
+		if info.valid {
+			vk.DestroyPipeline(backend.device, info.pipeline)
 		}
 	}
 	for _, module := range backend.modules {
 		vk.DestroyShaderModule(backend.device, module)
 	}
-	for _, entry := range backend.views {
-		if entry.valid {
-			vk.DestroyImageView(backend.device, entry.view)
+	for _, info := range backend.views {
+		if info.valid {
+			vk.DestroyImageView(backend.device, info.view)
 		}
 	}
-	for _, entry := range backend.images {
-		if !entry.valid {
+	for _, info := range backend.images {
+		if !info.valid {
 			continue
 		}
-		vk.DestroyImageView(backend.device, entry.view)
-		if entry.ownsImage {
-			backend.allocator.VmaDestroyImage(entry.image, entry.alloc)
+		vk.DestroyImageView(backend.device, info.view)
+		if info.ownsImage {
+			backend.allocator.VmaDestroyImage(info.image, info.alloc)
 		}
-		if entry.staging != 0 {
-			backend.allocator.VmaDestroyBuffer(entry.staging, entry.stagingAlloc)
-		}
-	}
-	for _, entry := range backend.meshes {
-		if entry.valid {
-			backend.allocator.VmaDestroyBuffer(entry.indexBuffer, entry.indexAlloc)
+		if info.staging != 0 {
+			backend.allocator.VmaDestroyBuffer(info.staging, info.stagingAlloc)
 		}
 	}
-	for _, entry := range backend.buffers {
-		if entry.valid {
-			backend.allocator.VmaDestroyBuffer(entry.buffer, entry.alloc)
+	for _, info := range backend.meshes {
+		if info.valid {
+			backend.allocator.VmaDestroyBuffer(info.indexBuffer, info.indexAlloc)
+		}
+	}
+	for _, info := range backend.buffers {
+		if info.valid {
+			backend.allocator.VmaDestroyBuffer(info.buffer, info.alloc)
 		}
 	}
 	for i := range backend.frames {

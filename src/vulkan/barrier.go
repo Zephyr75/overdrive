@@ -51,12 +51,12 @@ var useTable = [...]useInfo{
 
 // Transitions a whole image into a use, recording nothing when it is already
 // there and the use only reads
-func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, entry *imageInfo, want use) { // TODO: review
-	if entry == nil || entry.image == 0 {
+func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, info *imageInfo, want use) { // TODO: review
+	if info == nil || info.image == 0 {
 		return
 	}
-	from, to := useTable[entry.use], useTable[want]
-	if entry.use == want && !to.write {
+	from, to := useTable[info.use], useTable[want]
+	if info.use == want && !to.write {
 		return
 	}
 	vk.CmdPipelineBarrier2(commandBuffer, vk.DependencyInfo{Image: []vk.ImageMemoryBarrier2{{
@@ -64,30 +64,30 @@ func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, entry *imageI
 		DstStageMask: to.stage, DstAccessMask: to.access,
 		OldLayout: from.layout, NewLayout: to.layout,
 		SrcQueueFamilyIndex: vk.QueueFamilyIgnored, DstQueueFamilyIndex: vk.QueueFamilyIgnored,
-		Image: entry.image,
+		Image: info.image,
 		SubresourceRange: vk.ImageSubresourceRange{
-			AspectMask: entry.aspect, BaseMipLevel: 0, LevelCount: 1,
-			BaseArrayLayer: 0, LayerCount: entry.layers,
+			AspectMask: info.aspect, BaseMipLevel: 0, LevelCount: 1,
+			BaseArrayLayer: 0, LayerCount: info.layers,
 		},
 	}}})
-	entry.use = want
+	info.use = want
 }
 
 // Transitions a buffer, which is stage and access masks alone
-func (backend *VKBackend) useBuffer(commandBuffer vk.CommandBuffer, entry *bufferInfo, want use) { // TODO: review
-	if entry == nil || entry.buffer == 0 {
+func (backend *VKBackend) useBuffer(commandBuffer vk.CommandBuffer, info *bufferInfo, want use) { // TODO: review
+	if info == nil || info.buffer == 0 {
 		return
 	}
 	to := useTable[want]
-	if entry.use == want && !to.write {
+	if info.use == want && !to.write {
 		return
 	}
-	from := useTable[entry.use]
+	from := useTable[info.use]
 	vk.CmdPipelineBarrier2(commandBuffer, vk.DependencyInfo{Buffer: []vk.BufferMemoryBarrier2{{
 		SrcStageMask: from.stage, SrcAccessMask: from.access,
 		DstStageMask: to.stage, DstAccessMask: to.access,
 		SrcQueueFamilyIndex: vk.QueueFamilyIgnored, DstQueueFamilyIndex: vk.QueueFamilyIgnored,
-		Buffer: entry.buffer, Size: vk.WholeSize,
+		Buffer: info.buffer, Size: vk.WholeSize,
 	}}})
-	entry.use = want
+	info.use = want
 }
