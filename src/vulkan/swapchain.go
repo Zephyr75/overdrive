@@ -15,30 +15,35 @@ import (
 // Builds the swapchain, its image entries, the per-image render semaphores and
 // the depth and multisample images
 func (backend *VKBackend) createSwapchain() error { // TODO: review
-	caps, err := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(backend.physicalDevice, backend.surface)
+	capabilities, err := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(backend.physicalDevice, backend.surface)
 	if err != nil {
 		return err
 	}
-	extent := caps.CurrentExtent
-	// A currentExtent of 0xFFFFFFFF means "surface size is defined by the
-	// swapchain", so fall back to the window's own size
-	if extent.Width == 0xFFFFFFFF {
+	// CurrentExtent is the current width and height of the surface
+	swapExtent := capabilities.CurrentExtent
+	// If CurrentExtent is 0xFFFFFFFF, surface will take swapchain size so we need to initialize swapchain size to window size
+	// If CurrentExtent is not 0xFFFFFFFF, swapchain gets surface size directly
+	if capabilities.CurrentExtent.Width == 0xFFFFFFFF {
 		width, height := backend.window.GetSize()
-		extent = vk.Extent2D{Width: uint32(width), Height: uint32(height)}
+		swapExtent = vk.Extent2D{Width: uint32(width), Height: uint32(height)}
 	}
-	backend.swapExtent = extent
+	backend.swapExtent = swapExtent
 
+	// Create swapchain with provided parameters
 	backend.swapchainCI = vk.SwapchainCreateInfo{
-		Surface:         backend.surface,
-		MinImageCount:   caps.MinImageCount,
-		ImageFormat:     backend.swapFormat,
+		Surface:       backend.surface,
+		MinImageCount: capabilities.MinImageCount,
+		ImageFormat:   backend.swapFormat,
+		// Use SRGB non-linear for correct color space
 		ImageColorSpace: vk.ColorSpaceSrgbNonlinearKHR,
-		ImageExtent:     extent,
-		// TransferSrc so a frame can be copied out: the screenshot and image-test path
-		ImageUsage:     vk.ImageUsageColorAttachment | vk.ImageUsageTransferSrc,
-		PreTransform:   vk.SurfaceTransformIdentityKHR,
+		ImageExtent:     swapExtent,
+		// Add TransferSrc so a frame can be copied out for the screenshot debugging
+		ImageUsage:   vk.ImageUsageColorAttachment | vk.ImageUsageTransferSrc,
+		PreTransform: vk.SurfaceTransformIdentityKHR,
+		// No blending with window system
 		CompositeAlpha: vk.CompositeAlphaOpaqueKHR,
-		PresentMode:    vk.PresentModeFifoKHR, // vsync, always supported
+		// FIFO present mode is always supported and provides v-sync
+		PresentMode: vk.PresentModeFifoKHR,
 	}
 	swapchain, err := vk.CreateSwapchainKHR(backend.device, backend.swapchainCI)
 	if err != nil {
@@ -46,11 +51,14 @@ func (backend *VKBackend) createSwapchain() error { // TODO: review
 	}
 	backend.swapchain = swapchain
 
+	// Create image views
 	images, err := vk.GetSwapchainImagesKHR(backend.device, swapchain)
 	if err != nil {
 		return err
 	}
+	// Initialize empty imageInfos for each swapchain image
 	backend.swapchainImages = make([]imageInfo, len(images))
+	// Fill imageInfos with views to each swapchain image
 	for i, img := range images {
 		view, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
 			Image: img, ViewType: vk.ImageViewType2D, Format: backend.swapFormat,
@@ -63,14 +71,14 @@ func (backend *VKBackend) createSwapchain() error { // TODO: review
 		}
 		backend.swapchainImages[i] = imageInfo{
 			name: "swapchain", image: img, view: view, format: backend.swapFormat,
-			aspect: vk.ImageAspectColor, width: int(extent.Width), height: int(extent.Height),
+			aspect: vk.ImageAspectColor, width: int(swapExtent.Width), height: int(swapExtent.Height),
 			layers: 1, samples: vk.SampleCount1Bit, binding: -1,
 			use: useNone, valid: true,
 		}
 	}
 
-	// One render-complete semaphore per swapchain image: present waits on the
-	// semaphore belonging to the image it shows, not to the frame slot
+	// One render-complete semaphore per swapchain image for present to wait
+	// Each semaphore belongs to the image it shows, not to the frame slot
 	backend.renderSems = make([]vk.Semaphore, len(images))
 	for i := range backend.renderSems {
 		if backend.renderSems[i], err = vk.CreateSemaphore(backend.device); err != nil {
@@ -85,25 +93,25 @@ func (backend *VKBackend) createSwapchain() error { // TODO: review
 }
 
 // Resolves settings.MSAASamples against the device's limits
-//
-// Colour and depth limits are intersected, the pass attaching one of each. The
-// spec guarantees 1 and 4 in both, so stepping down always terminates
-func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags { // TODO: review
-	if !settings.MSAAEnabled() {
+func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags {
+	if !settings.IsMSAAEnabled() {
 		return vk.SampleCount1Bit
 	}
-	want := vk.SampleCount2Bit
+	wantedSamples := vk.SampleCount2Bit
 	switch {
 	case settings.MSAASamples >= 8:
-		want = vk.SampleCount8Bit
+		wantedSamples = vk.SampleCount8Bit
 	case settings.MSAASamples >= 4:
-		want = vk.SampleCount4Bit
+		wantedSamples = vk.SampleCount4Bit
 	}
+	// Example: ColorSampleCounts and DepthSampleCounts look like 00111111 if 2^5 and below are supported
+	// `supported` computes the XOR to get the values supported by both sample counts
 	supported := backend.physicalDeviceProperties.FramebufferColorSampleCounts & backend.physicalDeviceProperties.FramebufferDepthSampleCounts
-	for want > vk.SampleCount1Bit && supported&want == 0 {
-		want >>= 1
+	// Divide wantedSamples by 2 until it matches `supported`
+	for wantedSamples > vk.SampleCount1Bit && supported&wantedSamples == 0 {
+		wantedSamples >>= 1
 	}
-	return want
+	return wantedSamples
 }
 
 // Creates the multisampled colour image the backbuffer view resolves out of, or

@@ -88,8 +88,8 @@ func AnisotropyEnabled() bool { // TODO: review
 	return Anisotropy > 1
 }
 
-// Reports whether the backbuffer is multisampled, which is MSAA asked for and a count that actually multisamples
-func MSAAEnabled() bool { // TODO: review
+// Reports whether the backbuffer is multisampled
+func IsMSAAEnabled() bool { 
 	return AntiAliasing == AAMSAA && MSAASamples > 1
 }
 

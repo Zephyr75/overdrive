@@ -4,9 +4,9 @@
 package vulkan
 
 import (
-	"slices"
 	"fmt"
 	"math"
+	"slices"
 	"unsafe"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -47,15 +47,15 @@ var _ renderer.Backend = (*VKBackend)(nil)
 type VKBackend struct {
 	window *glfw.Window
 
-	instance       vk.Instance
-	surface        vk.SurfaceKHR
-	physicalDevice vk.PhysicalDevice
-	device         vk.Device
-	queueFamily    uint32
-	queue          vk.Queue
-	allocator      *vk.VmaAllocator
-	physicalDeviceProperties          vk.PhysicalDeviceProperties
-	caps           renderer.Capacities
+	instance                 vk.Instance
+	surface                  vk.SurfaceKHR
+	physicalDevice           vk.PhysicalDevice
+	device                   vk.Device
+	queueFamily              uint32
+	queue                    vk.Queue
+	allocator                *vk.VmaAllocator
+	physicalDeviceProperties vk.PhysicalDeviceProperties
+	capacities               renderer.Capacities
 
 	// swapchain and everything sized to it
 	swapchainCI     vk.SwapchainCreateInfo
@@ -114,7 +114,7 @@ type VKBackend struct {
 func New() *VKBackend {
 	backend := &VKBackend{
 		swapFormat: vk.FormatB8G8R8A8Unorm, // no gamma encoding : already done in shader
-		samples:    vk.SampleCount1Bit, // 1 sample per pixel : MSAA off
+		samples:    vk.SampleCount1Bit,     // 1 sample per pixel : MSAA off
 		modules:    map[string]vk.ShaderModule{},
 	}
 	// Reserve handle 0 for "none"
@@ -128,7 +128,7 @@ func New() *VKBackend {
 }
 
 // Aborts on a failed Vulkan call
-func fatal(err error, what string) { 
+func fatal(err error, what string) {
 	if err != nil {
 		panic(fmt.Sprintf("vulkan: %s: %v", what, err))
 	}
@@ -136,8 +136,7 @@ func fatal(err error, what string) {
 
 // --- lifecycle ---------------------------------------------------------------
 
-// Brings up the whole device stack: instance, surface, device, allocator,
-// swapchain, frames, descriptors and the default textures
+// Brings up the whole device stack
 func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error { // TODO: review
 	backend.window = window
 
@@ -158,6 +157,7 @@ func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error 
 	// Before the swapchain, which sizes its colour and depth images to it
 	backend.samples = backend.pickSampleCount()
 
+	// TODO: HERE
 	if err := backend.createSwapchain(); err != nil {
 		return err
 	}
@@ -181,7 +181,7 @@ func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error 
 
 // Creates the instance with the extensions GLFW requires, the validation layers
 // when [debug] validation is set, and debug-utils when the loader has it
-func (backend *VKBackend) createInstance() error { 
+func (backend *VKBackend) createInstance() error {
 	// Add validation layers if required to help catch misuse in driver API calls
 	var layers []string
 	if settings.Validation {
@@ -208,17 +208,16 @@ func (backend *VKBackend) createInstance() error {
 		return err
 	}
 	backend.instance = inst
-	
+
 	// Load debug-utils on instance
-	if backend.hasLabels { 
+	if backend.hasLabels {
 		vk.LoadDebugUtils(inst)
 	}
 	return nil
 }
 
-// Creates the surface, picks a graphics-and-present queue family, and creates
-// the logical device with the features the engine needs
-func (backend *VKBackend) createSurfaceAndDevice() error { // TODO: review
+// Creates the window surface and the logical device with the features the engine needs
+func (backend *VKBackend) createSurfaceAndDevice() error { 
 	// List all GPUs
 	devices, err := vk.EnumeratePhysicalDevices(backend.instance)
 	if err != nil {
@@ -231,53 +230,70 @@ func (backend *VKBackend) createSurfaceAndDevice() error { // TODO: review
 	backend.physicalDeviceProperties = vk.GetPhysicalDeviceProperties2(backend.physicalDevice)
 	fmt.Printf("Vulkan device: %s\n", backend.physicalDeviceProperties.DeviceName)
 
-	found := false
+	// Find compatible command queue
+	foundQueue := false
 	for i, queueFamily := range vk.GetPhysicalDeviceQueueFamilyProperties(backend.physicalDevice) {
+		// QueueFlags is all 1s masked by QueueGraphics to ensure graphics support
 		if queueFamily.QueueFlags&vk.QueueGraphics != 0 {
 			backend.queueFamily = uint32(i)
-			found = true
+			foundQueue = true
 			break
 		}
 	}
-	if !found {
+	if !foundQueue {
 		return fmt.Errorf("no queue family supports both graphics and present")
 	}
 
-	// DescriptorIndexing makes the bindless arrays legal, BufferDeviceAddress
-	// the uniform pointers, ScalarBlockLayout the -fvk-use-scalar-layout SPIR-V,
-	// the storage-image pair the compute output targets
-	dev, err := vk.CreateDevice(backend.physicalDevice, vk.DeviceCreateInfo{
+	// Create device with useful features
+	device, err := vk.CreateDevice(backend.physicalDevice, vk.DeviceCreateInfo{
 		QueueCreateInfos: []vk.DeviceQueueCreateInfo{
 			{QueueFamilyIndex: backend.queueFamily, Priorities: []float32{1}},
 		},
 		Extensions: []string{"VK_KHR_swapchain"},
 		Features: vk.Features{
-			DescriptorIndexing:                           true,
-			ShaderSampledImageArrayNonUniformIndexing:    true,
-			ShaderStorageImageArrayNonUniformIndexing:    true,
-			RuntimeDescriptorArray:                       true,
-			BufferDeviceAddress:                          true,
-			SamplerAnisotropy:                            true,
-			Synchronization2:                             true,
-			DynamicRendering:                             true,
-			GeometryShader:                               true,
-			ScalarBlockLayout:                            true,
-			DescriptorBindingPartiallyBound:              true,
+			// Enables the six descriptor features below
+			DescriptorIndexing: true,
+			// Lets the texture array index vary per fragment, not just per draw
+			ShaderSampledImageArrayNonUniformIndexing: true,
+			// The same, for the storage images a dispatch writes
+			ShaderStorageImageArrayNonUniformIndexing: true,
+			// Lets a shader declare an unsized array, sized at set-layout creation instead
+			RuntimeDescriptorArray: true,
+			// Gives a buffer a raw GPU pointer, which is what renderer.Address is
+			BufferDeviceAddress: true,
+			// Lets a sampler ask for anisotropy above 1
+			SamplerAnisotropy: true,
+			// The VkSubmitInfo2 and split stage/access masks barrier.go builds
+			Synchronization2: true,
+			
+			// Names attachments inline, so no VkRenderPass or VkFramebuffer object exists
+			DynamicRendering: true,
+			// Declared but unused: no shader in the tree has a geometry entry point
+			GeometryShader: true,
+			// Permits the scalar block layout Slang emits, which Go's struct packing matches
+			ScalarBlockLayout: true,
+			// Tolerates unwritten slots in a descriptor array, as long as no shader reads one
+			DescriptorBindingPartiallyBound: true,
+			// Lets Slot rewrite a descriptor while a frame using the set is still in flight
 			DescriptorBindingSampledImageUpdateAfterBind: true,
+			// The same, for the storage images a dispatch writes
 			DescriptorBindingStorageImageUpdateAfterBind: true,
 		},
 	})
 	if err != nil {
 		return err
 	}
-	backend.device = dev
-	backend.queue = vk.GetDeviceQueue(dev, backend.queueFamily, 0)
+	backend.device = device
+	backend.queue = vk.GetDeviceQueue(device, backend.queueFamily, 0)
 
-	surfRaw, err := backend.window.CreateWindowSurface((*byte)(unsafe.Pointer(backend.instance)), nil)
+	// Get window surface
+	surface, err := backend.window.CreateWindowSurface((*byte)(unsafe.Pointer(backend.instance)), nil)
 	if err != nil {
 		return err
 	}
-	backend.surface = vk.SurfaceKHR(*(*uintptr)(unsafe.Pointer(surfRaw)))
+	backend.surface = vk.SurfaceKHR(*(*uintptr)(unsafe.Pointer(surface)))
+
+	// Check ig queue family supports presenting to a surface
 	ok, err := vk.GetPhysicalDeviceSurfaceSupportKHR(backend.physicalDevice, backend.queueFamily, backend.surface)
 	if err != nil {
 		return err
@@ -402,7 +418,7 @@ func (backend *VKBackend) buildCaps(req renderer.Request) { // TODO: review
 			features[frame] = false
 		}
 	}
-	backend.caps = renderer.Capacities{
+	backend.capacities = renderer.Capacities{
 		MaxAnisotropy:     backend.physicalDeviceProperties.MaxSamplerAnisotropy,
 		SampleCounts:      int(backend.physicalDeviceProperties.FramebufferColorSampleCounts & backend.physicalDeviceProperties.FramebufferDepthSampleCounts),
 		BackbufferSamples: samplesToInt(backend.samples),
@@ -414,7 +430,7 @@ func (backend *VKBackend) buildCaps(req renderer.Request) { // TODO: review
 	}
 }
 
-func (backend *VKBackend) Capacities() renderer.Capacities { return backend.caps } // TODO: review
+func (backend *VKBackend) Capacities() renderer.Capacities { return backend.capacities } 
 
 // Waits for the GPU to go idle, then destroys every Vulkan object the backend
 // owns, in reverse creation order
