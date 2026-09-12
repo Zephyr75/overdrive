@@ -16,7 +16,7 @@ import (
 type frameData struct {
 	commandBuffer vk.CommandBuffer
 	fence         vk.Fence
-	acquireSem    vk.Semaphore
+	acquireSemaphore    vk.Semaphore
 	arena         vk.Buffer
 	arenaAlloc    vk.VmaAllocation
 	arenaMapped   unsafe.Pointer
@@ -55,7 +55,7 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 	// the command buffer while the GPU still reads them
 	fatal(vk.WaitForFences(backend.device, []vk.Fence{frame.fence}, true, math.MaxUint64), "wait frame fence")
 
-	idx, err := vk.AcquireNextImageKHR(backend.device, backend.swapchain, math.MaxUint64, frame.acquireSem, 0)
+	idx, err := vk.AcquireNextImageKHR(backend.device, backend.swapchain, math.MaxUint64, frame.acquireSemaphore, 0)
 	// The swapchain is a new size, so every image the caller sized to the old
 	// one is too small for this frame's render area. Rebuild and record
 	// nothing: the caller compares BackbufferSize before its next Frame and
@@ -103,7 +103,7 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 	// Wait on the frame's semaphore, signal the image's: present waits on the
 	// image's own, and the two index spaces are not interchangeable
 	fatal(vk.QueueSubmit2(backend.queue, []vk.SubmitInfo2{{
-		WaitSemaphores:   []vk.SemaphoreSubmitInfo{{Semaphore: frame.acquireSem, StageMask: vk.PipelineStage2ColorAttachmentOutput}},
+		WaitSemaphores:   []vk.SemaphoreSubmitInfo{{Semaphore: frame.acquireSemaphore, StageMask: vk.PipelineStage2ColorAttachmentOutput}},
 		CommandBuffers:   []vk.CommandBuffer{frame.commandBuffer},
 		SignalSemaphores: []vk.SemaphoreSubmitInfo{{Semaphore: backend.renderSems[backend.imageIndex], StageMask: vk.PipelineStage2AllCommands}},
 	}}, frame.fence), "queue submit")

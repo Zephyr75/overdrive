@@ -302,19 +302,20 @@ func (backend *VKBackend) createSurfaceAndDevice() error {
 // Allocates the per-frame command buffer, fence, semaphore, mapped arena and
 // query pool, one set per frame in flight
 func (backend *VKBackend) createFrameData() error { // TODO: review
-	cbs, err := vk.AllocateCommandBuffers(backend.device, backend.commandPool, framesInFlight)
+	commandBuffers, err := vk.AllocateCommandBuffers(backend.device, backend.commandPool, framesInFlight)
 	if err != nil {
 		return err
 	}
 	for i := range backend.frames {
 		frame := &backend.frames[i]
-		frame.commandBuffer = cbs[i]
-		// Signalled, so the first frame does not block on a fence no submit
-		// will ever signal
-		if frame.fence, err = vk.CreateFence(backend.device, vk.FenceCreateSignaled); err != nil {
+		frame.commandBuffer = commandBuffers[i]
+		// Start in Signaled state so the first frame does not block on a fence that will never be signaled
+		frame.fence, err = vk.CreateFence(backend.device, vk.FenceCreateSignaled) 
+		if err != nil {
 			return err
 		}
-		if frame.acquireSem, err = vk.CreateSemaphore(backend.device); err != nil {
+		frame.acquireSemaphore, err = vk.CreateSemaphore(backend.device)
+	 	if err != nil {
 			return err
 		}
 
@@ -483,7 +484,7 @@ func (backend *VKBackend) Shutdown() { // TODO: review
 	for i := range backend.frames {
 		frame := &backend.frames[i]
 		vk.DestroyFence(backend.device, frame.fence)
-		vk.DestroySemaphore(backend.device, frame.acquireSem)
+		vk.DestroySemaphore(backend.device, frame.acquireSemaphore)
 		backend.allocator.VmaDestroyBuffer(frame.arena, frame.arenaAlloc)
 	}
 	for _, sampler := range backend.samplers {
