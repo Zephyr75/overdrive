@@ -78,10 +78,19 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 		window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 	}
 
+	// The backbuffer sample count is resolved against the device's limits and
+	// read back through Capacities: the images at that sample count are built
+	// here, not in the backend
+	samples := 1
+	if settings.IsMSAAEnabled() {
+		samples = settings.MSAASamples
+	}
+
 	// The engine draws and dispatches; ray tracing is asked for so Caps reports
 	// whether the device granted it
 	utils.HandleError(app.Backend.Init(window, renderer.Request{
 		Features: []renderer.Feature{renderer.FeatureCompute},
+		Samples:  samples,
 	}))
 
 	return app
@@ -115,6 +124,10 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 	clearColor := [4]float32{0.1, 0.1, 0.1, 1.0}
 	depthClear := [4]float32{1, 0, 0, 0}
 
+	// The depth buffer and, when multisampling, the colour image the main pass
+	// resolves out of. Rebuilt whenever the swapchain has resized under them
+	var targets screenTargets
+
 	// Late enough for the physics and the shadow allocator to have settled, so
 	// two runs photograph the same scene
 	var shot *screenshot
@@ -126,6 +139,10 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 
 	// Run one iteration per frame until the window closes
 	for !app.Window.ShouldClose() {
+
+		// Before Frame, which is where a resize is discovered: the frame that
+		// discovers one records nothing, so this is what catches up to it
+		targets.ensure(backend)
 
 		world.Update(time.Second / 60)
 
@@ -168,18 +185,18 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 			// rather than once per surface drawn over it
 			prepass := loadedScene != nil && settings.DepthPrepass
 			if prepass {
-				loadedScene.RunDepthPrepass(frame, pipelines, frameAddr)
+				loadedScene.RunDepthPrepass(frame, pipelines, frameAddr, targets.depthView)
 			}
 
 			// The main pass keeps the depth the prepass left, which is what the
 			// EQUAL test in the forward pipeline compares against
-			depth := renderer.Attachment{View: renderer.BackbufferDepth}
+			depth := renderer.Attachment{View: targets.depthView}
 			if !prepass {
 				depth.Clear = &depthClear
 			}
 			frame.Pass(renderer.PassSpec{
 				Name:  "main",
-				Color: []renderer.Attachment{{View: renderer.Backbuffer, Clear: &clearColor, Store: true}},
+				Color: []renderer.Attachment{targets.colorAttachment(&clearColor)},
 				Depth: &depth,
 				Reads: reads,
 				FlipY: true,
@@ -213,6 +230,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 
 		glfw.PollEvents()
 	}
+	targets.destroy(backend)
 	backend.Shutdown()
 	glfw.Terminate()
 }

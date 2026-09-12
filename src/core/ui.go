@@ -66,7 +66,7 @@ func newOverlay(backend renderer.Backend) (*overlay, error) { // TODO: review
 		DepthCompare: renderer.CompareLess, DepthWrite: false,
 		Blend:        renderer.BlendAlpha,
 		ColorFormats: []renderer.Format{renderer.FormatBackbuffer},
-		DepthFormat:  renderer.FormatBackbufferDepth,
+		DepthFormat:  renderer.FormatDepth32F,
 		Samples:      backend.Capacities().BackbufferSamples,
 	})
 	if err != nil {

@@ -69,17 +69,15 @@ const (
 	KindAccel    = int(kindAccel)
 )
 
-// The two views the backend owns and resizes with the window, so a pass on the
-// screen is an ordinary pass with ordinary attachments
+// The one view the backend owns, so a pass on the screen is an ordinary pass
+// with ordinary attachments
 const (
 	// No attachment
 	NoView ViewHandle = 0
-	// The swapchain image acquired for this frame. When the backend
-	// multisamples, a pass on it renders into the multisampled image and
-	// resolves here, which is why this is a view and not an image
+	// The swapchain image acquired for this frame. A multisampled pass names
+	// its own colour image and resolves here, which is why this is a view and
+	// not an image
 	Backbuffer ViewHandle = 1
-	// The depth buffer sized to the swapchain, discarded every frame
-	BackbufferDepth ViewHandle = 2
 )
 
 // The swapchain image this frame is drawing into, as an ordinary image handle

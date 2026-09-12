@@ -265,21 +265,15 @@ func (backend *VKBackend) image(handle renderer.ImageHandle) *imageInfo { // TOD
 
 // Resolves a view handle to its view and the image behind it
 //
-// The two reserved views are the backend's own: Backbuffer is this frame's
-// swapchain image, or the multisampled image that resolves into it, and
-// BackbufferDepth the depth buffer sized to the window
+// The one reserved view is the backend's own: Backbuffer is this frame's
+// swapchain image, which a multisampled pass names as its resolve target
 func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *imageInfo, int, int, uint32) { // TODO: review
 	switch handle {
 	case renderer.NoView:
 		return 0, nil, 0, 0, 0
 	case renderer.Backbuffer:
-		if backend.msaa.image != 0 {
-			return backend.msaa.view, &backend.msaa, int(backend.swapExtent.Width), int(backend.swapExtent.Height), 1
-		}
 		info := &backend.swapchainImages[backend.imageIndex]
 		return info.view, info, int(backend.swapExtent.Width), int(backend.swapExtent.Height), 1
-	case renderer.BackbufferDepth:
-		return backend.depth.view, &backend.depth, int(backend.swapExtent.Width), int(backend.swapExtent.Height), 1
 	}
 	i := int(handle) - firstUserView
 	if i < 0 || i >= len(backend.views) || !backend.views[i].valid {

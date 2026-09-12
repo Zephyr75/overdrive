@@ -85,7 +85,7 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) { // TODO: review
 		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
 		DepthCompare: forwardCompare, DepthWrite: true, Blend: renderer.BlendAlpha,
 		ColorFormats: []renderer.Format{renderer.FormatBackbuffer},
-		DepthFormat:  renderer.FormatBackbufferDepth, Samples: samples,
+		DepthFormat:  renderer.FormatDepth32F, Samples: samples,
 	}); err != nil {
 		return pipes, fmt.Errorf("forward pipeline: %w", err)
 	}
@@ -96,7 +96,7 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) { // TODO: review
 		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
 		DepthCompare: renderer.CompareLessEqual, DepthWrite: true, Blend: renderer.BlendAlpha,
 		ColorFormats: []renderer.Format{renderer.FormatBackbuffer},
-		DepthFormat:  renderer.FormatBackbufferDepth, Samples: samples,
+		DepthFormat:  renderer.FormatDepth32F, Samples: samples,
 	}); err != nil {
 		return pipes, fmt.Errorf("skybox pipeline: %w", err)
 	}
@@ -105,7 +105,7 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) { // TODO: review
 		Name: "prepass", Shader: "prepass", Vertex: positionOnly,
 		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
 		DepthCompare: renderer.CompareLess, DepthWrite: true,
-		DepthFormat: renderer.FormatBackbufferDepth, Samples: samples,
+		DepthFormat: renderer.FormatDepth32F, Samples: samples,
 	}); err != nil {
 		return pipes, fmt.Errorf("prepass pipeline: %w", err)
 	}

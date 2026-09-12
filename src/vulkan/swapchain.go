@@ -4,16 +4,13 @@ import (
 	"go-vulkan/vk"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
-
-	"github.com/Zephyr75/overdrive/settings"
 )
 
-// The swapchain and the two images sized to it. They are the backend's rather
-// than the caller's because only the backend sees a resize, and the reserved
-// Backbuffer / BackbufferDepth views are how a pass names them.
+// The swapchain alone. Everything else sized to the window — the depth buffer,
+// the multisampled colour image — is the caller's, built from BackbufferSize
+// and rebuilt when that changes.
 
-// Builds the swapchain, its image entries, the per-image render semaphores and
-// the depth and multisample images
+// Builds the swapchain, its image entries and the per-image render semaphores
 func (backend *VKBackend) createSwapchain() error { // TODO: review
 	capabilities, err := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(backend.physicalDevice, backend.surface)
 	if err != nil {
@@ -86,22 +83,23 @@ func (backend *VKBackend) createSwapchain() error { // TODO: review
 		}
 	}
 
-	if err := backend.createMSAABuffer(); err != nil {
-		return err
-	}
-	return backend.createDepthBuffer()
+	return nil
 }
 
-// Resolves settings.MSAASamples against the device's limits
-func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags {
-	if !settings.IsMSAAEnabled() {
+// Resolves the requested sample count against the device's limits
+//
+// It stays here because it is a device-limit query: the caller learns the
+// answer from Capacities().BackbufferSamples and sizes its own colour and
+// depth images with it
+func (backend *VKBackend) pickSampleCount(wanted int) vk.SampleCountFlags {
+	if wanted <= 1 {
 		return vk.SampleCount1Bit
 	}
 	wantedSamples := vk.SampleCount2Bit
 	switch {
-	case settings.MSAASamples >= 8:
+	case wanted >= 8:
 		wantedSamples = vk.SampleCount8Bit
-	case settings.MSAASamples >= 4:
+	case wanted >= 4:
 		wantedSamples = vk.SampleCount4Bit
 	}
 	// Example: ColorSampleCounts and DepthSampleCounts look like 00111111 if 2^5 and below are supported
@@ -114,80 +112,7 @@ func (backend *VKBackend) pickSampleCount() vk.SampleCountFlags {
 	return wantedSamples
 }
 
-// Creates the multisampled colour image the backbuffer view resolves out of, or
-// nothing when MSAA is off
-//
-// Transient: nothing samples it, so a tiler can keep it on-chip
-func (backend *VKBackend) createMSAABuffer() error { // TODO: review
-	if backend.samples == vk.SampleCount1Bit {
-		return nil
-	}
-	img, alloc, err := backend.allocator.VmaCreateImage(vk.ImageCreateInfo{
-		ImageType: vk.ImageType2D,
-		Format:    backend.swapFormat,
-		Extent:    vk.Extent3D{Width: backend.swapExtent.Width, Height: backend.swapExtent.Height, Depth: 1},
-		Usage:     vk.ImageUsageColorAttachment | vk.ImageUsageTransientAttachment,
-		Samples:   backend.samples,
-	}, vk.VmaAllocationCreateInfo{
-		Flags: vk.VmaAllocationCreateDedicatedMemory,
-		Usage: vk.VmaMemoryUsageAuto,
-	})
-	if err != nil {
-		return err
-	}
-	view, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
-		Image: img, ViewType: vk.ImageViewType2D, Format: backend.swapFormat,
-		SubresourceRange: vk.ImageSubresourceRange{
-			AspectMask: vk.ImageAspectColor, LevelCount: 1, LayerCount: 1,
-		},
-	})
-	if err != nil {
-		return err
-	}
-	backend.msaa = imageInfo{
-		name: "backbufferMSAA", image: img, alloc: alloc, view: view, format: backend.swapFormat,
-		aspect: vk.ImageAspectColor, width: int(backend.swapExtent.Width), height: int(backend.swapExtent.Height),
-		layers: 1, samples: backend.samples, ownsImage: true, binding: -1,
-		use: useNone, valid: true,
-	}
-	return nil
-}
-
-// Creates the depth image every pass on the screen shares
-func (backend *VKBackend) createDepthBuffer() error { // TODO: review
-	img, alloc, err := backend.allocator.VmaCreateImage(vk.ImageCreateInfo{
-		ImageType: vk.ImageType2D,
-		Format:    depthFormat,
-		Extent:    vk.Extent3D{Width: backend.swapExtent.Width, Height: backend.swapExtent.Height, Depth: 1},
-		Usage:     vk.ImageUsageDepthStencilAttachment,
-		// Match the colour attachment, which a pass's attachments must all do
-		Samples: backend.samples,
-	}, vk.VmaAllocationCreateInfo{
-		Flags: vk.VmaAllocationCreateDedicatedMemory,
-		Usage: vk.VmaMemoryUsageAuto,
-	})
-	if err != nil {
-		return err
-	}
-	view, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
-		Image: img, ViewType: vk.ImageViewType2D, Format: depthFormat,
-		SubresourceRange: vk.ImageSubresourceRange{
-			AspectMask: vk.ImageAspectDepth, LevelCount: 1, LayerCount: 1,
-		},
-	})
-	if err != nil {
-		return err
-	}
-	backend.depth = imageInfo{
-		name: "backbufferDepth", image: img, alloc: alloc, view: view, format: depthFormat,
-		aspect: vk.ImageAspectDepth, width: int(backend.swapExtent.Width), height: int(backend.swapExtent.Height),
-		layers: 1, samples: backend.samples, ownsImage: true, binding: -1,
-		use: useNone, valid: true,
-	}
-	return nil
-}
-
-// Destroys the swapchain and everything sized to it
+// Destroys the swapchain and the objects that belong to it
 func (backend *VKBackend) destroySwapchain() { // TODO: review
 	for i := range backend.swapchainImages {
 		vk.DestroyImageView(backend.device, backend.swapchainImages[i].view)
@@ -197,16 +122,6 @@ func (backend *VKBackend) destroySwapchain() { // TODO: review
 		vk.DestroySemaphore(backend.device, semaphore)
 	}
 	backend.renderSems = nil
-	if backend.depth.view != 0 {
-		vk.DestroyImageView(backend.device, backend.depth.view)
-		backend.allocator.VmaDestroyImage(backend.depth.image, backend.depth.alloc)
-		backend.depth = imageInfo{binding: -1}
-	}
-	if backend.msaa.view != 0 {
-		vk.DestroyImageView(backend.device, backend.msaa.view)
-		backend.allocator.VmaDestroyImage(backend.msaa.image, backend.msaa.alloc)
-		backend.msaa = imageInfo{binding: -1}
-	}
 	if backend.swapchain != 0 {
 		vk.DestroySwapchainKHR(backend.device, backend.swapchain)
 		backend.swapchain = 0

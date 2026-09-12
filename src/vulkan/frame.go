@@ -55,18 +55,21 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 	// the command buffer while the GPU still reads them
 	fatal(vk.WaitForFences(backend.device, []vk.Fence{frame.fence}, true, math.MaxUint64), "wait frame fence")
 
-	for {
-		idx, err := vk.AcquireNextImageKHR(backend.device, backend.swapchain, math.MaxUint64, frame.acquireSem, 0)
-		if err == vk.ErrOutOfDateKHR {
-			backend.recreateSwapchain()
-			continue
-		}
-		if err != nil && err != vk.SuboptimalKHR {
-			fmt.Fprintf(os.Stderr, "vulkan: acquire failed: %v\n", err)
-		}
-		backend.imageIndex = idx
-		break
+	idx, err := vk.AcquireNextImageKHR(backend.device, backend.swapchain, math.MaxUint64, frame.acquireSem, 0)
+	// The swapchain is a new size, so every image the caller sized to the old
+	// one is too small for this frame's render area. Rebuild and record
+	// nothing: the caller compares BackbufferSize before its next Frame and
+	// rebuilds its own images then. Returning here rather than re-acquiring is
+	// what leaves the acquire semaphore unsignalled, which is the state the
+	// next acquire needs it in
+	if err == vk.ErrOutOfDateKHR {
+		backend.recreateSwapchain()
+		return
 	}
+	if err != nil && err != vk.SuboptimalKHR {
+		fmt.Fprintf(os.Stderr, "vulkan: acquire failed: %v\n", err)
+	}
+	backend.imageIndex = idx
 
 	fatal(vk.ResetFences(backend.device, []vk.Fence{frame.fence}), "reset frame fence")
 	frame.arenaUsed = 0
@@ -82,13 +85,9 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 	vk.CmdBindDescriptorSets(frame.commandBuffer, vk.PipelineBindPointCompute, backend.pipelineLayout, 0,
 		[]vk.DescriptorSet{backend.descriptorSet})
 
-	// The swapchain image and the depth buffer hold nothing worth keeping, so
-	// this frame's first pass on either discards rather than loads
+	// The swapchain image holds nothing worth keeping, so this frame's first
+	// pass on it discards rather than loads
 	backend.swapchainImages[backend.imageIndex].use = useNone
-	backend.depth.use = useNone
-	if backend.msaa.image != 0 {
-		backend.msaa.use = useNone
-	}
 
 	// Anything staged during the previous frame's passes, copies being legal
 	// only outside a render pass
@@ -274,13 +273,9 @@ func (backend *VKBackend) colorAttachment(commandBuffer vk.CommandBuffer, attach
 		att.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
 	}
 
-	// The backbuffer is one view to the caller. When the backend multisamples,
-	// that view is the multisampled image and the swapchain image is where it
-	// resolves — the samples themselves are never stored
+	// A multisampled pass names its own colour image and resolves into the
+	// backbuffer, which is the one view that is not the caller's
 	resolve := attachment.Resolve
-	if attachment.View == renderer.Backbuffer && backend.msaa.image != 0 {
-		resolve = renderer.Backbuffer
-	}
 	if resolve != renderer.NoView {
 		var resolveView vk.ImageView
 		var rimg *imageInfo

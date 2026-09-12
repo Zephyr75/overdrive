@@ -14,6 +14,14 @@ type Backend interface {
 	Shutdown()
 	// Reports what the device can do and what Request actually got
 	Capacities() Capacities
+	// The size the swapchain currently is, which every image sized to the
+	// window has to match
+	//
+	// The backend rebuilds the swapchain on its own when the surface goes out
+	// of date, and Frame records nothing on the frame that did. So the caller
+	// compares this against its own window-sized images before Frame, and
+	// rebuilds them when it differs
+	BackbufferSize() (width, height int)
 
 	// --- resources
 

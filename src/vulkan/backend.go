@@ -23,8 +23,8 @@ const (
 	// ~80-byte block per tile: a full 337-slot atlas costs ~40 KiB here, where
 	// republishing the whole frame block per tile used to cost ~1.6 MiB
 	arenaSize = 2 << 20
-	// Views 0-2 are reserved: none, the backbuffer, and its depth buffer
-	firstUserView = 3
+	// Views 0 and 1 are reserved: none, and the backbuffer
+	firstUserView = 2
 
 	depthFormat = vk.FormatD32Sfloat
 )
@@ -64,11 +64,8 @@ type VKBackend struct {
 	swapExtent      vk.Extent2D
 	swapchainImages []imageInfo
 	renderSems      []vk.Semaphore
-	// The depth buffer and, when the backend multisamples, the colour image the
-	// backbuffer view resolves out of. Both are the backend's because both are
-	// sized to a swapchain only it sees resize
-	depth   imageInfo
-	msaa    imageInfo
+	// What the backbuffer rasterises at, resolved against the device's limits
+	// once at Init. The images sized to it are the caller's
 	samples vk.SampleCountFlags
 
 	// frame state
@@ -154,10 +151,8 @@ func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error 
 		Instance:       backend.instance,
 	})
 
-	// Before the swapchain, which sizes its colour and depth images to it
-	backend.samples = backend.pickSampleCount()
+	backend.samples = backend.pickSampleCount(req.Samples)
 
-	// TODO: HERE
 	if err := backend.createSwapchain(); err != nil {
 		return err
 	}
@@ -431,6 +426,12 @@ func (backend *VKBackend) buildCaps(req renderer.Request) { // TODO: review
 }
 
 func (backend *VKBackend) Capacities() renderer.Capacities { return backend.capacities } 
+
+// The size the swapchain currently is, which the caller's window-sized images
+// have to match
+func (backend *VKBackend) BackbufferSize() (int, int) {
+	return int(backend.swapExtent.Width), int(backend.swapExtent.Height)
+}
 
 // Waits for the GPU to go idle, then destroys every Vulkan object the backend
 // owns, in reverse creation order

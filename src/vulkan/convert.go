@@ -42,7 +42,7 @@ func (backend *VKBackend) format(format renderer.Format) vk.Format { // TODO: re
 		return vk.FormatR32G32B32Sfloat
 	case renderer.FormatRGBA32F:
 		return vk.FormatR32G32B32A32Sfloat
-	case renderer.FormatDepth32F, renderer.FormatBackbufferDepth:
+	case renderer.FormatDepth32F:
 		return depthFormat
 	case renderer.FormatBC5:
 		return vk.FormatBC5UnormBlock
@@ -77,6 +77,9 @@ func imageUsage(usage renderer.ImageUsage) vk.ImageUsageFlags { // TODO: review
 	}
 	if usage&renderer.ImageCopyDst != 0 {
 		out |= vk.ImageUsageTransferDst
+	}
+	if usage&renderer.ImageTransient != 0 {
+		out |= vk.ImageUsageTransientAttachment
 	}
 	return out
 }

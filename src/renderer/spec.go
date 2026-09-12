@@ -25,8 +25,7 @@ const (
 	FormatBC6H
 	FormatBC7
 	FormatBC7Srgb
-	FormatBackbuffer      // whatever format the swapchain was created with
-	FormatBackbufferDepth // whatever the backend's depth buffer was created with
+	FormatBackbuffer // whatever format the swapchain was created with
 )
 
 // --- images ------------------------------------------------------------------
@@ -41,6 +40,8 @@ const (
 	ImageDepthAttachment
 	ImageCopySrc
 	ImageCopyDst
+	// Nothing outside the pass reads it, so a tiler may keep it on-chip
+	ImageTransient
 )
 
 // ImageKind is the shape of an image and of the view that samples it
@@ -414,6 +415,9 @@ type Features map[Feature]bool
 // Request is what Init asks the device for
 type Request struct {
 	Features []Feature
+	// Samples the backbuffer should rasterise at, clamped to what the device
+	// can attach; 0 and 1 both mean no multisampling
+	Samples int
 }
 
 type Capacities struct {

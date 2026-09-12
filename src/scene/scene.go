@@ -206,11 +206,13 @@ func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) { // TOD
 // read the same bytes rather than two rebuilt copies of them. An EQUAL depth
 // test rejects a difference down to the last bit, and prepass.slang combines the
 // matrices in exactly the order forward.slang's vsMain does
-func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frameAddr renderer.Address) { // TODO: review
+func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frameAddr renderer.Address,
+	depthView renderer.ViewHandle) { // TODO: review
+
 	clear := [4]float32{1, 0, 0, 0}
 	frame.Pass(renderer.PassSpec{
 		Name:  "depthPrepass",
-		Depth: &renderer.Attachment{View: renderer.BackbufferDepth, Clear: &clear, Store: true},
+		Depth: &renderer.Attachment{View: depthView, Clear: &clear, Store: true},
 		FlipY: true,
 	}, func(pass renderer.Pass) {
 		ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Prepass}
