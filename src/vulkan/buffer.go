@@ -48,7 +48,7 @@ func (backend *VKBackend) CreateBuffer(spec renderer.BufferSpec) (renderer.Buffe
 		size = 4 // a zero-sized buffer is not allowed
 	}
 
-	usage := bufferUsage(spec.Usage) | vk.BufferUsageShaderDeviceAddress
+	usage := toVkBufferUsageFlags(spec.Usage) | vk.BufferUsageShaderDeviceAddress
 	aci := vk.VmaAllocationCreateInfo{Usage: vk.VmaMemoryUsageAuto}
 	if spec.Location == renderer.LocationHost {
 		aci.Flags = vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped
@@ -60,16 +60,16 @@ func (backend *VKBackend) CreateBuffer(spec renderer.BufferSpec) (renderer.Buffe
 		usage |= vk.BufferUsageTransferDst
 	}
 
-	buf, alloc, info, err := backend.allocator.VmaCreateBuffer(
+	buf, alloc, info, err := backend.vmaAllocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: size, Usage: usage}, aci)
-	fatal(err, "create buffer "+spec.Name)
+	fatalVk(err, "create buffer "+spec.Name)
 	if src != nil && info.MappedData != nil {
 		memcpy(info.MappedData, src, minU64(size, dataLen))
 	}
 
 	entry := &bufferInfo{
 		name: spec.Name, buffer: buf, alloc: alloc, mapped: info.MappedData,
-		size: size, addr: vk.GetBufferDeviceAddress(backend.device, buf), valid: true,
+		size: size, addr: vk.GetBufferDeviceAddress(backend.vkDevice, buf), valid: true,
 	}
 	backend.buffers = append(backend.buffers, entry)
 
@@ -110,18 +110,18 @@ func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offse
 		return
 	}
 
-	staging, alloc, info, err := backend.allocator.VmaCreateBuffer(
+	staging, alloc, info, err := backend.vmaAllocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: n, Usage: vk.BufferUsageTransferSrc},
 		vk.VmaAllocationCreateInfo{
 			Flags: vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped,
 			Usage: vk.VmaMemoryUsageAuto,
 		})
-	fatal(err, "create buffer staging")
+	fatalVk(err, "create buffer staging")
 	memcpy(info.MappedData, src, n)
 	backend.immediateSubmit(func(commandBuffer vk.CommandBuffer) {
 		vk.CmdCopyBuffer(commandBuffer, staging, entry.buffer, []vk.BufferCopy{{DstOffset: offset, Size: n}})
 	})
-	backend.allocator.VmaDestroyBuffer(staging, alloc)
+	backend.vmaAllocator.VmaDestroyBuffer(staging, alloc)
 }
 
 // Copies a buffer back to the CPU
@@ -134,7 +134,7 @@ func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { // T
 		return nil
 	}
 	backend.waitAllFrames()
-	_ = vk.DeviceWaitIdle(backend.device)
+	_ = vk.DeviceWaitIdle(backend.vkDevice)
 
 	if entry.mapped != nil {
 		out := make([]byte, entry.size)
@@ -142,19 +142,19 @@ func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { // T
 		return out
 	}
 
-	staging, alloc, info, err := backend.allocator.VmaCreateBuffer(
+	staging, alloc, info, err := backend.vmaAllocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: entry.size, Usage: vk.BufferUsageTransferDst},
 		vk.VmaAllocationCreateInfo{
 			Flags: vk.VmaAllocationCreateHostAccessRandom | vk.VmaAllocationCreateMapped,
 			Usage: vk.VmaMemoryUsageAuto,
 		})
-	fatal(err, "create readback staging")
+	fatalVk(err, "create readback staging")
 	backend.immediateSubmit(func(commandBuffer vk.CommandBuffer) {
 		vk.CmdCopyBuffer(commandBuffer, entry.buffer, staging, []vk.BufferCopy{{Size: entry.size}})
 	})
 	out := make([]byte, entry.size)
 	memcpy(unsafe.Pointer(&out[0]), info.MappedData, entry.size)
-	backend.allocator.VmaDestroyBuffer(staging, alloc)
+	backend.vmaAllocator.VmaDestroyBuffer(staging, alloc)
 	return out
 }
 
@@ -184,13 +184,13 @@ func (backend *VKBackend) CreateMesh(spec renderer.MeshSpec) renderer.MeshHandle
 	if size == 0 {
 		size = 4
 	}
-	buf, alloc, info, err := backend.allocator.VmaCreateBuffer(
+	buf, alloc, info, err := backend.vmaAllocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: size, Usage: vk.BufferUsageIndexBuffer},
 		vk.VmaAllocationCreateInfo{
 			Flags: vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped,
 			Usage: vk.VmaMemoryUsageAuto,
 		})
-	fatal(err, "create index buffer")
+	fatalVk(err, "create index buffer")
 	if indexed {
 		memcpy(info.MappedData, unsafe.Pointer(&spec.Indices[0]), uint64(len(spec.Indices)*4))
 	}

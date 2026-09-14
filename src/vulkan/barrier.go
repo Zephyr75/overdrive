@@ -49,28 +49,32 @@ var useTable = [...]useInfo{
 	usePresent:     {vk.ImageLayoutPresentSrcKHR, vk.PipelineStage2None, vk.Access2None, false},
 }
 
-// Transitions a whole image into a use, recording nothing when it is already
-// there and the use only reads
-func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, info *imageInfo, want use) { // TODO: review
-	if info == nil || info.image == 0 {
+// Transitions a whole image from current use to a new use
+func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, image *image, want use) {
+	if image == nil || image.vkImage == 0 {
 		return
 	}
-	from, to := useTable[info.use], useTable[want]
-	if info.use == want && !to.write {
+	from, to := useTable[image.use], useTable[want]
+	// Avoid useless barrier
+	if image.use == want && !to.write {
 		return
 	}
 	vk.CmdPipelineBarrier2(commandBuffer, vk.DependencyInfo{Image: []vk.ImageMemoryBarrier2{{
-		SrcStageMask: from.stage, SrcAccessMask: from.access,
-		DstStageMask: to.stage, DstAccessMask: to.access,
+		// Stage: which earlier work must finish and which later work may not start
+		SrcStageMask: from.stage, DstStageMask: to.stage,
+		// Access: caches are incoherent so write the new value out and drop the reader's outdated copy
+		SrcAccessMask: from.access, DstAccessMask: to.access,
+		// Layout: rearrange the pixels, the reader cannot use the arrangement the writer left
 		OldLayout: from.layout, NewLayout: to.layout,
+		// Queue family: an ownership handover, ignored while the engine has a single queue
 		SrcQueueFamilyIndex: vk.QueueFamilyIgnored, DstQueueFamilyIndex: vk.QueueFamilyIgnored,
-		Image: info.image,
+		Image: image.vkImage,
 		SubresourceRange: vk.ImageSubresourceRange{
-			AspectMask: info.aspect, BaseMipLevel: 0, LevelCount: 1,
-			BaseArrayLayer: 0, LayerCount: info.layers,
+			AspectMask: image.vkAspect, BaseMipLevel: 0, LevelCount: 1,
+			BaseArrayLayer: 0, LayerCount: image.layerCount,
 		},
 	}}})
-	info.use = want
+	image.use = want
 }
 
 // Transitions a buffer, which is stage and access masks alone

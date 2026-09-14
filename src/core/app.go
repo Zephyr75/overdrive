@@ -39,7 +39,7 @@ func (app App) Quit() {
 }
 
 // Creates the backend, the window and its input callbacks, then initialises the backend on that window
-func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App { // TODO: review
+func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App { 
 	app := App{
 		Name:          name,
 		Width:         width,
@@ -86,8 +86,6 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 		samples = settings.MSAASamples
 	}
 
-	// The engine draws and dispatches; ray tracing is asked for so Caps reports
-	// whether the device granted it
 	utils.HandleError(app.Backend.Init(window, renderer.Request{
 		Features: []renderer.Feature{renderer.FeatureCompute},
 		Samples:  samples,

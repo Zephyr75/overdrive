@@ -47,6 +47,7 @@ type Scene struct {
 
 // Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
 func NewScene(path string, backend renderer.Backend) (Scene, error) { // TODO: review
+	// TODO here
 	scene, err := LoadScene(path)
 	if err != nil {
 		return Scene{}, err

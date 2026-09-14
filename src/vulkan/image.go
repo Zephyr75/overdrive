@@ -12,20 +12,20 @@ import (
 
 // One image: its allocation, the view descriptors reach it through, and the use
 // the barrier table transitions it out of
-type imageInfo struct {
+type image struct {
 	name          string
-	image         vk.Image
-	alloc         vk.VmaAllocation
-	view          vk.ImageView // whole image, what a descriptor points at
-	format        vk.Format
-	aspect        vk.ImageAspectFlags
+	vkImage       vk.Image
+	vmaAllocation vk.VmaAllocation
+	vkView        vk.ImageView // whole image, what a descriptor points at
+	vkFormat      vk.Format
+	vkAspect      vk.ImageAspectFlags
 	kind          renderer.ImageKind
 	width, height int
 	depth         int
-	layers        uint32
-	samples       vk.SampleCountFlags
+	layerCount    uint32
+	vkSamples     vk.SampleCountFlags
 	usage         renderer.ImageUsage
-	sampler       vk.Sampler
+	vkSampler     vk.Sampler
 	// The backend owns the allocation; false for a swapchain image
 	ownsImage bool
 
@@ -39,8 +39,8 @@ type imageInfo struct {
 	valid bool
 
 	// Only on images the CPU rewrites while a frame is recording: a
-	// persistently mapped staging buffer plus the deferred copy it feeds
-	staging       vk.Buffer
+	// persistently mapped stagingBuffer buffer plus the deferred copy it feeds
+	stagingBuffer       vk.Buffer
 	stagingAlloc  vk.VmaAllocation
 	stagingMapped unsafe.Pointer
 	stagingSize   uint64
@@ -50,9 +50,9 @@ type imageInfo struct {
 
 // One view: a mip, a slice and an aspect of an image, which is what an
 // attachment names
-type viewInfo struct {
-	image renderer.ImageHandle
-	view  vk.ImageView
+type view struct {
+	image  renderer.ImageHandle
+	vkView vk.ImageView
 	// Extent of the mip this view covers, which is a pass's render area
 	width, height int
 	layers        uint32
@@ -60,54 +60,58 @@ type viewInfo struct {
 }
 
 // Creates an image and the whole-image view descriptors sample it through
-func (backend *VKBackend) CreateImage(spec renderer.ImageSpec) renderer.ImageHandle { // TODO: review
-	layers := uint32(spec.Layers)
-	if spec.Kind == renderer.ImageCube && layers < 6 {
+func (backend *VKBackend) CreateImage(imageSpec renderer.ImageSpec) renderer.ImageHandle {
+	// Ensure coherent number of layers for cubes and flat images
+	layers := uint32(imageSpec.Layers)
+	if imageSpec.Kind == renderer.ImageCube && layers < 6 {
 		layers = 6
 	}
 	if layers == 0 {
 		layers = 1
 	}
-	depth := spec.Depth
+
+	// Depth allows 3D textures, defaults to 1 for a single plane
+	depth := imageSpec.Depth
 	if depth == 0 {
 		depth = 1
 	}
 
-	format := backend.format(spec.Format)
-	aspect := vk.ImageAspectFlags(vk.ImageAspectColor)
-	if spec.Usage&renderer.ImageDepthAttachment != 0 {
-		aspect = vk.ImageAspectDepth
+	format := backend.toVkFormat(imageSpec.Format)
+	vkAspect := vk.ImageAspectFlags(vk.ImageAspectColor)
+	// If spec.Usage contains the ImageDepthAttachment type, image stores depth
+	if imageSpec.Usage&renderer.ImageDepthAttachment != 0 {
+		vkAspect = vk.ImageAspectDepth
 	}
 
-	flags := vk.ImageCreateFlags(0)
-	if spec.Kind == renderer.ImageCube {
-		flags = vk.ImageCreateCubeCompatible
+	vkFlags := vk.ImageCreateFlags(0)
+	if imageSpec.Kind == renderer.ImageCube {
+		vkFlags = vk.ImageCreateCubeCompatible
 	}
-	imageType := vk.ImageType2D
-	if spec.Kind == renderer.Image3D {
-		imageType = vk.ImageType3D
+	vkImageType := vk.ImageType2D
+	if imageSpec.Kind == renderer.Image3D {
+		vkImageType = vk.ImageType3D
 	}
 
-	img, alloc, err := backend.allocator.VmaCreateImage(vk.ImageCreateInfo{
-		Flags:       flags,
-		ImageType:   imageType,
+	vkImageCI, vkAlloc, err := backend.vmaAllocator.VmaCreateImage(vk.ImageCreateInfo{
+		Flags:       vkFlags,
+		ImageType:   vkImageType,
 		Format:      format,
-		Extent:      vk.Extent3D{Width: uint32(spec.Width), Height: uint32(spec.Height), Depth: uint32(depth)},
+		Extent:      vk.Extent3D{Width: uint32(imageSpec.Width), Height: uint32(imageSpec.Height), Depth: uint32(depth)},
 		ArrayLayers: layers,
-		Usage:       imageUsage(spec.Usage),
-		Samples:     sampleCount(spec.Samples),
+		Usage:       toVkImageUsageFlags(imageSpec.Usage),
+		Samples:     toVkSampleCountFlags(imageSpec.Samples),
 	}, vk.VmaAllocationCreateInfo{Usage: vk.VmaMemoryUsageAuto})
-	fatal(err, "create image "+spec.Name)
+	fatalVk(err, "create image "+imageSpec.Name)
 
-	info := &imageInfo{
-		name: spec.Name, image: img, alloc: alloc, format: format, aspect: aspect,
-		kind: spec.Kind, width: spec.Width, height: spec.Height, depth: depth,
-		layers: layers, samples: sampleCount(spec.Samples),
-		usage: spec.Usage, ownsImage: true, binding: -1,
-		hot: spec.Hot, hotSlot: spec.HotSlot, use: useNone, valid: true,
+	info := &image{
+		name: imageSpec.Name, vkImage: vkImageCI, vmaAllocation: vkAlloc, vkFormat: format, vkAspect: vkAspect,
+		kind: imageSpec.Kind, width: imageSpec.Width, height: imageSpec.Height, depth: depth,
+		layerCount: layers, vkSamples: toVkSampleCountFlags(imageSpec.Samples),
+		usage: imageSpec.Usage, ownsImage: true, binding: -1,
+		hot: imageSpec.Hot, hotSlot: imageSpec.HotSlot, use: useNone, valid: true,
 	}
-	info.sampler = backend.samplerOf(spec.Sampler)
-	info.view = backend.makeView(info, renderer.ViewSpec{Kind: spec.Kind, Aspect: aspectOf(aspect)})
+	info.vkSampler = backend.samplerOf(imageSpec.Sampler)
+	info.vkView = backend.makeView(info, renderer.ViewSpec{Kind: imageSpec.Kind, Aspect: aspectOf(vkAspect)})
 
 	backend.images = append(backend.images, info)
 	handle := renderer.ImageHandle(len(backend.images) - 1)
@@ -115,122 +119,137 @@ func (backend *VKBackend) CreateImage(spec renderer.ImageSpec) renderer.ImageHan
 }
 
 // Creates a view over one slice and one aspect
-func (backend *VKBackend) CreateView(handle renderer.ImageHandle, spec renderer.ViewSpec) renderer.ViewHandle { // TODO: review
-	info := backend.image(handle)
+func (backend *VKBackend) CreateView(imageHandle renderer.ImageHandle, spec renderer.ViewSpec) renderer.ViewHandle { // TODO: review
+	info := backend.image(imageHandle)
 	if info == nil {
 		return renderer.NoView
 	}
 	layers := uint32(spec.LayerCount)
 	if layers == 0 {
-		layers = info.layers - uint32(spec.BaseLayer)
+		layers = info.layerCount - uint32(spec.BaseLayer)
 	}
-	backend.views = append(backend.views, &viewInfo{
-		image: handle, view: backend.makeView(info, spec), width: info.width, height: info.height,
+	backend.views = append(backend.views, &view{
+		image: imageHandle, vkView: backend.makeView(info, spec), width: info.width, height: info.height,
 		layers: layers, valid: true,
 	})
 	return renderer.ViewHandle(len(backend.views) - 1 + firstUserView)
 }
 
 // Builds the Vulkan view a ViewSpec describes, without registering it
-func (backend *VKBackend) makeView(info *imageInfo, spec renderer.ViewSpec) vk.ImageView { // TODO: review
+func (backend *VKBackend) makeView(imageInfo *image, spec renderer.ViewSpec) vk.ImageView {
+	// LayerCount 0 means every layer from BaseLayer to the end
 	layers := uint32(spec.LayerCount)
 	if layers == 0 {
-		layers = info.layers - uint32(spec.BaseLayer)
+		layers = imageInfo.layerCount - uint32(spec.BaseLayer)
 	}
-	aspect := info.aspect
+	// A depth-stencil image is viewed depth-only when the spec asks, since a sampled view may carry one aspect
+	vkAspect := imageInfo.vkAspect
 	if spec.Aspect == renderer.AspectDepth {
-		aspect = vk.ImageAspectDepth
+		vkAspect = vk.ImageAspectDepth
 	}
-	imageView, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
-		Image: info.image, ViewType: viewType(spec.Kind, layers), Format: info.format,
+	// Images are single-mip, so the range is always level 0 alone
+	vkView, err := vk.CreateImageView(backend.vkDevice, vk.ImageViewCreateInfo{
+		Image: imageInfo.vkImage, ViewType: toVkViewType(spec.Kind, layers), Format: imageInfo.vkFormat,
 		SubresourceRange: vk.ImageSubresourceRange{
-			AspectMask: aspect, BaseMipLevel: 0, LevelCount: 1,
+			AspectMask: vkAspect, BaseMipLevel: 0, LevelCount: 1,
 			BaseArrayLayer: uint32(spec.BaseLayer), LayerCount: layers,
 		},
 	})
-	fatal(err, "create image view "+info.name)
-	return imageView
+	fatalVk(err, "create image view "+imageInfo.name)
+	return vkView
 }
 
-// Uploads CPU pixels into an image, whole or a region
-//
-// Outside a frame the copy is submitted and waited on. Inside one it is staged
-// and recorded at the start of the next frame, a copy being illegal inside a
-// render pass and the UI overlay's update happening in the middle of one.
-func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer.ImageData) { // TODO: review
-	info := backend.image(handle)
-	if info == nil || len(data.Pixels) == 0 {
+// Uploads CPU pixels into an image, whole or a region of it
+func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer.ImageData) { 
+	// A dead handle or an empty slice means no operation
+	image := backend.image(handle)
+	if image == nil || len(data.Pixels) == 0 {
 		return
 	}
+
+	// Set dimensions if not defined
 	width, height := data.Width, data.Height
 	if width == 0 {
-		width = info.width
+		width = image.width
 	}
 	if height == 0 {
-		height = info.height
+		height = image.height
 	}
-	layers := uint32(data.LayerCount)
-	if layers == 0 {
-		layers = info.layers
+
+	// Set layerCount if not defined
+	layerCount := uint32(data.LayerCount)
+	if layerCount == 0 {
+		layerCount = image.layerCount
 	}
-	region := vk.BufferImageCopy{
-		AspectMask:     info.aspect,
-		BaseArrayLayer: uint32(data.BaseLayer), LayerCount: layers,
+
+	// Define copy region
+	vkCopyRegion := vk.BufferImageCopy{
+		AspectMask:     image.vkAspect,
+		BaseArrayLayer: uint32(data.BaseLayer), LayerCount: layerCount,
 		ImageOffset: vk.Offset2D{X: int32(data.X), Y: int32(data.Y)},
 		ImageExtent: vk.Extent3D{Width: uint32(width), Height: uint32(height), Depth: 1},
 	}
 
+	// If no frame is being recorded, the copy can be done immediately
 	if !backend.recording {
-		backend.uploadNow(info, data.Pixels, region)
+		backend.uploadNow(image, data.Pixels, vkCopyRegion)
 		return
 	}
 
-	// Keep a persistently mapped staging buffer on the info, so the per-frame
-	// update is a memcpy and the copy costs one frame of latency
+	// If we have no staging buffer or it's the wrong size, we need to allocate a new one
 	size := uint64(len(data.Pixels))
-	if info.staging == 0 || info.stagingSize != size {
-		if info.staging != 0 {
-			backend.retire(retired{frame: backend.frameCounter, staging: info.staging, stagingAlloc: info.stagingAlloc})
+	if image.stagingBuffer == 0 || image.stagingSize != size {
+		// If there is one (that is the wrong size), retire it so the GPU can finish using it
+		if image.stagingBuffer != 0 {
+			backend.retire(retired{frame: backend.frameCounter, vkStagingBuffer: image.stagingBuffer, vmaStagingAlloc: image.stagingAlloc})
 		}
-		buf, alloc, allocInfo, err := backend.allocator.VmaCreateBuffer(
+		// Allocate a new correctly sized staging buffer
+		vkBuffer, vmaAlloc, vmaAllocInfo, err := backend.vmaAllocator.VmaCreateBuffer(
 			vk.BufferCreateInfo{Size: size, Usage: vk.BufferUsageTransferSrc},
 			vk.VmaAllocationCreateInfo{
 				Flags: vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped,
 				Usage: vk.VmaMemoryUsageAuto,
 			})
-		fatal(err, "create image staging buffer")
-		info.staging, info.stagingAlloc, info.stagingMapped, info.stagingSize = buf, alloc, allocInfo.MappedData, size
+		fatalVk(err, "create image staging buffer")
+		image.stagingBuffer, image.stagingAlloc, image.stagingMapped, image.stagingSize = vkBuffer, vmaAlloc, vmaAllocInfo.MappedData, size
 	}
-	memcpy(info.stagingMapped, unsafe.Pointer(&data.Pixels[0]), size)
-	info.pendingCopy = region
-	if !info.pending {
-		info.pending = true
+	
+	// Write pixels to the staging buffer
+	memcpy(image.stagingMapped, unsafe.Pointer(&data.Pixels[0]), size)
+
+	// Record the copy to be performed later
+	image.pendingCopy = vkCopyRegion
+	if !image.pending {
+		image.pending = true
 		backend.pendingUploads = append(backend.pendingUploads, handle)
 	}
 }
 
 // Stages pixels and submits the copy immediately, the load-time path
-func (backend *VKBackend) uploadNow(info *imageInfo, pixels []byte, region vk.BufferImageCopy) { // TODO: review
-	staging, alloc, createInfo, err := backend.allocator.VmaCreateBuffer(
+func (backend *VKBackend) uploadNow(info *image, pixels []byte, copyRegion vk.BufferImageCopy) { 
+	vkStagingBuffer, vmaAlloc, vmaAllocInfo, err := backend.vmaAllocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: uint64(len(pixels)), Usage: vk.BufferUsageTransferSrc},
 		vk.VmaAllocationCreateInfo{
 			Flags: vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped,
 			Usage: vk.VmaMemoryUsageAuto,
 		})
-	fatal(err, "create image staging buffer")
-	memcpy(createInfo.MappedData, unsafe.Pointer(&pixels[0]), uint64(len(pixels)))
+	fatalVk(err, "create image staging buffer")
+	memcpy(vmaAllocInfo.MappedData, unsafe.Pointer(&pixels[0]), uint64(len(pixels)))
 
 	backend.immediateSubmit(func(commandBuffer vk.CommandBuffer) {
-		backend.recordImageCopy(commandBuffer, info, staging, region)
+		backend.recordImageCopy(commandBuffer, info, vkStagingBuffer, copyRegion)
 	})
-	backend.allocator.VmaDestroyBuffer(staging, alloc)
+	backend.vmaAllocator.VmaDestroyBuffer(vkStagingBuffer, vmaAlloc)
 }
 
 // Records one staged copy into an image, between the two transitions it needs
-func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, info *imageInfo, staging vk.Buffer, region vk.BufferImageCopy) { // TODO: review
-	backend.useImage(commandBuffer, info, useCopyDst)
-	vk.CmdCopyBufferToImage(commandBuffer, staging, info.image, vk.ImageLayoutTransferDstOptimal, []vk.BufferImageCopy{region})
-	backend.useImage(commandBuffer, info, useSampled)
+func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, image *image, stagingBuffer vk.Buffer, copyRegion vk.BufferImageCopy) { 
+	// Record barrier to move the image to a state it can be copied to
+	backend.useImage(commandBuffer, image, useCopyDst)
+	// The copy itself, naming the layout the barrier above just put the image in
+	vk.CmdCopyBufferToImage(commandBuffer, stagingBuffer, image.vkImage, vk.ImageLayoutTransferDstOptimal, []vk.BufferImageCopy{copyRegion})
+	// Record barrier to move image back to a layout a sampler can read
+	backend.useImage(commandBuffer, image, useSampled)
 }
 
 // Records the copies staged during the previous frame, from the top of this one
@@ -240,17 +259,14 @@ func (backend *VKBackend) flushPendingUploads(commandBuffer vk.CommandBuffer) { 
 		if info == nil {
 			continue
 		}
-		backend.recordImageCopy(commandBuffer, info, info.staging, info.pendingCopy)
+		backend.recordImageCopy(commandBuffer, info, info.stagingBuffer, info.pendingCopy)
 		info.pending = false
 	}
 	backend.pendingUploads = backend.pendingUploads[:0]
 }
 
 // Resolves an image handle, nil for out-of-range or destroyed entries
-//
-// The reserved backbuffer handle names whichever swapchain image this frame
-// acquired, so a copy out of the screen is an ordinary copy
-func (backend *VKBackend) image(handle renderer.ImageHandle) *imageInfo { // TODO: review
+func (backend *VKBackend) image(handle renderer.ImageHandle) *image {
 	if handle == renderer.BackbufferImage {
 		if len(backend.swapchainImages) == 0 {
 			return nil
@@ -267,13 +283,13 @@ func (backend *VKBackend) image(handle renderer.ImageHandle) *imageInfo { // TOD
 //
 // The one reserved view is the backend's own: Backbuffer is this frame's
 // swapchain image, which a multisampled pass names as its resolve target
-func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *imageInfo, int, int, uint32) { // TODO: review
+func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *image, int, int, uint32) { // TODO: review
 	switch handle {
 	case renderer.NoView:
 		return 0, nil, 0, 0, 0
 	case renderer.Backbuffer:
 		info := &backend.swapchainImages[backend.imageIndex]
-		return info.view, info, int(backend.swapExtent.Width), int(backend.swapExtent.Height), 1
+		return info.vkView, info, int(backend.vkSwapExtent.Width), int(backend.vkSwapExtent.Height), 1
 	}
 	i := int(handle) - firstUserView
 	if i < 0 || i >= len(backend.views) || !backend.views[i].valid {
@@ -281,7 +297,7 @@ func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *image
 		return 0, nil, 0, 0, 0
 	}
 	stored := backend.views[i]
-	return stored.view, backend.image(stored.image), stored.width, stored.height, stored.layers
+	return stored.vkView, backend.image(stored.image), stored.width, stored.height, stored.layers
 }
 
 // Destroys an image's view and allocation once the frames in flight have retired
@@ -295,9 +311,9 @@ func (backend *VKBackend) destroyImage(handle renderer.ImageHandle) { // TODO: r
 		return
 	}
 	backend.retire(retired{
-		frame: backend.frameCounter, view: info.view,
-		image: info.image, alloc: info.alloc, owns: info.ownsImage,
-		staging: info.staging, stagingAlloc: info.stagingAlloc,
+		frame: backend.frameCounter, vkView: info.vkView,
+		vkImage: info.vkImage, vmaAlloc: info.vmaAllocation, owns: info.ownsImage,
+		vkStagingBuffer: info.stagingBuffer, vmaStagingAlloc: info.stagingAlloc,
 		binding: info.binding, slot: info.slot,
 	})
 	info.valid = false

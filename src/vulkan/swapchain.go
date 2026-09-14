@@ -11,29 +11,29 @@ import (
 // and rebuilt when that changes.
 
 // Builds the swapchain, its image entries and the per-image render semaphores
-func (backend *VKBackend) createSwapchain() error { // TODO: review
-	capabilities, err := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(backend.physicalDevice, backend.surface)
+func (backend *VKBackend) createSwapchain() error { 
+	capabilities, err := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(backend.vkPhysDevice, backend.vkSurface)
 	if err != nil {
 		return err
 	}
 	// CurrentExtent is the current width and height of the surface
-	swapExtent := capabilities.CurrentExtent
+	vkSwapExtent := capabilities.CurrentExtent
 	// If CurrentExtent is 0xFFFFFFFF, surface will take swapchain size so we need to initialize swapchain size to window size
 	// If CurrentExtent is not 0xFFFFFFFF, swapchain gets surface size directly
 	if capabilities.CurrentExtent.Width == 0xFFFFFFFF {
 		width, height := backend.window.GetSize()
-		swapExtent = vk.Extent2D{Width: uint32(width), Height: uint32(height)}
+		vkSwapExtent = vk.Extent2D{Width: uint32(width), Height: uint32(height)}
 	}
-	backend.swapExtent = swapExtent
+	backend.vkSwapExtent = vkSwapExtent
 
 	// Create swapchain with provided parameters
-	backend.swapchainCI = vk.SwapchainCreateInfo{
-		Surface:       backend.surface,
+	backend.vkSwapchainCI = vk.SwapchainCreateInfo{
+		Surface:       backend.vkSurface,
 		MinImageCount: capabilities.MinImageCount,
-		ImageFormat:   backend.swapFormat,
+		ImageFormat:   backend.vkSwapFormat,
 		// Use SRGB non-linear for correct color space
 		ImageColorSpace: vk.ColorSpaceSrgbNonlinearKHR,
-		ImageExtent:     swapExtent,
+		ImageExtent:     vkSwapExtent,
 		// Add TransferSrc so a frame can be copied out for the screenshot debugging
 		ImageUsage:   vk.ImageUsageColorAttachment | vk.ImageUsageTransferSrc,
 		PreTransform: vk.SurfaceTransformIdentityKHR,
@@ -42,23 +42,23 @@ func (backend *VKBackend) createSwapchain() error { // TODO: review
 		// FIFO present mode is always supported and provides v-sync
 		PresentMode: vk.PresentModeFifoKHR,
 	}
-	swapchain, err := vk.CreateSwapchainKHR(backend.device, backend.swapchainCI)
+	swapchain, err := vk.CreateSwapchainKHR(backend.vkDevice, backend.vkSwapchainCI)
 	if err != nil {
 		return err
 	}
-	backend.swapchain = swapchain
+	backend.vkSwapchain = swapchain
 
 	// Create image views
-	images, err := vk.GetSwapchainImagesKHR(backend.device, swapchain)
+	images, err := vk.GetSwapchainImagesKHR(backend.vkDevice, swapchain)
 	if err != nil {
 		return err
 	}
 	// Initialize empty imageInfos for each swapchain image
-	backend.swapchainImages = make([]imageInfo, len(images))
+	backend.swapchainImages = make([]image, len(images))
 	// Fill imageInfos with views to each swapchain image
 	for i, img := range images {
-		view, err := vk.CreateImageView(backend.device, vk.ImageViewCreateInfo{
-			Image: img, ViewType: vk.ImageViewType2D, Format: backend.swapFormat,
+		view, err := vk.CreateImageView(backend.vkDevice, vk.ImageViewCreateInfo{
+			Image: img, ViewType: vk.ImageViewType2D, Format: backend.vkSwapFormat,
 			SubresourceRange: vk.ImageSubresourceRange{
 				AspectMask: vk.ImageAspectColor, LevelCount: 1, LayerCount: 1,
 			},
@@ -66,19 +66,20 @@ func (backend *VKBackend) createSwapchain() error { // TODO: review
 		if err != nil {
 			return err
 		}
-		backend.swapchainImages[i] = imageInfo{
-			name: "swapchain", image: img, view: view, format: backend.swapFormat,
-			aspect: vk.ImageAspectColor, width: int(swapExtent.Width), height: int(swapExtent.Height),
-			layers: 1, samples: vk.SampleCount1Bit, binding: -1,
+		backend.swapchainImages[i] = image{
+			name: "swapchain", vkImage: img, vkView: view, vkFormat: backend.vkSwapFormat,
+			vkAspect: vk.ImageAspectColor, width: int(vkSwapExtent.Width), height: int(vkSwapExtent.Height),
+			layerCount: 1, vkSamples: vk.SampleCount1Bit, binding: -1,
 			use: useNone, valid: true,
 		}
 	}
 
 	// One render-complete semaphore per swapchain image for present to wait
 	// Each semaphore belongs to the image it shows, not to the frame slot
-	backend.renderSems = make([]vk.Semaphore, len(images))
-	for i := range backend.renderSems {
-		if backend.renderSems[i], err = vk.CreateSemaphore(backend.device); err != nil {
+	backend.vkRenderSemaphores = make([]vk.Semaphore, len(images))
+	for i := range backend.vkRenderSemaphores {
+		backend.vkRenderSemaphores[i], err = vk.CreateSemaphore(backend.vkDevice)
+		if err != nil {
 			return err
 		}
 	}
@@ -104,7 +105,7 @@ func (backend *VKBackend) pickSampleCount(wanted int) vk.SampleCountFlags {
 	}
 	// Example: ColorSampleCounts and DepthSampleCounts look like 00111111 if 2^5 and below are supported
 	// `supported` computes the XOR to get the values supported by both sample counts
-	supported := backend.physicalDeviceProperties.FramebufferColorSampleCounts & backend.physicalDeviceProperties.FramebufferDepthSampleCounts
+	supported := backend.vkPhysDeviceProps.FramebufferColorSampleCounts & backend.vkPhysDeviceProps.FramebufferDepthSampleCounts
 	// Divide wantedSamples by 2 until it matches `supported`
 	for wantedSamples > vk.SampleCount1Bit && supported&wantedSamples == 0 {
 		wantedSamples >>= 1
@@ -115,16 +116,16 @@ func (backend *VKBackend) pickSampleCount(wanted int) vk.SampleCountFlags {
 // Destroys the swapchain and the objects that belong to it
 func (backend *VKBackend) destroySwapchain() { // TODO: review
 	for i := range backend.swapchainImages {
-		vk.DestroyImageView(backend.device, backend.swapchainImages[i].view)
+		vk.DestroyImageView(backend.vkDevice, backend.swapchainImages[i].vkView)
 	}
 	backend.swapchainImages = nil
-	for _, semaphore := range backend.renderSems {
-		vk.DestroySemaphore(backend.device, semaphore)
+	for _, semaphore := range backend.vkRenderSemaphores {
+		vk.DestroySemaphore(backend.vkDevice, semaphore)
 	}
-	backend.renderSems = nil
-	if backend.swapchain != 0 {
-		vk.DestroySwapchainKHR(backend.device, backend.swapchain)
-		backend.swapchain = 0
+	backend.vkRenderSemaphores = nil
+	if backend.vkSwapchain != 0 {
+		vk.DestroySwapchainKHR(backend.vkDevice, backend.vkSwapchain)
+		backend.vkSwapchain = 0
 	}
 }
 
@@ -138,7 +139,7 @@ func (backend *VKBackend) recreateSwapchain() { // TODO: review
 		width, height = backend.window.GetSize()
 	}
 
-	fatal(vk.DeviceWaitIdle(backend.device), "wait idle before swapchain recreate")
+	fatalVk(vk.DeviceWaitIdle(backend.vkDevice), "wait idle before swapchain recreate")
 	backend.destroySwapchain()
-	fatal(backend.createSwapchain(), "recreate swapchain")
+	fatalVk(backend.createSwapchain(), "recreate swapchain")
 }

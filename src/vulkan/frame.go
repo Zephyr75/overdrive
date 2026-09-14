@@ -13,49 +13,49 @@ import (
 
 // Everything one in-flight frame owns: its command buffer, sync objects and
 // upload arena
-type frameData struct {
-	commandBuffer vk.CommandBuffer
-	fence         vk.Fence
-	acquireSemaphore    vk.Semaphore
-	arena         vk.Buffer
-	arenaAlloc    vk.VmaAllocation
-	arenaMapped   unsafe.Pointer
-	arenaAddr     uint64
-	arenaUsed     uint64
+type frame struct {
+	vkCommandBuffer    vk.CommandBuffer
+	vkFence            vk.Fence
+	vkAcquireSemaphore vk.Semaphore
+	vkArenaBuffer            vk.Buffer
+	vmaArenaAlloc       vk.VmaAllocation
+	arenaMapped      unsafe.Pointer
+	arenaAddr        uint64
+	arenaUsed        uint64
 }
 
 // The recording handles. A Pass value cannot exist outside Frame.Pass, so the
 // ordering rules that used to be runtime guards are scope now: a copy inside a
 // render pass, or a dispatch inside one, does not compile.
 type vkFrame struct {
-	backend       *VKBackend
-	commandBuffer vk.CommandBuffer
+	VKBackend       *VKBackend
+	vkCommandBuffer vk.CommandBuffer
 }
 
 type vkPass struct {
-	backend       *VKBackend
-	commandBuffer vk.CommandBuffer
+	VKBackend       *VKBackend
+	vkCommandBuffer vk.CommandBuffer
 	flipY         bool
 	width, height int
 }
 
 type vkCompute struct {
-	backend       *VKBackend
-	commandBuffer vk.CommandBuffer
+	VKBackend       *VKBackend
+	vkCommandBuffer vk.CommandBuffer
 }
 
 // Records and submits one frame
 func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
-	if backend.device == 0 {
+	if backend.vkDevice == 0 {
 		return
 	}
-	frame := &backend.frames[backend.frameIndex]
+	info := &backend.frames[backend.frameIndex]
 
 	// Throttle the CPU here: without it frame N+2 would overwrite the arena and
 	// the command buffer while the GPU still reads them
-	fatal(vk.WaitForFences(backend.device, []vk.Fence{frame.fence}, true, math.MaxUint64), "wait frame fence")
+	fatalVk(vk.WaitForFences(backend.vkDevice, []vk.Fence{info.vkFence}, true, math.MaxUint64), "wait frame fence")
 
-	idx, err := vk.AcquireNextImageKHR(backend.device, backend.swapchain, math.MaxUint64, frame.acquireSemaphore, 0)
+	idx, err := vk.AcquireNextImageKHR(backend.vkDevice, backend.vkSwapchain, math.MaxUint64, info.vkAcquireSemaphore, 0)
 	// The swapchain is a new size, so every image the caller sized to the old
 	// one is too small for this frame's render area. Rebuild and record
 	// nothing: the caller compares BackbufferSize before its next Frame and
@@ -71,19 +71,19 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 	}
 	backend.imageIndex = idx
 
-	fatal(vk.ResetFences(backend.device, []vk.Fence{frame.fence}), "reset frame fence")
-	frame.arenaUsed = 0
+	fatalVk(vk.ResetFences(backend.vkDevice, []vk.Fence{info.vkFence}), "reset frame fence")
+	info.arenaUsed = 0
 	backend.frameCounter++
 	backend.drainRetired()
 
-	fatal(vk.ResetCommandBuffer(frame.commandBuffer), "reset command buffer")
-	fatal(vk.BeginCommandBuffer(frame.commandBuffer, vk.CommandBufferUsageOneTimeSubmit), "begin command buffer")
+	fatalVk(vk.ResetCommandBuffer(info.vkCommandBuffer), "reset command buffer")
+	fatalVk(vk.BeginCommandBuffer(info.vkCommandBuffer, vk.CommandBufferUsageOneTimeSubmit), "begin command buffer")
 
 	// One descriptor set for the whole frame, only its contents changing
-	vk.CmdBindDescriptorSets(frame.commandBuffer, vk.PipelineBindPointGraphics, backend.pipelineLayout, 0,
-		[]vk.DescriptorSet{backend.descriptorSet})
-	vk.CmdBindDescriptorSets(frame.commandBuffer, vk.PipelineBindPointCompute, backend.pipelineLayout, 0,
-		[]vk.DescriptorSet{backend.descriptorSet})
+	vk.CmdBindDescriptorSets(info.vkCommandBuffer, vk.PipelineBindPointGraphics, backend.vkPipelineLayout, 0,
+		[]vk.DescriptorSet{backend.vkDescriptorSet})
+	vk.CmdBindDescriptorSets(info.vkCommandBuffer, vk.PipelineBindPointCompute, backend.vkPipelineLayout, 0,
+		[]vk.DescriptorSet{backend.vkDescriptorSet})
 
 	// The swapchain image holds nothing worth keeping, so this frame's first
 	// pass on it discards rather than loads
@@ -91,24 +91,24 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 
 	// Anything staged during the previous frame's passes, copies being legal
 	// only outside a render pass
-	backend.flushPendingUploads(frame.commandBuffer)
+	backend.flushPendingUploads(info.vkCommandBuffer)
 
 	backend.recording = true
-	record(&vkFrame{backend: backend, commandBuffer: frame.commandBuffer})
+	record(&vkFrame{VKBackend: backend, vkCommandBuffer: info.vkCommandBuffer})
 	backend.recording = false
 
-	backend.useImage(frame.commandBuffer, &backend.swapchainImages[backend.imageIndex], usePresent)
-	fatal(vk.EndCommandBuffer(frame.commandBuffer), "end command buffer")
+	backend.useImage(info.vkCommandBuffer, &backend.swapchainImages[backend.imageIndex], usePresent)
+	fatalVk(vk.EndCommandBuffer(info.vkCommandBuffer), "end command buffer")
 
 	// Wait on the frame's semaphore, signal the image's: present waits on the
 	// image's own, and the two index spaces are not interchangeable
-	fatal(vk.QueueSubmit2(backend.queue, []vk.SubmitInfo2{{
-		WaitSemaphores:   []vk.SemaphoreSubmitInfo{{Semaphore: frame.acquireSemaphore, StageMask: vk.PipelineStage2ColorAttachmentOutput}},
-		CommandBuffers:   []vk.CommandBuffer{frame.commandBuffer},
-		SignalSemaphores: []vk.SemaphoreSubmitInfo{{Semaphore: backend.renderSems[backend.imageIndex], StageMask: vk.PipelineStage2AllCommands}},
-	}}, frame.fence), "queue submit")
+	fatalVk(vk.QueueSubmit2(backend.vkQueue, []vk.SubmitInfo2{{
+		WaitSemaphores:   []vk.SemaphoreSubmitInfo{{Semaphore: info.vkAcquireSemaphore, StageMask: vk.PipelineStage2ColorAttachmentOutput}},
+		CommandBuffers:   []vk.CommandBuffer{info.vkCommandBuffer},
+		SignalSemaphores: []vk.SemaphoreSubmitInfo{{Semaphore: backend.vkRenderSemaphores[backend.imageIndex], StageMask: vk.PipelineStage2AllCommands}},
+	}}, info.vkFence), "queue submit")
 
-	if err := vk.QueuePresentKHR(backend.queue, backend.renderSems[backend.imageIndex], backend.swapchain, backend.imageIndex); err != nil {
+	if err := vk.QueuePresentKHR(backend.vkQueue, backend.vkRenderSemaphores[backend.imageIndex], backend.vkSwapchain, backend.imageIndex); err != nil {
 		if err == vk.ErrOutOfDateKHR || err == vk.SuboptimalKHR {
 			backend.recreateSwapchain()
 		} else {
@@ -126,26 +126,26 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 // points at another frame's data. An overflow panics rather than wrapping — an
 // overflowed frame is already wrong, and wrapping made it wrong silently
 func (frame *vkFrame) Upload(data any) renderer.Address { // TODO: review
-	frameState := &frame.backend.frames[frame.backend.frameIndex]
+	info := &frame.VKBackend.frames[frame.VKBackend.frameIndex]
 	ptr, n := dataPtr(data)
 	if n == 0 {
-		return renderer.Address(frameState.arenaAddr)
+		return renderer.Address(info.arenaAddr)
 	}
 	// 64-byte aligned, keeping each block on a cache line
-	frameState.arenaUsed = (frameState.arenaUsed + 63) &^ 63
-	if frameState.arenaUsed+n > arenaSize {
-		panic(fmt.Sprintf("vulkan: uniform arena overflow at %d bytes (cap %d)", frameState.arenaUsed+n, arenaSize))
+	info.arenaUsed = (info.arenaUsed + 63) &^ 63
+	if info.arenaUsed+n > arenaSize {
+		panic(fmt.Sprintf("vulkan: uniform arena overflow at %d bytes (cap %d)", info.arenaUsed+n, arenaSize))
 	}
-	memcpy(unsafe.Add(frameState.arenaMapped, frameState.arenaUsed), ptr, n)
-	addr := frameState.arenaAddr + frameState.arenaUsed
-	frameState.arenaUsed += n
+	memcpy(unsafe.Add(info.arenaMapped, info.arenaUsed), ptr, n)
+	addr := info.arenaAddr + info.arenaUsed
+	info.arenaUsed += n
 	return renderer.Address(addr)
 }
 
 // Runs one render pass: transitions everything it names, opens dynamic
 // rendering, and closes it again
 func (frame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) { // TODO: review
-	backend, commandBuffer := frame.backend, frame.commandBuffer
+	backend, commandBuffer := frame.VKBackend, frame.vkCommandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
 
 	width, height := 0, 0
@@ -201,9 +201,9 @@ func (frame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) {
 		DepthAttachment:  depthPtr,
 	})
 
-	pass := &vkPass{backend: backend, commandBuffer: commandBuffer, flipY: spec.FlipY, width: width, height: height}
+	pass := &vkPass{VKBackend: backend, vkCommandBuffer: commandBuffer, flipY: spec.FlipY, width: width, height: height}
 	pass.Viewport(0, 0, width, height)
-	backend.boundPipeline = 0
+	backend.vkBoundPipeline = 0
 	record(pass)
 
 	vk.CmdEndRendering(commandBuffer)
@@ -216,7 +216,7 @@ func (frame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) {
 // which the backend cannot inspect — so ComputeSpec names them and this is where
 // they are transitioned
 func (frame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Compute)) { // TODO: review
-	backend, commandBuffer := frame.backend, frame.commandBuffer
+	backend, commandBuffer := frame.VKBackend, frame.vkCommandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
 	for _, height := range spec.Writes {
 		switch renderer.Kind(height) {
@@ -228,8 +228,8 @@ func (frame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Co
 	}
 
 	backend.beginLabel(commandBuffer, spec.Name)
-	backend.boundPipeline = 0
-	record(&vkCompute{backend: backend, commandBuffer: commandBuffer})
+	backend.vkBoundPipeline = 0
+	record(&vkCompute{VKBackend: backend, vkCommandBuffer: commandBuffer})
 	backend.endLabel(commandBuffer, spec.Name)
 }
 
@@ -278,10 +278,10 @@ func (backend *VKBackend) colorAttachment(commandBuffer vk.CommandBuffer, attach
 	resolve := attachment.Resolve
 	if resolve != renderer.NoView {
 		var resolveView vk.ImageView
-		var rimg *imageInfo
+		var rimg *image
 		if resolve == renderer.Backbuffer {
 			rimg = &backend.swapchainImages[backend.imageIndex]
-			resolveView = rimg.view
+			resolveView = rimg.vkView
 		} else {
 			resolveView, rimg, _, _, _ = backend.view(resolve)
 		}
@@ -305,7 +305,7 @@ func storeOp(store bool) vk.AttachmentStoreOp { // TODO: review
 
 // Copies between images and buffers, outside any pass
 func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
-	backend, commandBuffer := frame.backend, frame.commandBuffer
+	backend, commandBuffer := frame.VKBackend, frame.vkCommandBuffer
 	layers := uint32(spec.Layers)
 	if layers == 0 {
 		layers = 1
@@ -330,8 +330,8 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 		}
 		backend.useImage(commandBuffer, src, useCopySrc)
 		backend.useImage(commandBuffer, dst, useCopyDst)
-		vk.CmdCopyImage(commandBuffer, src.image, vk.ImageLayoutTransferSrcOptimal,
-			dst.image, vk.ImageLayoutTransferDstOptimal, []vk.ImageCopy{{
+		vk.CmdCopyImage(commandBuffer, src.vkImage, vk.ImageLayoutTransferSrcOptimal,
+			dst.vkImage, vk.ImageLayoutTransferDstOptimal, []vk.ImageCopy{{
 				AspectMask:        aspect,
 				SrcBaseArrayLayer: uint32(spec.SrcLayer),
 				SrcOffset:         vk.Offset2D{X: int32(spec.SrcOffset[0]), Y: int32(spec.SrcOffset[1])},
@@ -342,7 +342,7 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 	case src != nil && dbuf != nil:
 		backend.useImage(commandBuffer, src, useCopySrc)
 		backend.useBuffer(commandBuffer, dbuf, useCopyDst)
-		vk.CmdCopyImageToBuffer(commandBuffer, src.image, vk.ImageLayoutTransferSrcOptimal, dbuf.buffer,
+		vk.CmdCopyImageToBuffer(commandBuffer, src.vkImage, vk.ImageLayoutTransferSrcOptimal, dbuf.buffer,
 			[]vk.BufferImageCopy{{
 				BufferOffset: spec.DstBytes, AspectMask: aspect,
 				BaseArrayLayer: uint32(spec.SrcLayer), LayerCount: layers,
@@ -352,7 +352,7 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 	case sbuf != nil && dst != nil:
 		backend.useBuffer(commandBuffer, sbuf, useCopySrc)
 		backend.useImage(commandBuffer, dst, useCopyDst)
-		vk.CmdCopyBufferToImage(commandBuffer, sbuf.buffer, dst.image, vk.ImageLayoutTransferDstOptimal,
+		vk.CmdCopyBufferToImage(commandBuffer, sbuf.buffer, dst.vkImage, vk.ImageLayoutTransferDstOptimal,
 			[]vk.BufferImageCopy{{
 				BufferOffset: spec.SrcBytes, AspectMask: aspect,
 				BaseArrayLayer: uint32(spec.DstLayer), LayerCount: layers,
@@ -372,7 +372,7 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 
 // Whether a rect fits inside an image, an out-of-bounds copy being a device loss
 // rather than a clipped one
-func (backend *VKBackend) inBounds(entry *imageInfo, off [3]int, ext [3]int) bool { // TODO: review
+func (backend *VKBackend) inBounds(entry *image, off [3]int, ext [3]int) bool { // TODO: review
 	return ext[0] > 0 && ext[1] > 0 &&
 		off[0] >= 0 && off[1] >= 0 &&
 		off[0]+ext[0] <= entry.width && off[1]+ext[1] <= entry.height
@@ -380,15 +380,15 @@ func (backend *VKBackend) inBounds(entry *imageInfo, off [3]int, ext [3]int) boo
 
 // Clears a colour image outside any pass
 func (frame *vkFrame) Clear(spec renderer.ClearSpec) { // TODO: review
-	entry := frame.backend.image(spec.Image)
+	entry := frame.VKBackend.image(spec.Image)
 	if entry == nil {
 		return
 	}
-	frame.backend.useImage(frame.commandBuffer, entry, useCopyDst)
-	vk.CmdClearColorImage(frame.commandBuffer, entry.image, vk.ImageLayoutTransferDstOptimal, spec.Color,
+	frame.VKBackend.useImage(frame.vkCommandBuffer, entry, useCopyDst)
+	vk.CmdClearColorImage(frame.vkCommandBuffer, entry.vkImage, vk.ImageLayoutTransferDstOptimal, spec.Color,
 		vk.ImageSubresourceRange{
-			AspectMask: entry.aspect, BaseMipLevel: 0, LevelCount: 1,
-			BaseArrayLayer: 0, LayerCount: entry.layers,
+			AspectMask: entry.vkAspect, BaseMipLevel: 0, LevelCount: 1,
+			BaseArrayLayer: 0, LayerCount: entry.layerCount,
 		})
 }
 
@@ -405,73 +405,73 @@ func (pass *vkPass) Viewport(x, y, width, height int) { // TODO: review
 		viewport.Y = float32(y + height)
 		viewport.Height = -float32(height)
 	}
-	vk.CmdSetViewport(pass.commandBuffer, viewport)
-	vk.CmdSetScissor(pass.commandBuffer, vk.Rect2D{
+	vk.CmdSetViewport(pass.vkCommandBuffer, viewport)
+	vk.CmdSetScissor(pass.vkCommandBuffer, vk.Rect2D{
 		Offset: vk.Offset2D{X: int32(x), Y: int32(y)},
 		Extent: vk.Extent2D{Width: uint32(width), Height: uint32(height)},
 	})
 }
 
 func (pass *vkPass) Draw(call renderer.DrawCall) { // TODO: review
-	backend := pass.backend
+	backend := pass.VKBackend
 	pipeline := backend.pipeline(call.Pipeline)
 	mesh := backend.mesh(call.Mesh)
 	if pipeline == nil || mesh == nil {
 		return
 	}
-	backend.bind(pass.commandBuffer, pipeline)
-	backend.push(pass.commandBuffer, call.Push)
+	backend.bind(pass.vkCommandBuffer, pipeline)
+	backend.push(pass.vkCommandBuffer, call.Push)
 
 	if vertexBuffer := backend.buffer(mesh.vertices); vertexBuffer != nil {
-		vk.CmdBindVertexBuffer(pass.commandBuffer, 0, vertexBuffer.buffer, 0)
+		vk.CmdBindVertexBuffer(pass.vkCommandBuffer, 0, vertexBuffer.buffer, 0)
 	}
 	instances := uint32(call.Instances)
 	if instances == 0 {
 		instances = 1
 	}
 	if mesh.indexed {
-		vk.CmdBindIndexBuffer(pass.commandBuffer, mesh.indexBuffer, 0, vk.IndexTypeUint32)
+		vk.CmdBindIndexBuffer(pass.vkCommandBuffer, mesh.indexBuffer, 0, vk.IndexTypeUint32)
 	}
 	if call.Indirect != nil {
 		indirectBuffer := backend.buffer(call.Indirect.Buffer)
 		if indirectBuffer == nil {
 			return
 		}
-		backend.useBuffer(pass.commandBuffer, indirectBuffer, useIndirect)
+		backend.useBuffer(pass.vkCommandBuffer, indirectBuffer, useIndirect)
 		if mesh.indexed {
-			vk.CmdDrawIndexedIndirect(pass.commandBuffer, indirectBuffer.buffer, call.Indirect.Offset, uint32(call.Indirect.Count), uint32(call.Indirect.Stride))
+			vk.CmdDrawIndexedIndirect(pass.vkCommandBuffer, indirectBuffer.buffer, call.Indirect.Offset, uint32(call.Indirect.Count), uint32(call.Indirect.Stride))
 		} else {
-			vk.CmdDrawIndirect(pass.commandBuffer, indirectBuffer.buffer, call.Indirect.Offset, uint32(call.Indirect.Count), uint32(call.Indirect.Stride))
+			vk.CmdDrawIndirect(pass.vkCommandBuffer, indirectBuffer.buffer, call.Indirect.Offset, uint32(call.Indirect.Count), uint32(call.Indirect.Stride))
 		}
 		return
 	}
 	if mesh.indexed {
-		vk.CmdDrawIndexed(pass.commandBuffer, mesh.count, instances, 0, 0, 0)
+		vk.CmdDrawIndexed(pass.vkCommandBuffer, mesh.count, instances, 0, 0, 0)
 		return
 	}
-	vk.CmdDraw(pass.commandBuffer, mesh.count, instances, 0, 0)
+	vk.CmdDraw(pass.vkCommandBuffer, mesh.count, instances, 0, 0)
 }
 
 // --- Compute -----------------------------------------------------------------
 
 func (compute *vkCompute) Dispatch(call renderer.DispatchCall) { // TODO: review
-	backend := compute.backend
+	backend := compute.VKBackend
 	pipeline := backend.pipeline(call.Pipeline)
 	if pipeline == nil {
 		return
 	}
-	backend.bind(compute.commandBuffer, pipeline)
-	backend.push(compute.commandBuffer, call.Push)
+	backend.bind(compute.vkCommandBuffer, pipeline)
+	backend.push(compute.vkCommandBuffer, call.Push)
 	if call.Indirect != nil {
 		indirectBuffer := backend.buffer(call.Indirect.Buffer)
 		if indirectBuffer == nil {
 			return
 		}
-		backend.useBuffer(compute.commandBuffer, indirectBuffer, useIndirect)
-		vk.CmdDispatchIndirect(compute.commandBuffer, indirectBuffer.buffer, call.Indirect.Offset)
+		backend.useBuffer(compute.vkCommandBuffer, indirectBuffer, useIndirect)
+		vk.CmdDispatchIndirect(compute.vkCommandBuffer, indirectBuffer.buffer, call.Indirect.Offset)
 		return
 	}
-	vk.CmdDispatch(compute.commandBuffer, uint32(max1(call.Groups[0])), uint32(max1(call.Groups[1])), uint32(max1(call.Groups[2])))
+	vk.CmdDispatch(compute.vkCommandBuffer, uint32(max1(call.Groups[0])), uint32(max1(call.Groups[1])), uint32(max1(call.Groups[2])))
 }
 
 // A dispatch of zero groups is a no-op the caller never means
@@ -486,11 +486,11 @@ func max1(value int) int { // TODO: review
 
 // Binds a pipeline, skipping the call when it is already bound
 func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelineInfo) { // TODO: review
-	if pipeline.pipeline == backend.boundPipeline {
+	if pipeline.pipeline == backend.vkBoundPipeline {
 		return
 	}
 	vk.CmdBindPipeline(commandBuffer, pipeline.bindPoint, pipeline.pipeline)
-	backend.boundPipeline = pipeline.pipeline
+	backend.vkBoundPipeline = pipeline.pipeline
 }
 
 // Pushes the four opaque addresses a draw or dispatch carries
@@ -498,7 +498,7 @@ func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelin
 // The backend never looks inside them: which block each slot points at is the
 // shader's declaration and the caller's business
 func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer.Address) { // TODO: review
-	vk.CmdPushConstants(commandBuffer, backend.pipelineLayout, pushStages, 0, pushConstantSize, unsafe.Pointer(&addrs))
+	vk.CmdPushConstants(commandBuffer, backend.vkPipelineLayout, pushStages, 0, pushConstantSize, unsafe.Pointer(&addrs))
 }
 
 // --- capture labels ----------------------------------------------------------

@@ -66,7 +66,7 @@ const (
 type ImageSpec struct {
 	Name          string // debug label, and the name a validation message shows
 	Width, Height int
-	Depth         int // 3D only : 0 gets default value of 1
+	Depth         int // Depth allows 3D textures, defaults to 1 for a single plane
 	Layers        int // 0 gets default value of 1 : a cube needs 6
 	Format        Format
 	Usage         ImageUsage

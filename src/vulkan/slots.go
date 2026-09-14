@@ -44,23 +44,26 @@ var bindingCapacity = [bindingKinds]uint32{
 // Destroying immediately would invalidate the command buffer being recorded, and
 // reusing a bindless slot too early is silent wrong pixels rather than an error
 type retired struct {
-	frame        uint64
-	view         vk.ImageView
-	image        vk.Image
-	alloc        vk.VmaAllocation
-	owns         bool
-	staging      vk.Buffer
-	stagingAlloc vk.VmaAllocation
-	buffer       vk.Buffer
-	bufferAlloc  vk.VmaAllocation
+	frame           uint64
+	vkView          vk.ImageView
+	vkImage         vk.Image
+	vmaAlloc        vk.VmaAllocation
+	owns            bool
+	vkStagingBuffer vk.Buffer
+	vmaStagingAlloc vk.VmaAllocation
+	vkBuffer        vk.Buffer
+	vmaBufferAlloc  vk.VmaAllocation
 	// The slot to give back, -1 when the resource never had one
 	binding int
 	slot    uint32
 }
 
 // Creates the descriptor set layout, pool and set, once
-func (backend *VKBackend) createDescriptors() { // TODO: review
+func (backend *VKBackend) createDescriptors() { 
+	// PartiallyBound allows empty slots, UpdateAfterBind lets Slot fill one mid-frame
 	const flags = vk.DescriptorBindingPartiallyBound | vk.DescriptorBindingUpdateAfterBind
+	// The four arrays a shader sees, in binding order: sampled 2D, cubemaps, storage images, hot
+	// Each count sizes the shader's unsized array, except bindHot's literal [4] it must match
 	bindings := []vk.DescriptorSetLayoutBinding{
 		{Binding: bind2D, DescriptorType: vk.DescriptorTypeCombinedImageSampler,
 			DescriptorCount: max2DTextures, StageFlags: descriptorStages, BindingFlags: flags},
@@ -72,15 +75,17 @@ func (backend *VKBackend) createDescriptors() { // TODO: review
 			DescriptorCount: maxHotTextures, StageFlags: descriptorStages, BindingFlags: flags},
 	}
 
-	layout, err := vk.CreateDescriptorSetLayout(backend.device, vk.DescriptorSetLayoutCreateInfo{
+	// The shape the pipeline layout and every shader agree on
+	layout, err := vk.CreateDescriptorSetLayout(backend.vkDevice, vk.DescriptorSetLayoutCreateInfo{
 		Flags:           vk.DescriptorSetLayoutCreateUpdateAfterBindPool,
 		Bindings:        bindings,
 		UseBindingFlags: true,
 	})
-	fatal(err, "create descriptor set layout")
-	backend.setLayout = layout
+	fatalVk(err, "create descriptor set layout")
+	backend.vkSetLayout = layout
 
-	pool, err := vk.CreateDescriptorPool(backend.device, vk.DescriptorPoolCreateInfo{
+	// Pool sizes are per descriptor type, not per binding, so the three sampler arrays add into one entry
+	pool, err := vk.CreateDescriptorPool(backend.vkDevice, vk.DescriptorPoolCreateInfo{
 		Flags:   vk.DescriptorPoolCreateUpdateAfterBind,
 		MaxSets: 1,
 		PoolSizes: []vk.DescriptorPoolSize{
@@ -88,66 +93,78 @@ func (backend *VKBackend) createDescriptors() { // TODO: review
 			{Type: vk.DescriptorTypeStorageImage, DescriptorCount: maxStorageImages},
 		},
 	})
-	fatal(err, "create descriptor pool")
-	backend.descriptorPool = pool
+	fatalVk(err, "create descriptor pool")
+	backend.vkDescriptorPool = pool
 
-	sets, err := vk.AllocateDescriptorSets(backend.device, vk.DescriptorSetAllocateInfo{
+	// One set, bound for the engine's lifetime: nothing ever rebinds a set mid-frame
+	sets, err := vk.AllocateDescriptorSets(backend.vkDevice, vk.DescriptorSetAllocateInfo{
 		Pool: pool, Layouts: []vk.DescriptorSetLayout{layout},
 	})
-	fatal(err, "allocate descriptor set")
-	backend.descriptorSet = sets[0]
+	fatalVk(err, "allocate descriptor set")
+	backend.vkDescriptorSet = sets[0]
 }
 
 // The shader-visible index of an image, allocated and written on first call
-//
-// The caller stores it in its own uniform block. This is the whole of the
-// handle-to-shader translation: nothing else in the backend reads that block
-func (backend *VKBackend) Slot(handle renderer.Handle) uint32 { // TODO: review
+func (backend *VKBackend) Slot(handle renderer.Handle) uint32 { 
+	// Slots are only defined for images
 	if renderer.Kind(handle) != renderer.KindImage {
 		return 0
 	}
+	
+	// The swapchain image is not a regular texture, it's a render-target that can't be bound to a descriptor set 
 	if renderer.ImageHandle(renderer.Index(handle)) == renderer.BackbufferImage {
-		// The swapchain image is an attachment and a copy source, never a
-		// descriptor
 		return 0
-	}
-	info := backend.image(renderer.ImageHandle(renderer.Index(handle)))
-	if info == nil {
-		return 0
-	}
-	if info.binding >= 0 {
-		return info.slot
 	}
 
+	// Get image from handle
+	image := backend.image(renderer.ImageHandle(renderer.Index(handle)))
+	if image == nil {
+		return 0
+	}
+	// binding stays -1 until an image is slotted, so >=0 means it already has a slot
+	if image.binding >= 0 {
+		return image.slot
+	}
+
+	// Decode which descriptor array the image belongs to
 	binding := bind2D
 	switch {
-	case info.hot:
+	case image.hot:
 		binding = bindHot
-	case info.kind == renderer.ImageCube:
+	case image.kind == renderer.ImageCube:
 		binding = bindCube
-	case info.usage&renderer.ImageSampled == 0 && info.usage&renderer.ImageStorage != 0:
+	case image.usage&renderer.ImageSampled == 0 && image.usage&renderer.ImageStorage != 0:
 		binding = bindStorage
 	}
 
-	if info.hot {
-		if info.hotSlot < 0 || info.hotSlot >= maxHotTextures {
-			panic(fmt.Sprintf("vulkan: image %q asked for hot slot %d of %d", info.name, info.hotSlot, maxHotTextures))
+	if image.hot {
+		// If image is hot, check that index is in range then use it
+		if image.hotSlot < 0 || image.hotSlot >= maxHotTextures {
+			panic(fmt.Sprintf("vulkan: image %q asked for hot slot %d of %d", image.name, image.hotSlot, maxHotTextures))
 		}
-		info.binding, info.slot = bindHot, uint32(info.hotSlot)
+		image.binding, image.slot = bindHot, uint32(image.hotSlot)
 	} else {
-		info.binding, info.slot = binding, backend.takeSlot(binding)
+		// Otherwise, find a free descriptor in the proper array and get the index
+		image.binding, image.slot = binding, backend.findSlot(binding)
 	}
-	backend.writeSlot(info)
-	return info.slot
+
+	// Write descriptor to descriptor set
+	backend.writeSlot(image)
+	return image.slot
 }
 
-// Pops a free slot of a binding, or bumps its high-water mark
-func (backend *VKBackend) takeSlot(binding int) uint32 { // TODO: review
-	if n := len(backend.slotFree[binding]); n > 0 {
-		slot := backend.slotFree[binding][n-1]
-		backend.slotFree[binding] = backend.slotFree[binding][:n-1]
+// Gets a freed slot of a binding or gets a new unused one
+func (backend *VKBackend) findSlot(binding int) uint32 { 
+	// Look for a freed slot that the engine has already returned by drainRetired
+	// Re-using slots keeps the descriptor array size bounded and avoids a memory leak
+	freeCount := len(backend.slotFree[binding]) 
+	if freeCount > 0 {
+		slot := backend.slotFree[binding][freeCount-1]
+		// Remove slot from the list of free slots
+		backend.slotFree[binding] = backend.slotFree[binding][:freeCount-1]
 		return slot
 	}
+	// Otherwise take a new slot, up to the capacity the set layout was created with
 	slot := backend.slotNext[binding]
 	if slot >= bindingCapacity[binding] {
 		panic(fmt.Sprintf("vulkan: descriptor binding %d is full at %d entries", binding, slot))
@@ -157,20 +174,21 @@ func (backend *VKBackend) takeSlot(binding int) uint32 { // TODO: review
 }
 
 // Writes an image's descriptor into the array it was given a slot in
-func (backend *VKBackend) writeSlot(info *imageInfo) { // TODO: review
+func (backend *VKBackend) writeSlot(info *image) { 
 	descriptorInfo := vk.DescriptorImageInfo{
-		Sampler: info.sampler, ImageView: info.view,
+		Sampler: info.vkSampler, ImageView: info.vkView,
 		ImageLayout: vk.ImageLayoutShaderReadOnlyOptimal,
 	}
 	kind := vk.DescriptorTypeCombinedImageSampler
 	if info.binding == bindStorage {
-		// A storage image is bound with no sampler, in the layout a compute
-		// pass writes it in
+		// A storage image is written by a compute shader so it needs a general layout and no sampler
 		descriptorInfo.Sampler, descriptorInfo.ImageLayout = 0, vk.ImageLayoutGeneral
 		kind = vk.DescriptorTypeStorageImage
 	}
-	vk.UpdateDescriptorSets(backend.device, []vk.WriteDescriptorSet{{
-		DstSet: backend.descriptorSet, DstBinding: uint32(info.binding), DstArrayElement: info.slot,
+
+	// Push the descriptor to the single descriptor set
+	vk.UpdateDescriptorSets(backend.vkDevice, []vk.WriteDescriptorSet{{
+		DstSet: backend.vkDescriptorSet, DstBinding: uint32(info.binding), DstArrayElement: info.slot,
 		DescriptorType: kind, ImageInfo: []vk.DescriptorImageInfo{descriptorInfo},
 	}})
 }
@@ -183,32 +201,31 @@ func (backend *VKBackend) Destroy(handle renderer.Handle) { // TODO: review
 	case renderer.KindView:
 		i := int(renderer.Index(handle)) - firstUserView
 		if i >= 0 && i < len(backend.views) && backend.views[i].valid {
-			backend.retire(retired{frame: backend.frameCounter, view: backend.views[i].view, binding: -1})
+			backend.retire(retired{frame: backend.frameCounter, vkView: backend.views[i].vkView, binding: -1})
 			backend.views[i].valid = false
 		}
 	case renderer.KindBuffer:
 		if info := backend.buffer(renderer.BufferHandle(renderer.Index(handle))); info != nil {
-			backend.retire(retired{frame: backend.frameCounter, buffer: info.buffer, bufferAlloc: info.alloc, binding: -1})
+			backend.retire(retired{frame: backend.frameCounter, vkBuffer: info.buffer, vmaBufferAlloc: info.alloc, binding: -1})
 			info.valid = false
 		}
 	case renderer.KindMesh:
 		// The vertex buffer is shared across a multi-material mesh's groups, so
 		// only the index buffer belongs to this handle
 		if info := backend.mesh(renderer.MeshHandle(renderer.Index(handle))); info != nil {
-			backend.retire(retired{frame: backend.frameCounter, buffer: info.indexBuffer, bufferAlloc: info.indexAlloc, binding: -1})
+			backend.retire(retired{frame: backend.frameCounter, vkBuffer: info.indexBuffer, vmaBufferAlloc: info.indexAlloc, binding: -1})
 			info.valid = false
 		}
 	case renderer.KindPipeline:
 		if info := backend.pipeline(renderer.PipelineHandle(renderer.Index(handle))); info != nil {
-			vk.DestroyPipeline(backend.device, info.pipeline)
+			vk.DestroyPipeline(backend.vkDevice, info.pipeline)
 			info.valid = false
 		}
 	}
 }
 
-// Queues GPU objects for destruction once every frame that could reference them
-// has completed
-func (backend *VKBackend) retire(resource retired) { // TODO: review
+// Queues GPU objects for destruction once every frame that could reference them has completed
+func (backend *VKBackend) retire(resource retired) { 
 	backend.retired = append(backend.retired, resource)
 }
 
@@ -224,18 +241,19 @@ func (backend *VKBackend) drainRetired() { // TODO: review
 			kept = append(kept, resource)
 			continue
 		}
-		if resource.view != 0 {
-			vk.DestroyImageView(backend.device, resource.view)
+		if resource.vkView != 0 {
+			vk.DestroyImageView(backend.vkDevice, resource.vkView)
 		}
-		if resource.image != 0 && resource.owns {
-			backend.allocator.VmaDestroyImage(resource.image, resource.alloc)
+		if resource.vkImage != 0 && resource.owns {
+			backend.vmaAllocator.VmaDestroyImage(resource.vkImage, resource.vmaAlloc)
 		}
-		if resource.staging != 0 {
-			backend.allocator.VmaDestroyBuffer(resource.staging, resource.stagingAlloc)
+		if resource.vkStagingBuffer != 0 {
+			backend.vmaAllocator.VmaDestroyBuffer(resource.vkStagingBuffer, resource.vmaStagingAlloc)
 		}
-		if resource.buffer != 0 {
-			backend.allocator.VmaDestroyBuffer(resource.buffer, resource.bufferAlloc)
+		if resource.vkBuffer != 0 {
+			backend.vmaAllocator.VmaDestroyBuffer(resource.vkBuffer, resource.vmaBufferAlloc)
 		}
+		// Hot slots are owned by the caller's literal index, never pooled
 		if resource.binding >= 0 && resource.binding != bindHot {
 			backend.slotFree[resource.binding] = append(backend.slotFree[resource.binding], resource.slot)
 		}

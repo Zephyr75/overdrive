@@ -38,10 +38,10 @@ func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.P
 // The old objects are retired rather than destroyed: a frame in flight may still
 // reference them
 func (backend *VKBackend) ReloadPipelines() error { // TODO: review
-	_ = vk.DeviceWaitIdle(backend.device)
-	for name, module := range backend.modules {
-		vk.DestroyShaderModule(backend.device, module)
-		delete(backend.modules, name)
+	_ = vk.DeviceWaitIdle(backend.vkDevice)
+	for name, module := range backend.vkShaderModules {
+		vk.DestroyShaderModule(backend.vkDevice, module)
+		delete(backend.vkShaderModules, name)
 	}
 	for _, info := range backend.pipelines {
 		if !info.valid {
@@ -52,7 +52,7 @@ func (backend *VKBackend) ReloadPipelines() error { // TODO: review
 			info.pipeline = old
 			return err
 		}
-		vk.DestroyPipeline(backend.device, old)
+		vk.DestroyPipeline(backend.vkDevice, old)
 	}
 	return nil
 }
@@ -74,8 +74,8 @@ func (backend *VKBackend) buildPipeline(info *pipelineInfo) error { // TODO: rev
 		if err != nil {
 			return err
 		}
-		pipeline, err := vk.CreateComputePipeline(backend.device, vk.ComputePipelineCreateInfo{
-			Layout: backend.pipelineLayout,
+		pipeline, err := vk.CreateComputePipeline(backend.vkDevice, vk.ComputePipelineCreateInfo{
+			Layout: backend.vkPipelineLayout,
 			Stage: vk.PipelineShaderStageCreateInfo{
 				Stage: vk.ShaderStageCompute, Module: module, Name: "main",
 			},
@@ -94,34 +94,34 @@ func (backend *VKBackend) buildPipeline(info *pipelineInfo) error { // TODO: rev
 			return err
 		}
 		stageInfos = append(stageInfos, vk.PipelineShaderStageCreateInfo{
-			Stage: shaderStage(stage), Module: module, Name: "main",
+			Stage: toVkShaderStageFlags(stage), Module: module, Name: "main",
 		})
 	}
 
 	colorFormats := make([]vk.Format, len(spec.ColorFormats))
 	blends := make([]vk.PipelineColorBlendAttachmentState, len(spec.ColorFormats))
 	for i, format := range spec.ColorFormats {
-		colorFormats[i] = backend.format(format)
-		blends[i] = blendAttachment(spec.Blend)
+		colorFormats[i] = backend.toVkFormat(format)
+		blends[i] = toVkBlendAttachment(spec.Blend)
 	}
 
-	pipeline, err := vk.CreateGraphicsPipeline(backend.device, vk.GraphicsPipelineCreateInfo{
-		Layout:             backend.pipelineLayout,
+	pipeline, err := vk.CreateGraphicsPipeline(backend.vkDevice, vk.GraphicsPipelineCreateInfo{
+		Layout:             backend.vkPipelineLayout,
 		Stages:             stageInfos,
 		VertexInputState:   backend.vertexInput(spec.Vertex),
 		InputAssemblyState: &vk.PipelineInputAssemblyStateCreateInfo{Topology: vk.PrimitiveTopologyTriangleList},
 		ViewportState:      &vk.PipelineViewportStateCreateInfo{ViewportCount: 1, ScissorCount: 1},
 		RasterizationState: &vk.PipelineRasterizationStateCreateInfo{
 			PolygonMode: vk.PolygonModeFill,
-			CullMode:    cullMode(spec.Cull),
-			FrontFace:   frontFace(spec.FrontFace),
+			CullMode:    toVkCullModeFlags(spec.Cull),
+			FrontFace:   toVkFrontFace(spec.FrontFace),
 			LineWidth:   1,
 		},
-		MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: sampleCount(spec.Samples)},
+		MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: toVkSampleCountFlags(spec.Samples)},
 		DepthStencilState: &vk.PipelineDepthStencilStateCreateInfo{
 			DepthTestEnable:  spec.DepthCompare != renderer.CompareNone,
 			DepthWriteEnable: spec.DepthWrite,
-			DepthCompareOp:   compareOp(spec.DepthCompare),
+			DepthCompareOp:   toVkCompareOp(spec.DepthCompare),
 		},
 		ColorBlendState: &vk.PipelineColorBlendStateCreateInfo{Attachments: blends},
 		DynamicState: &vk.PipelineDynamicStateCreateInfo{
@@ -130,7 +130,7 @@ func (backend *VKBackend) buildPipeline(info *pipelineInfo) error { // TODO: rev
 		// Under dynamic rendering this is what a pipeline is compatible with,
 		// in place of pointing at a render-pass object
 		Rendering: &vk.PipelineRenderingCreateInfo{
-			DepthAttachmentFormat:  backend.format(spec.DepthFormat),
+			DepthAttachmentFormat:  backend.toVkFormat(spec.DepthFormat),
 			ColorAttachmentFormats: colorFormats,
 		},
 	})
@@ -155,7 +155,7 @@ func (backend *VKBackend) vertexInput(layout renderer.VertexLayout) *vk.Pipeline
 	for i, attr := range layout.Attrs {
 		attrs[i] = vk.VertexInputAttribute{
 			Location: uint32(attr.Location), Binding: 0,
-			Format: backend.format(attr.Format), Offset: uint32(attr.Offset),
+			Format: backend.toVkFormat(attr.Format), Offset: uint32(attr.Offset),
 		}
 	}
 	return &vk.PipelineVertexInputStateCreateInfo{
@@ -167,7 +167,7 @@ func (backend *VKBackend) vertexInput(layout renderer.VertexLayout) *vk.Pipeline
 // Loads one precompiled SPIR-V stage, caching the module by set and stage
 func (backend *VKBackend) module(name string, stage renderer.ShaderStage) (vk.ShaderModule, error) { // TODO: review
 	key := name + "." + stage.Suffix()
-	if module, ok := backend.modules[key]; ok {
+	if module, ok := backend.vkShaderModules[key]; ok {
 		return module, nil
 	}
 	path := paths.Shader(key + ".spv")
@@ -175,11 +175,11 @@ func (backend *VKBackend) module(name string, stage renderer.ShaderStage) (vk.Sh
 	if err != nil {
 		return 0, fmt.Errorf("read SPIR-V %s: %w (run ./build_shaders.sh)", path, err)
 	}
-	module, err := vk.CreateShaderModule(backend.device, code)
+	module, err := vk.CreateShaderModule(backend.vkDevice, code)
 	if err != nil {
 		return 0, err
 	}
-	backend.modules[key] = module
+	backend.vkShaderModules[key] = module
 	return module, nil
 }
 
