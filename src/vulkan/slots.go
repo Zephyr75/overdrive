@@ -206,14 +206,14 @@ func (backend *VKBackend) Destroy(handle renderer.Handle) { // TODO: review
 		}
 	case renderer.KindBuffer:
 		if info := backend.buffer(renderer.BufferHandle(renderer.Index(handle))); info != nil {
-			backend.retire(retired{frame: backend.frameCounter, vkBuffer: info.buffer, vmaBufferAlloc: info.alloc, binding: -1})
+			backend.retire(retired{frame: backend.frameCounter, vkBuffer: info.vkBuffer, vmaBufferAlloc: info.vmaAlloc, binding: -1})
 			info.valid = false
 		}
 	case renderer.KindMesh:
 		// The vertex buffer is shared across a multi-material mesh's groups, so
 		// only the index buffer belongs to this handle
 		if info := backend.mesh(renderer.MeshHandle(renderer.Index(handle))); info != nil {
-			backend.retire(retired{frame: backend.frameCounter, vkBuffer: info.indexBuffer, vmaBufferAlloc: info.indexAlloc, binding: -1})
+			backend.retire(retired{frame: backend.frameCounter, vkBuffer: info.vkIndexBuffer, vmaBufferAlloc: info.vmaIndexAlloc, binding: -1})
 			info.valid = false
 		}
 	case renderer.KindPipeline:

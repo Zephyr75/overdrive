@@ -47,7 +47,7 @@ func newOverlay(backend renderer.Backend) (*overlay, error) { // TODO: review
 
 	buf, _ := backend.CreateBuffer(renderer.BufferSpec{
 		Name: "overlayQuad", Usage: renderer.BufferVertex,
-		Location: renderer.LocationHost, Data: quadVertices,
+		Location: renderer.LocationHost, InitialData: quadVertices,
 	})
 	ovl.mesh = backend.CreateMesh(renderer.MeshSpec{Name: "overlayQuad", Vertices: buf, Stride: 5 * 4})
 

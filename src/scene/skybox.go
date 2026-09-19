@@ -67,7 +67,7 @@ func (skybox *Skybox) setup(backend renderer.Backend) error { // TODO: review
 	// The cube owns its own buffer and carries no indices, unlike scene meshes
 	// which share one buffer across their face groups
 	buf, _ := backend.CreateBuffer(renderer.BufferSpec{
-		Name: "skyboxCube", Usage: renderer.BufferVertex, Location: renderer.LocationHost, Data: vertices,
+		Name: "skyboxCube", Usage: renderer.BufferVertex, Location: renderer.LocationHost, InitialData: vertices,
 	})
 	skybox.mesh = backend.CreateMesh(renderer.MeshSpec{Name: "skyboxCube", Vertices: buf, Stride: positionStride})
 	faces, width, height, err := loadCubeFaces([6]string{

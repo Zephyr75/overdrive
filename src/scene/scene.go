@@ -47,13 +47,16 @@ type Scene struct {
 
 // Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
 func NewScene(path string, backend renderer.Backend) (Scene, error) { // TODO: review
-	// TODO here
+	// Parse the XML first: everything below needs the mesh and light counts
 	scene, err := LoadScene(path)
 	if err != nil {
 		return Scene{}, err
 	}
+	// Stored so later moves and uploads need no backend argument
 	scene.backend = backend
+	// Uploads each mesh's vertices, indices and material textures
 	for i := range scene.Meshes {
+		// TODO hereeee
 		if err := scene.Meshes[i].setup(backend); err != nil {
 			return Scene{}, fmt.Errorf("mesh %s: %w", scene.Meshes[i].Name, err)
 		}
@@ -61,6 +64,7 @@ func NewScene(path string, backend renderer.Backend) (Scene, error) { // TODO: r
 	// One atlas for every light, allocated here rather than per casting light.
 	// Who gets a tile of it is a per-frame decision, not a load-time one
 	scene.atlas.setup(backend)
+	// Last because it owns the cubemap the main pass samples, and needs nothing above
 	if err := scene.Skybox.setup(backend); err != nil {
 		return Scene{}, err
 	}
@@ -116,7 +120,7 @@ func (scene *Scene) Camera() *Camera { // TODO: review
 }
 
 // Parses a scene XML file into meshes, lights and a camera, with no GPU work
-func LoadScene(path string) (Scene, error) { // TODO: review
+func LoadScene(path string) (Scene, error) { 
 	xmlFile, err := os.Open(path)
 	if err != nil {
 		return Scene{}, fmt.Errorf("open scene: %w", err)

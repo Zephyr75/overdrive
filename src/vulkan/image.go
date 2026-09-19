@@ -215,7 +215,7 @@ func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer
 	}
 	
 	// Write pixels to the staging buffer
-	memcpy(image.stagingMapped, unsafe.Pointer(&data.Pixels[0]), size)
+	memoryCopy(image.stagingMapped, unsafe.Pointer(&data.Pixels[0]), size)
 
 	// Record the copy to be performed later
 	image.pendingCopy = vkCopyRegion
@@ -234,7 +234,7 @@ func (backend *VKBackend) uploadNow(info *image, pixels []byte, copyRegion vk.Bu
 			Usage: vk.VmaMemoryUsageAuto,
 		})
 	fatalVk(err, "create image staging buffer")
-	memcpy(vmaAllocInfo.MappedData, unsafe.Pointer(&pixels[0]), uint64(len(pixels)))
+	memoryCopy(vmaAllocInfo.MappedData, unsafe.Pointer(&pixels[0]), uint64(len(pixels)))
 
 	backend.immediateSubmit(func(commandBuffer vk.CommandBuffer) {
 		backend.recordImageCopy(commandBuffer, info, vkStagingBuffer, copyRegion)

@@ -126,7 +126,7 @@ type BufferSpec struct {
 	Size     uint64
 	Usage    BufferUsage
 	Location BufferLocation
-	Data     any // optional initial contents: a pointer to a value, or a slice
+	InitialData     any // optional initial contents: a pointer to a value, or a slice
 }
 
 // --- meshes ------------------------------------------------------------------

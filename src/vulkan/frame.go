@@ -14,9 +14,9 @@ import (
 // Everything one in-flight frame owns: its command buffer, sync objects and
 // upload arena
 type frame struct {
-	vkCommandBuffer    vk.CommandBuffer
-	vkFence            vk.Fence
-	vkAcquireSemaphore vk.Semaphore
+	vkCommandBuffer    vk.CommandBuffer // for recording
+	vkFence            vk.Fence // signals when GPU has finished the frame
+	vkAcquireSemaphore vk.Semaphore // can be presented
 	vkArenaBuffer            vk.Buffer
 	vmaArenaAlloc       vk.VmaAllocation
 	arenaMapped      unsafe.Pointer
@@ -127,7 +127,7 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 // overflowed frame is already wrong, and wrapping made it wrong silently
 func (frame *vkFrame) Upload(data any) renderer.Address { // TODO: review
 	info := &frame.VKBackend.frames[frame.VKBackend.frameIndex]
-	ptr, n := dataPtr(data)
+	ptr, n := getDataPointer(data)
 	if n == 0 {
 		return renderer.Address(info.arenaAddr)
 	}
@@ -136,7 +136,7 @@ func (frame *vkFrame) Upload(data any) renderer.Address { // TODO: review
 	if info.arenaUsed+n > arenaSize {
 		panic(fmt.Sprintf("vulkan: uniform arena overflow at %d bytes (cap %d)", info.arenaUsed+n, arenaSize))
 	}
-	memcpy(unsafe.Add(info.arenaMapped, info.arenaUsed), ptr, n)
+	memoryCopy(unsafe.Add(info.arenaMapped, info.arenaUsed), ptr, n)
 	addr := info.arenaAddr + info.arenaUsed
 	info.arenaUsed += n
 	return renderer.Address(addr)
@@ -342,7 +342,7 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 	case src != nil && dbuf != nil:
 		backend.useImage(commandBuffer, src, useCopySrc)
 		backend.useBuffer(commandBuffer, dbuf, useCopyDst)
-		vk.CmdCopyImageToBuffer(commandBuffer, src.vkImage, vk.ImageLayoutTransferSrcOptimal, dbuf.buffer,
+		vk.CmdCopyImageToBuffer(commandBuffer, src.vkImage, vk.ImageLayoutTransferSrcOptimal, dbuf.vkBuffer,
 			[]vk.BufferImageCopy{{
 				BufferOffset: spec.DstBytes, AspectMask: aspect,
 				BaseArrayLayer: uint32(spec.SrcLayer), LayerCount: layers,
@@ -352,7 +352,7 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 	case sbuf != nil && dst != nil:
 		backend.useBuffer(commandBuffer, sbuf, useCopySrc)
 		backend.useImage(commandBuffer, dst, useCopyDst)
-		vk.CmdCopyBufferToImage(commandBuffer, sbuf.buffer, dst.vkImage, vk.ImageLayoutTransferDstOptimal,
+		vk.CmdCopyBufferToImage(commandBuffer, sbuf.vkBuffer, dst.vkImage, vk.ImageLayoutTransferDstOptimal,
 			[]vk.BufferImageCopy{{
 				BufferOffset: spec.SrcBytes, AspectMask: aspect,
 				BaseArrayLayer: uint32(spec.DstLayer), LayerCount: layers,
@@ -362,7 +362,7 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 	case sbuf != nil && dbuf != nil:
 		backend.useBuffer(commandBuffer, sbuf, useCopySrc)
 		backend.useBuffer(commandBuffer, dbuf, useCopyDst)
-		vk.CmdCopyBuffer(commandBuffer, sbuf.buffer, dbuf.buffer, []vk.BufferCopy{{
+		vk.CmdCopyBuffer(commandBuffer, sbuf.vkBuffer, dbuf.vkBuffer, []vk.BufferCopy{{
 			SrcOffset: spec.SrcBytes, DstOffset: spec.DstBytes, Size: uint64(spec.Extent[0]),
 		}})
 	default:
@@ -423,14 +423,14 @@ func (pass *vkPass) Draw(call renderer.DrawCall) { // TODO: review
 	backend.push(pass.vkCommandBuffer, call.Push)
 
 	if vertexBuffer := backend.buffer(mesh.vertices); vertexBuffer != nil {
-		vk.CmdBindVertexBuffer(pass.vkCommandBuffer, 0, vertexBuffer.buffer, 0)
+		vk.CmdBindVertexBuffer(pass.vkCommandBuffer, 0, vertexBuffer.vkBuffer, 0)
 	}
 	instances := uint32(call.Instances)
 	if instances == 0 {
 		instances = 1
 	}
 	if mesh.indexed {
-		vk.CmdBindIndexBuffer(pass.vkCommandBuffer, mesh.indexBuffer, 0, vk.IndexTypeUint32)
+		vk.CmdBindIndexBuffer(pass.vkCommandBuffer, mesh.vkIndexBuffer, 0, vk.IndexTypeUint32)
 	}
 	if call.Indirect != nil {
 		indirectBuffer := backend.buffer(call.Indirect.Buffer)
@@ -439,9 +439,9 @@ func (pass *vkPass) Draw(call renderer.DrawCall) { // TODO: review
 		}
 		backend.useBuffer(pass.vkCommandBuffer, indirectBuffer, useIndirect)
 		if mesh.indexed {
-			vk.CmdDrawIndexedIndirect(pass.vkCommandBuffer, indirectBuffer.buffer, call.Indirect.Offset, uint32(call.Indirect.Count), uint32(call.Indirect.Stride))
+			vk.CmdDrawIndexedIndirect(pass.vkCommandBuffer, indirectBuffer.vkBuffer, call.Indirect.Offset, uint32(call.Indirect.Count), uint32(call.Indirect.Stride))
 		} else {
-			vk.CmdDrawIndirect(pass.vkCommandBuffer, indirectBuffer.buffer, call.Indirect.Offset, uint32(call.Indirect.Count), uint32(call.Indirect.Stride))
+			vk.CmdDrawIndirect(pass.vkCommandBuffer, indirectBuffer.vkBuffer, call.Indirect.Offset, uint32(call.Indirect.Count), uint32(call.Indirect.Stride))
 		}
 		return
 	}
@@ -468,7 +468,7 @@ func (compute *vkCompute) Dispatch(call renderer.DispatchCall) { // TODO: review
 			return
 		}
 		backend.useBuffer(compute.vkCommandBuffer, indirectBuffer, useIndirect)
-		vk.CmdDispatchIndirect(compute.vkCommandBuffer, indirectBuffer.buffer, call.Indirect.Offset)
+		vk.CmdDispatchIndirect(compute.vkCommandBuffer, indirectBuffer.vkBuffer, call.Indirect.Offset)
 		return
 	}
 	vk.CmdDispatch(compute.vkCommandBuffer, uint32(max1(call.Groups[0])), uint32(max1(call.Groups[1])), uint32(max1(call.Groups[2])))

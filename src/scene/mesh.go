@@ -325,7 +325,7 @@ func (mesh *Mesh) setup(backend renderer.Backend) error { // TODO: review
 	// its index list
 	mesh.vertexBuf, _ = backend.CreateBuffer(renderer.BufferSpec{
 		Name: mesh.Name, Usage: renderer.BufferVertex, Location: renderer.LocationHost,
-		Data: mesh.vertexData,
+		InitialData: mesh.vertexData,
 	})
 	mesh.gpu = make([]renderer.MeshHandle, len(mesh.indexGroups))
 	for i, face := range mesh.indexGroups {

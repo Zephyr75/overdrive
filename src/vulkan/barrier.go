@@ -79,7 +79,7 @@ func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, image *image,
 
 // Transitions a buffer, which is stage and access masks alone
 func (backend *VKBackend) useBuffer(commandBuffer vk.CommandBuffer, info *bufferInfo, want use) { // TODO: review
-	if info == nil || info.buffer == 0 {
+	if info == nil || info.vkBuffer == 0 {
 		return
 	}
 	to := useTable[want]
@@ -91,7 +91,7 @@ func (backend *VKBackend) useBuffer(commandBuffer vk.CommandBuffer, info *buffer
 		SrcStageMask: from.stage, SrcAccessMask: from.access,
 		DstStageMask: to.stage, DstAccessMask: to.access,
 		SrcQueueFamilyIndex: vk.QueueFamilyIgnored, DstQueueFamilyIndex: vk.QueueFamilyIgnored,
-		Buffer: info.buffer, Size: vk.WholeSize,
+		Buffer: info.vkBuffer, Size: vk.WholeSize,
 	}}})
 	info.use = want
 }

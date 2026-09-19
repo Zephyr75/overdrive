@@ -11,9 +11,9 @@ import (
 // One buffer, its allocation and its persistent mapping when it has one
 type bufferInfo struct {
 	name   string
-	buffer vk.Buffer
-	alloc  vk.VmaAllocation
-	mapped unsafe.Pointer
+	vkBuffer vk.Buffer
+	vmaAlloc  vk.VmaAllocation
+	mappedData unsafe.Pointer
 	size   uint64
 	addr   uint64
 	use    use
@@ -26,87 +26,90 @@ type bufferInfo struct {
 type meshInfo struct {
 	name        string
 	vertices    renderer.BufferHandle
-	indexBuffer vk.Buffer
-	indexAlloc  vk.VmaAllocation
+	vkIndexBuffer vk.Buffer
+	vmaIndexAlloc  vk.VmaAllocation
 	count       uint32
 	indexed     bool
 	valid       bool
 }
 
 // Creates a buffer and returns its device address
-func (backend *VKBackend) CreateBuffer(spec renderer.BufferSpec) (renderer.BufferHandle, renderer.Address) { // TODO: review
-	size := spec.Size
-	var src unsafe.Pointer
-	var dataLen uint64
-	if spec.Data != nil {
-		src, dataLen = dataPtr(spec.Data)
-		if dataLen > size {
-			size = dataLen
+func (backend *VKBackend) CreateBuffer(bufferSpec renderer.BufferSpec) (renderer.BufferHandle, renderer.Address) { 
+	// Determine the buffer size: use spec.Size unless data is larger
+	size := bufferSpec.Size
+	var initialData unsafe.Pointer
+	var initialDataLen uint64
+	if bufferSpec.InitialData != nil {
+		initialData, initialDataLen = getDataPointer(bufferSpec.InitialData)
+		if initialDataLen > size {
+			size = initialDataLen
 		}
 	}
 	if size == 0 {
 		size = 4 // a zero-sized buffer is not allowed
 	}
+	
+	// Build Vulkan usage flags and always request ShaderDeviceAddress so the CPU can read the buffer address directly
+	usage := toVkBufferUsageFlags(bufferSpec.Usage) | vk.BufferUsageShaderDeviceAddress
+	vmaAllocCI := vk.VmaAllocationCreateInfo{Usage: vk.VmaMemoryUsageAuto}
 
-	usage := toVkBufferUsageFlags(spec.Usage) | vk.BufferUsageShaderDeviceAddress
-	aci := vk.VmaAllocationCreateInfo{Usage: vk.VmaMemoryUsageAuto}
-	if spec.Location == renderer.LocationHost {
-		aci.Flags = vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped
-		// A buffer the CPU reads back wants cached memory, not write-combined
-		if spec.Usage&renderer.BufferCopyDst != 0 {
-			aci.Flags = vk.VmaAllocationCreateHostAccessRandom | vk.VmaAllocationCreateMapped
+	// Choose allocation flags based on the desired device location and usage
+	// If it needs to be accessed by the CPU: can be RAM or VRAM depending on device
+	if bufferSpec.Location == renderer.LocationHost {
+		// Make allocation CPU readable and persistently mapped
+		vmaAllocCI.Flags = vk.VmaAllocationCreateHostAccessSequentialWrite | vk.VmaAllocationCreateMapped
+		// If it is intended to be a copy destination: use a cached random-access allocation and keep it persistently mapped
+		if bufferSpec.Usage&renderer.BufferCopyDst != 0 {
+			vmaAllocCI.Flags = vk.VmaAllocationCreateHostAccessRandom | vk.VmaAllocationCreateMapped
 		}
-	} else {
+	} else { 
+		// If it lives fully in VRAM and does not need to be accessed by CPU
+		// Mark it as a TransferDst so it can receive data from a staging buffer (temporary storage to transfer data from CPU to GPU)
 		usage |= vk.BufferUsageTransferDst
 	}
 
-	buf, alloc, info, err := backend.vmaAllocator.VmaCreateBuffer(
-		vk.BufferCreateInfo{Size: size, Usage: usage}, aci)
-	fatalVk(err, "create buffer "+spec.Name)
-	if src != nil && info.MappedData != nil {
-		memcpy(info.MappedData, src, minU64(size, dataLen))
+	// Allocate the buffer and its memory
+	vkBuffer, vmaAlloc, vmaAllocInfo, err := backend.vmaAllocator.VmaCreateBuffer(vk.BufferCreateInfo{Size: size, Usage: usage}, vmaAllocCI)
+	fatalVk(err, "create buffer "+bufferSpec.Name)
+
+	// If the buffer is host‑mapped, copy initial data directly
+	if initialData != nil && vmaAllocInfo.MappedData != nil {
+		n := func(a, b uint64) uint64 { if a < b { return a }; return b }(size, initialDataLen)
+		memoryCopy(vmaAllocInfo.MappedData, initialData, n)
 	}
 
-	entry := &bufferInfo{
-		name: spec.Name, buffer: buf, alloc: alloc, mapped: info.MappedData,
-		size: size, addr: vk.GetBufferDeviceAddress(backend.vkDevice, buf), valid: true,
+	// Store the buffer in the backend’s list and record its address
+	bufferInfo := &bufferInfo{
+		name: bufferSpec.Name, vkBuffer: vkBuffer, vmaAlloc: vmaAlloc, mappedData: vmaAllocInfo.MappedData,
+		size: size, addr: vk.GetBufferDeviceAddress(backend.vkDevice, vkBuffer), valid: true,
 	}
-	backend.buffers = append(backend.buffers, entry)
+	backend.buffers = append(backend.buffers, bufferInfo)
 
+	// TODO here2
+	// Create a handle for the caller and if the buffer is device‑local,
+	// perform an initial staged update to fill it with data
 	handle := renderer.BufferHandle(len(backend.buffers) - 1)
-	// A device-local buffer has no mapping, so its initial contents go through
-	// the same staged path an update does
-	if src != nil && info.MappedData == nil {
-		backend.UpdateBuffer(handle, 0, spec.Data)
+	if initialData != nil && vmaAllocInfo.MappedData == nil {
+		backend.UpdateBuffer(handle, 0, bufferSpec.InitialData)
 	}
-	return handle, renderer.Address(entry.addr)
-}
-
-func minU64(first, second uint64) uint64 { // TODO: review
-	if first < second {
-		return first
-	}
-	return second
+	return handle, renderer.Address(bufferInfo.addr)
 }
 
 // Rewrites part of a buffer
-//
-// A host buffer is a memcpy after the frames that might read it have drained;
-// a device buffer goes through a staging copy. Rare by design: per-frame motion
-// belongs in a model matrix, not a vertex rewrite
 func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offset uint64, data any) { // TODO: review
-	entry := backend.buffer(bufferHandle)
-	if entry == nil || data == nil {
+	// TODO here3
+	bufferInfo := backend.buffer(bufferHandle)
+	if bufferInfo == nil || data == nil {
 		return
 	}
-	src, n := dataPtr(data)
-	if n == 0 || offset+n > entry.size {
+	src, n := getDataPointer(data)
+	if n == 0 || offset+n > bufferInfo.size {
 		return
 	}
-	if entry.mapped != nil {
+	if bufferInfo.mappedData != nil {
 		// No driver-side ghosting, and the GPU may still be reading
 		backend.waitAllFrames()
-		memcpy(unsafe.Add(entry.mapped, offset), src, n)
+		memoryCopy(unsafe.Add(bufferInfo.mappedData, offset), src, n)
 		return
 	}
 
@@ -117,9 +120,9 @@ func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offse
 			Usage: vk.VmaMemoryUsageAuto,
 		})
 	fatalVk(err, "create buffer staging")
-	memcpy(info.MappedData, src, n)
+	memoryCopy(info.MappedData, src, n)
 	backend.immediateSubmit(func(commandBuffer vk.CommandBuffer) {
-		vk.CmdCopyBuffer(commandBuffer, staging, entry.buffer, []vk.BufferCopy{{DstOffset: offset, Size: n}})
+		vk.CmdCopyBuffer(commandBuffer, staging, bufferInfo.vkBuffer, []vk.BufferCopy{{DstOffset: offset, Size: n}})
 	})
 	backend.vmaAllocator.VmaDestroyBuffer(staging, alloc)
 }
@@ -136,9 +139,9 @@ func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { // T
 	backend.waitAllFrames()
 	_ = vk.DeviceWaitIdle(backend.vkDevice)
 
-	if entry.mapped != nil {
+	if entry.mappedData != nil {
 		out := make([]byte, entry.size)
-		memcpy(unsafe.Pointer(&out[0]), entry.mapped, entry.size)
+		memoryCopy(unsafe.Pointer(&out[0]), entry.mappedData, entry.size)
 		return out
 	}
 
@@ -150,10 +153,10 @@ func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { // T
 		})
 	fatalVk(err, "create readback staging")
 	backend.immediateSubmit(func(commandBuffer vk.CommandBuffer) {
-		vk.CmdCopyBuffer(commandBuffer, entry.buffer, staging, []vk.BufferCopy{{Size: entry.size}})
+		vk.CmdCopyBuffer(commandBuffer, entry.vkBuffer, staging, []vk.BufferCopy{{Size: entry.size}})
 	})
 	out := make([]byte, entry.size)
-	memcpy(unsafe.Pointer(&out[0]), info.MappedData, entry.size)
+	memoryCopy(unsafe.Pointer(&out[0]), info.MappedData, entry.size)
 	backend.vmaAllocator.VmaDestroyBuffer(staging, alloc)
 	return out
 }
@@ -192,11 +195,11 @@ func (backend *VKBackend) CreateMesh(spec renderer.MeshSpec) renderer.MeshHandle
 		})
 	fatalVk(err, "create index buffer")
 	if indexed {
-		memcpy(info.MappedData, unsafe.Pointer(&spec.Indices[0]), uint64(len(spec.Indices)*4))
+		memoryCopy(info.MappedData, unsafe.Pointer(&spec.Indices[0]), uint64(len(spec.Indices)*4))
 	}
 
 	backend.meshes = append(backend.meshes, &meshInfo{
-		name: spec.Name, vertices: spec.Vertices, indexBuffer: buf, indexAlloc: alloc,
+		name: spec.Name, vertices: spec.Vertices, vkIndexBuffer: buf, vmaIndexAlloc: alloc,
 		count: count, indexed: indexed, valid: true,
 	})
 	return renderer.MeshHandle(len(backend.meshes) - 1)

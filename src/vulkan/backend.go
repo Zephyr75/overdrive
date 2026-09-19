@@ -348,7 +348,7 @@ func (backend *VKBackend) createDefaultSampler() {
 		AddressModeV:     vk.SamplerAddressModeRepeat,
 		AddressModeW:     vk.SamplerAddressModeRepeat,
 		AnisotropyEnable: anisotropy > 1,
-		MaxAnisotropy:    float32(math.Min(float64(anisotropy), float64(backend.vkPhysDeviceProps.MaxSamplerAnisotropy))),
+		MaxAnisotropy: func(a, b float32) float32 { if a < b { return a }; return b }(anisotropy, backend.vkPhysDeviceProps.MaxSamplerAnisotropy),
 		MaxLod:           16,
 	})
 	fatalVk(err, "create default sampler")
@@ -466,12 +466,12 @@ func (backend *VKBackend) Shutdown() { // TODO: review
 	}
 	for _, info := range backend.meshes {
 		if info.valid {
-			backend.vmaAllocator.VmaDestroyBuffer(info.indexBuffer, info.indexAlloc)
+			backend.vmaAllocator.VmaDestroyBuffer(info.vkIndexBuffer, info.vmaIndexAlloc)
 		}
 	}
 	for _, info := range backend.buffers {
 		if info.valid {
-			backend.vmaAllocator.VmaDestroyBuffer(info.buffer, info.alloc)
+			backend.vmaAllocator.VmaDestroyBuffer(info.vkBuffer, info.vmaAlloc)
 		}
 	}
 	for i := range backend.frames {
