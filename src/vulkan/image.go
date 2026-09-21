@@ -55,7 +55,7 @@ type view struct {
 	vkView vk.ImageView
 	// Extent of the mip this view covers, which is a pass's render area
 	width, height int
-	layers        uint32
+	layerCount        uint32
 	valid         bool
 }
 
@@ -119,18 +119,18 @@ func (backend *VKBackend) CreateImage(imageSpec renderer.ImageSpec) renderer.Ima
 }
 
 // Creates a view over one slice and one aspect
-func (backend *VKBackend) CreateView(imageHandle renderer.ImageHandle, spec renderer.ViewSpec) renderer.ViewHandle { // TODO: review
+func (backend *VKBackend) CreateView(imageHandle renderer.ImageHandle, spec renderer.ViewSpec) renderer.ViewHandle { 
 	info := backend.image(imageHandle)
 	if info == nil {
 		return renderer.NoView
 	}
-	layers := uint32(spec.LayerCount)
-	if layers == 0 {
-		layers = info.layerCount - uint32(spec.BaseLayer)
+	layerCount := uint32(spec.LayerCount)
+	if layerCount == 0 { // 0 means "all remaining layers"
+		layerCount = info.layerCount - uint32(spec.BaseLayer)
 	}
 	backend.views = append(backend.views, &view{
 		image: imageHandle, vkView: backend.makeView(info, spec), width: info.width, height: info.height,
-		layers: layers, valid: true,
+		layerCount: layerCount, valid: true,
 	})
 	return renderer.ViewHandle(len(backend.views) - 1 + firstUserView)
 }
@@ -297,7 +297,7 @@ func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *image
 		return 0, nil, 0, 0, 0
 	}
 	stored := backend.views[i]
-	return stored.vkView, backend.image(stored.image), stored.width, stored.height, stored.layers
+	return stored.vkView, backend.image(stored.image), stored.width, stored.height, stored.layerCount
 }
 
 // Destroys an image's view and allocation once the frames in flight have retired

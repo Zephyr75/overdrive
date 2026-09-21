@@ -114,26 +114,20 @@ type lightAlloc struct {
 }
 
 // Creates both atlas images, once, at scene load
-//
-// They take the two dedicated descriptor slots forward.slang indexes by a
-// literal: the static atlas is hot slot 0 and the dynamic one hot slot 1, which
-// is what ShadowRecord.Flags bit 0 selects between
-func (atlas *shadowAtlas) setup(backend renderer.Backend) { // TODO: review
+func (atlas *shadowAtlas) setup(backend renderer.Backend) { 
 	atlas.reset()
 
-	// Nearest, because PCF does its own filtering and a comparison here would
-	// average depths rather than occlusions. The white border is what says
-	// "fully lit" outside a sun's frustum
 	sampler := backend.CreateSampler(renderer.SamplerSpec{
 		Name: "shadowAtlas", Mag: renderer.FilterNearest, Min: renderer.FilterNearest,
-		Mipmap:   renderer.FilterNearest,
+		Mipmap:   renderer.FilterNearest, // PCF does its own filtering
 		OutsideU: renderer.OutsideClampToBorder,
 		OutsideV: renderer.OutsideClampToBorder,
 		OutsideW: renderer.OutsideClampToBorder,
-		Border:   renderer.BorderWhite,
+		Border:   renderer.BorderWhite, // fully lit outside frustum
 		MaxLod:   1,
 	})
-	// Transfer on both ends: one atlas is the source of a cached tile and the
+	
+	// Transfer in both directions: one atlas is the source of a cached tile and the
 	// destination of another's copy
 	spec := renderer.ImageSpec{
 		Width: atlasSize, Height: atlasSize, Format: renderer.FormatDepth32F,

@@ -20,7 +20,7 @@ var (
 )
 
 // Provides the active scene to the input handlers, whose camera they drive
-func SetScene(scene *scene.Scene) { // TODO: review
+func SetScene(scene *scene.Scene) { 
 	s = scene
 }
 

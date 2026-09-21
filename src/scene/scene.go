@@ -46,7 +46,7 @@ type Scene struct {
 }
 
 // Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
-func NewScene(path string, backend renderer.Backend) (Scene, error) { // TODO: review
+func NewScene(path string, backend renderer.Backend) (Scene, error) { 
 	// Parse the XML first: everything below needs the mesh and light counts
 	scene, err := LoadScene(path)
 	if err != nil {
@@ -56,7 +56,6 @@ func NewScene(path string, backend renderer.Backend) (Scene, error) { // TODO: r
 	scene.backend = backend
 	// Uploads each mesh's vertices, indices and material textures
 	for i := range scene.Meshes {
-		// TODO hereeee
 		if err := scene.Meshes[i].setup(backend); err != nil {
 			return Scene{}, fmt.Errorf("mesh %s: %w", scene.Meshes[i].Name, err)
 		}
@@ -72,7 +71,7 @@ func NewScene(path string, backend renderer.Backend) (Scene, error) { // TODO: r
 }
 
 // Returns a scene with nothing in it, for running the app with UI only
-func EmptyScene() Scene { // TODO: review
+func EmptyScene() Scene { 
 	var scene Scene
 	scene.Meshes = make([]Mesh, 0)
 	scene.Lights = make([]Light, 0)
@@ -95,7 +94,7 @@ func (scene *Scene) UpdateMeshes() { // TODO: review
 }
 
 // Finds a mesh by name, returning nil when the scene has none
-func (scene *Scene) Mesh(name string) *Mesh { // TODO: review
+func (scene *Scene) FindMesh(name string) *Mesh { 
 	for i, mesh := range scene.Meshes {
 		if mesh.Name == name {
 			return &scene.Meshes[i]

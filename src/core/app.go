@@ -140,6 +140,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 
 		// Before Frame, which is where a resize is discovered: the frame that
 		// discovers one records nothing, so this is what catches up to it
+		// TODO here
 		targets.ensure(backend)
 
 		world.Update(time.Second / 60)

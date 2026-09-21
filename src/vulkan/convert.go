@@ -266,12 +266,13 @@ func toVkBlendAttachment(mode renderer.BlendMode) vk.PipelineColorBlendAttachmen
 
 // Creates a sampler from its whole state, the caller deciding filtering,
 // wrapping, border and whether it compares
-func (backend *VKBackend) CreateSampler(spec renderer.SamplerSpec) renderer.SamplerHandle { // TODO: review
-	aniso := spec.MaxAnisotropy
-	if limit := backend.vkPhysDeviceProps.MaxSamplerAnisotropy; aniso > limit {
+func (backend *VKBackend) CreateSampler(spec renderer.SamplerSpec) renderer.SamplerHandle {
+	maxAnisotropy := spec.MaxAnisotropy
+	maxSamplerAnisotropy := backend.vkPhysDeviceProps.MaxSamplerAnisotropy
+	if maxAnisotropy > maxSamplerAnisotropy {
 		// Lower a request the device cannot meet: the config file is written
 		// once, the GPU it runs on is not
-		aniso = limit
+		maxAnisotropy = maxSamplerAnisotropy
 	}
 	sampler, err := vk.CreateSampler(backend.vkDevice, vk.SamplerCreateInfo{
 		MagFilter: toVkFilter(spec.Mag), MinFilter: toVkFilter(spec.Min),
@@ -279,8 +280,8 @@ func (backend *VKBackend) CreateSampler(spec renderer.SamplerSpec) renderer.Samp
 		AddressModeU:     toVkAddressMode(spec.OutsideU),
 		AddressModeV:     toVkAddressMode(spec.OutsideV),
 		AddressModeW:     toVkAddressMode(spec.OutsideW),
-		AnisotropyEnable: aniso > 1,
-		MaxAnisotropy:    aniso,
+		AnisotropyEnable: maxAnisotropy > 1,
+		MaxAnisotropy:    maxAnisotropy,
 		MinLod:           spec.MinLod,
 		MaxLod:           spec.MaxLod,
 		BorderColor:      toVkBorderColor(spec.Border),

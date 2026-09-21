@@ -63,76 +63,91 @@ type Pipelines struct {
 	Prepass    renderer.PipelineHandle
 }
 
-// Builds them, given the sample count the backbuffer rasterises at
-func NewPipelines(backend renderer.Backend) (Pipelines, error) { // TODO: review
+// Builds all rendering pipelines: the sample count comes from the swapchain and is
+// applied to every pipeline that writes to the backbuffer
+func NewPipelines(backend renderer.Backend) (Pipelines, error) { 
+	// Number of samples the swapchain renders with (0 = no MSAA).
 	samples := backend.Capacities().BackbufferSamples
 	var pipes Pipelines
 	var err error
 
-	// Shade only the fragments the prepass left, so an overdrawn pixel runs the
-	// light loop once rather than once per surface stacked behind it. EQUAL
-	// rejects a last-bit difference, which is why prepass.slang combines the
-	// same matrices in the same order forward.slang does
+	// Determine which depth comparison to use for the forward pass.
+	// If a depth pre‑pass is enabled we want EQUAL so the forward shader
+	// runs only once per pixel; otherwise we use a normal less‑than.
 	forwardCompare := renderer.CompareLess
 	if settings.DepthPrepass {
 		forwardCompare = renderer.CompareEqual
 	}
 
-	// The screen passes flip the viewport, which makes clip space y-up and
-	// inverts winding with it, so counter-clockwise stays front-facing
-	if pipes.Forward, err = backend.CreatePipeline(renderer.PipelineSpec{
+	// ---- forward pass ----------------------------------------------------
+	// Renders the world geometry with lighting. Uses the same depth comparison
+	// as the pre‑pass when DepthPrepass is true, otherwise it writes a normal
+	// depth value.
+	pipes.Forward, err = backend.CreatePipeline(renderer.PipelineSpec{
 		Name: "forward", Shader: "forward", Vertex: meshLayout,
 		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
 		DepthCompare: forwardCompare, DepthWrite: true, Blend: renderer.BlendAlpha,
 		ColorFormats: []renderer.Format{renderer.FormatBackbuffer},
-		DepthFormat:  renderer.FormatDepth32F, Samples: samples,
-	}); err != nil {
+		DepthFormat:  renderer.FormatDepth32F,
+		Samples:      samples,
+	})
+	if err != nil {
 		return pipes, fmt.Errorf("forward pipeline: %w", err)
 	}
 
-	// Ties pass, so the cube can sit exactly on the far plane
-	if pipes.Skybox, err = backend.CreatePipeline(renderer.PipelineSpec{
+	// ---- skybox ----------------------------------------------------------
+	// Draws the skybox cube behind everything. Uses less‑equal depth so it
+	// sits exactly on the far plane without being occluded.
+	pipes.Skybox, err = backend.CreatePipeline(renderer.PipelineSpec{
 		Name: "skybox", Shader: "skybox", Vertex: skyboxLayout,
 		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
 		DepthCompare: renderer.CompareLessEqual, DepthWrite: true, Blend: renderer.BlendAlpha,
 		ColorFormats: []renderer.Format{renderer.FormatBackbuffer},
-		DepthFormat:  renderer.FormatDepth32F, Samples: samples,
-	}); err != nil {
+		DepthFormat:  renderer.FormatDepth32F,
+		Samples:      samples,
+	})
+	if err != nil {
 		return pipes, fmt.Errorf("skybox pipeline: %w", err)
 	}
 
-	if pipes.Prepass, err = backend.CreatePipeline(renderer.PipelineSpec{
+	// ---- pre‑pass --------------------------------------------------------
+	// Depth‑only pass that writes a depth buffer for the forward pass.
+	// No colour is written.
+	pipes.Prepass, err = backend.CreatePipeline(renderer.PipelineSpec{
 		Name: "prepass", Shader: "prepass", Vertex: positionOnly,
 		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
 		DepthCompare: renderer.CompareLess, DepthWrite: true,
 		DepthFormat: renderer.FormatDepth32F, Samples: samples,
-	}); err != nil {
+	})
+	if err != nil {
 		return pipes, fmt.Errorf("prepass pipeline: %w", err)
 	}
 
-	// The atlas passes keep a positive viewport and pay for it here: clockwise
-	// is what a y-down clip space makes front-facing.
-	//
-	// Back-face culling, the scene default: front-face culling would bake the
-	// far side of a closed mesh and float a sphere above a lit disc of its own
-	// size (notes/FEATURES.md)
+	// ---- shadow atlas depth passes ---------------------------------------
+	// These run with 1‑sample (no MSAA) and use a positive viewport
+	// (clockwise winding), they write depth to the shadow atlases
 	shadow := renderer.PipelineSpec{
 		Vertex: positionOnly,
 		Cull:   renderer.CullBack, FrontFace: renderer.WindingClockwise,
 		DepthCompare: renderer.CompareLess, DepthWrite: true,
 		DepthFormat: renderer.FormatDepth32F, Samples: 1,
 	}
+
+	// Plane / cube depth pass
 	shadow.Name, shadow.Shader = "depth", "depth"
 	if pipes.Depth, err = backend.CreatePipeline(shadow); err != nil {
 		return pipes, fmt.Errorf("depth pipeline: %w", err)
 	}
-	// A face tile stores radial distance, which needs the fragment stage
+
+	// Point‑light depth pass – writes radial distance into the fragment.
 	shadow.Name, shadow.Shader = "depthPoint", "depth_point"
 	if pipes.DepthPoint, err = backend.CreatePipeline(shadow); err != nil {
 		return pipes, fmt.Errorf("depth_point pipeline: %w", err)
 	}
+
 	return pipes, nil
 }
+
 
 // What a run of draws shares: the pass they record into, the pipeline they use,
 // and the three block addresses that do not change between them

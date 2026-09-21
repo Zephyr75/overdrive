@@ -18,7 +18,7 @@ type Skybox struct {
 }
 
 // Uploads the skybox cube and loads its six face images as a cubemap
-func (skybox *Skybox) setup(backend renderer.Backend) error { // TODO: review
+func (skybox *Skybox) setup(backend renderer.Backend) error {
 	vertices := []float32{
 		// positions
 		-1.0, 1.0, -1.0,
@@ -81,8 +81,8 @@ func (skybox *Skybox) setup(backend renderer.Backend) error { // TODO: review
 	if err != nil {
 		return fmt.Errorf("skybox: %w", err)
 	}
-	// A skybox is never viewed at a grazing angle, so no anisotropy; clamped so
-	// a face's edge texels do not wrap into the opposite side
+	// A skybox is never viewed at a grazing angle, so no anisotropy, 
+	// clamped so a face's edge texels do not wrap into the opposite side
 	sampler := backend.CreateSampler(renderer.SamplerSpec{
 		Name: "skybox", Mag: renderer.FilterLinear, Min: renderer.FilterLinear,
 		Mipmap:   renderer.FilterLinear,

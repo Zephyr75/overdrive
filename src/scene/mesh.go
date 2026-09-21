@@ -53,8 +53,8 @@ type Mesh struct {
 	indexGroups [][]uint32 // one index list per material group, indexing into vertexData
 
 	backend     renderer.Backend
-	vertexBuf   renderer.BufferHandle
-	gpu         []renderer.MeshHandle // one handle per material face group
+	vertexBuffer   renderer.BufferHandle
+	meshesPerMaterial         []renderer.MeshHandle // one handle per material face group
 	needsUpdate bool                  // MoveBy/MoveTo was called since the last upload
 
 	initialPosition mgl32.Vec3 // Position at load, what MoveBy/MoveTo offsets are relative to
@@ -318,19 +318,18 @@ func (mesh *Mesh) fillVertices() { // TODO: review
 }
 
 // Uploads the mesh's vertex buffer, one mesh handle per face group, and its material textures
-func (mesh *Mesh) setup(backend renderer.Backend) error { // TODO: review
+func (mesh *Mesh) setup(backend renderer.Backend) error { 
 	mesh.backend = backend
 
-	// Share one vertex buffer across the face groups, each group owning only
-	// its index list
-	mesh.vertexBuf, _ = backend.CreateBuffer(renderer.BufferSpec{
+	// Share one vertex buffer across the face groups, each group owning only its index list
+	mesh.vertexBuffer, _ = backend.CreateBuffer(renderer.BufferSpec{
 		Name: mesh.Name, Usage: renderer.BufferVertex, Location: renderer.LocationHost,
 		InitialData: mesh.vertexData,
 	})
-	mesh.gpu = make([]renderer.MeshHandle, len(mesh.indexGroups))
+	mesh.meshesPerMaterial = make([]renderer.MeshHandle, len(mesh.indexGroups))
 	for i, face := range mesh.indexGroups {
-		mesh.gpu[i] = backend.CreateMesh(renderer.MeshSpec{
-			Name: mesh.Name, Vertices: mesh.vertexBuf, Indices: face, Stride: meshStride,
+		mesh.meshesPerMaterial[i] = backend.CreateMesh(renderer.MeshSpec{
+			Name: mesh.Name, Vertices: mesh.vertexBuffer, Indices: face, Stride: meshStride,
 		})
 	}
 
@@ -358,7 +357,7 @@ func (mesh *Mesh) setup(backend renderer.Backend) error { // TODO: review
 }
 
 // Uploads tightly packed RGBA8 pixels as a sampled 2D image
-func uploadTexture(backend renderer.Backend, name string, pixels []byte, width, height int) renderer.ImageHandle { // TODO: review
+func uploadTexture(backend renderer.Backend, name string, pixels []byte, width, height int) renderer.ImageHandle {
 	img := backend.CreateImage(renderer.ImageSpec{
 		Name: name, Width: width, Height: height, Format: renderer.FormatRGBA8,
 		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
@@ -372,7 +371,7 @@ func (mesh *Mesh) updateVertices() { // TODO: review
 	if !mesh.needsUpdate {
 		return
 	}
-	mesh.backend.UpdateBuffer(mesh.vertexBuf, 0, mesh.vertexData)
+	mesh.backend.UpdateBuffer(mesh.vertexBuffer, 0, mesh.vertexData)
 	mesh.needsUpdate = false
 }
 
@@ -398,6 +397,6 @@ func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) { // T
 			uniforms.UseNormalMap = 1
 		}
 
-		ctx.draw(mesh.gpu[i], uniforms)
+		ctx.draw(mesh.meshesPerMaterial[i], uniforms)
 	}
 }

@@ -512,14 +512,13 @@ func (backend *VKBackend) immediateSubmit(record func(commandBuffer vk.CommandBu
 	fatalVk(vk.QueueWaitIdle(backend.vkQueue), "wait one-time")
 }
 
-// Drains the frames in flight, required before touching a resource an
-// already-submitted frame might read
-//
-// Skips the frame being recorded: its fence was reset at the start of the frame
-// and is only signalled at the end, so waiting on it from inside would deadlock
-func (backend *VKBackend) waitAllFrames() { // TODO: review
+// Blocks until all frames except the one that is currently
+// being recorded are finished: this guarantees that no GPU command is
+// still reading from a buffer that the CPU is about to modify
+func (backend *VKBackend) waitAllFrames() { 
 	fences := make([]vk.Fence, 0, framesInFlight)
 	for i := range backend.frames {
+		// Skip the frame that is currently being recorded
 		if backend.recording && i == backend.frameIndex {
 			continue
 		}

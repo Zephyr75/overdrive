@@ -91,13 +91,13 @@ func main() { // TODO: review
 func createWorld(scene *scene.Scene) *ecs.World { // TODO: review
 	world := ecs.World{}
 
-	if mesh := scene.Mesh("Ground"); mesh != nil {
+	if mesh := scene.FindMesh("Ground"); mesh != nil {
 		world.AddEntities(&StaticCollider{physics.NewPlaneFromMesh(mesh, true)})
 	}
-	if mesh := scene.Mesh("Sphere2"); mesh != nil {
+	if mesh := scene.FindMesh("Sphere2"); mesh != nil {
 		world.AddEntities(&StaticCollider{physics.NewSphereFromMesh(mesh, true)})
 	}
-	if mesh := scene.Mesh("Sphere"); mesh != nil {
+	if mesh := scene.FindMesh("Sphere"); mesh != nil {
 		world.AddEntities(&Sphere{physics.NewSphereFromMesh(mesh, false), mesh})
 	}
 

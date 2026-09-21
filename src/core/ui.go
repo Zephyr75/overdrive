@@ -42,7 +42,7 @@ type overlay struct {
 }
 
 // Builds the overlay's quad, pipeline and first canvas image
-func newOverlay(backend renderer.Backend) (*overlay, error) { // TODO: review
+func newOverlay(backend renderer.Backend) (*overlay, error) { 
 	ovl := &overlay{backend: backend, lastMap: map[string]bool{}}
 
 	buf, _ := backend.CreateBuffer(renderer.BufferSpec{
@@ -78,9 +78,6 @@ func newOverlay(backend renderer.Backend) (*overlay, error) { // TODO: review
 }
 
 // Replaces the canvas image when the window size changed
-//
-// The old one goes through Destroy, which retires it behind the frames in
-// flight and only then gives its bindless slot back
 func (ovl *overlay) resize(width, height int) { // TODO: review
 	if ovl.image != 0 && ovl.width == width && ovl.height == height {
 		return

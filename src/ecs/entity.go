@@ -11,12 +11,12 @@ type World struct {
 }
 
 // Adds entities to the world
-func (world *World) AddEntities(entities ...Entity) { // TODO: review
+func (world *World) AddEntities(entities ...Entity) {
 	world.entities = append(world.entities, entities...)
 }
 
 // Runs every entity's Init once, before the first frame
-func (world *World) Init() { // TODO: review
+func (world *World) Init() { 
 	for _, entity := range world.entities {
 		entity.Init(world)
 	}

@@ -72,12 +72,12 @@ func isRoot(dir string) bool { // TODO: review
 }
 
 // Resolves a path under the project root, leaving an absolute one alone
-func resolve(parts ...string) string { // TODO: review
+func resolve(parts ...string) string { 
 	return filepath.Join(append([]string{Root()}, parts...)...)
 }
 
 // Returns the path of a top-level asset, such as a scene XML or a font
-func Asset(name string) string { return resolve(assetsDir, name) } // TODO: review
+func Asset(name string) string { return resolve(assetsDir, name) } 
 
 // Returns the path of an OBJ or MTL file
 func Mesh(name string) string { return resolve(meshesDir, name) } // TODO: review
