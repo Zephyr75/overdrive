@@ -47,7 +47,7 @@ type vkCompute struct {
 // Frame records one rendering frame.
 // It waits on the previous frame’s fence, acquires a swap‑chain image,
 // resets/records a command buffer, submits it, and presents the image.
-func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
+func (backend *VKBackend) Frame(record func(renderer.Frame)) {
 	// No backend means nothing to do
 	if backend.vkDevice == 0 {
 		return
@@ -102,7 +102,6 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 	// and use it when rendering the next frame
 	backend.executePendingUploads(frame.vkCommandBuffer)
 
-	// TODO here2
 	// Record the user’s frame closure, passing a thin wrapper that hides
 	// the backend and exposes the command buffer
 	backend.recording = true
@@ -127,9 +126,10 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 
 	// Present the swapchain image. Handle OutOfDate/Suboptimal by recreating
 	// the swapchain: the caller will rebuild its targets next frame
-	if err := vk.QueuePresentKHR(backend.vkQueue,
+	err = vk.QueuePresentKHR(backend.vkQueue,
 		backend.vkRenderSemaphores[backend.imageIndex],
-		backend.vkSwapchain, backend.imageIndex); err != nil {
+		backend.vkSwapchain, backend.imageIndex)
+	if err != nil {
 		if err == vk.ErrOutOfDateKHR || err == vk.SuboptimalKHR {
 			backend.recreateSwapchain()
 		} else {
