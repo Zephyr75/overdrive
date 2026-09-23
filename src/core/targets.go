@@ -24,13 +24,11 @@ type screenTargets struct {
 	colorView renderer.ViewHandle
 }
 
-// Rebuilds the targets when the swapchain has resized under them, which is the
-// only thing that invalidates them
-//
-// Called before Backend.Frame, never inside it: a frame that found the surface
-// out of date rebuilds the swapchain and records nothing, so by the time this
-// runs the size is already the new one and the old images are unreferenced
-func (targets *screenTargets) ensure(backend renderer.Backend) {
+// rebuildOnResize guarantees that the window‑sized depth and (if MSAA > 1) colour
+// images match the current swapchain size. It is called once per frame
+// before the backend records a new frame. If the surface size has changed
+// the old targets are destroyed and new ones created.
+func (targets *screenTargets) rebuildOnResize(backend renderer.Backend) {
 	width, height := backend.BackbufferSize()
 	if width == targets.width && height == targets.height {
 		return

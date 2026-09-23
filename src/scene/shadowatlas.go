@@ -843,7 +843,7 @@ func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) { // TODO
 }
 
 // Returns how many tiles the last frame baked into each atlas
-func (scene *Scene) BakeCounts() (static, dynamic int) { return scene.staticBakes, scene.dynamicBakes } // TODO: review
+func (scene *Scene) BakeCounts() (static, dynamic int) { return scene.staticBakes, scene.dynamicBakes } 
 
 // Returns this frame's shadow tiles, which the caller uploads once per frame
-func (scene *Scene) ShadowRecords() []renderer.ShadowTile { return scene.shadowTiles } // TODO: review
+func (scene *Scene) ShadowRecords() []renderer.ShadowTile { return scene.shadowTiles } 

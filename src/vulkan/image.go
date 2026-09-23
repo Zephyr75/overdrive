@@ -252,15 +252,15 @@ func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, image 
 	backend.useImage(commandBuffer, image, useSampled)
 }
 
-// Records the copies staged during the previous frame, from the top of this one
-func (backend *VKBackend) flushPendingUploads(commandBuffer vk.CommandBuffer) { // TODO: review
+// Records the copies staged during the previous frame, from the top of this one.
+func (backend *VKBackend) executePendingUploads(commandBuffer vk.CommandBuffer) { 
 	for _, handle := range backend.pendingUploads {
-		info := backend.image(handle)
-		if info == nil {
+		image := backend.image(handle)
+		if image == nil {
 			continue
 		}
-		backend.recordImageCopy(commandBuffer, info, info.stagingBuffer, info.pendingCopy)
-		info.pending = false
+		backend.recordImageCopy(commandBuffer, image, image.stagingBuffer, image.pendingCopy)
+		image.pending = false
 	}
 	backend.pendingUploads = backend.pendingUploads[:0]
 }

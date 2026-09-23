@@ -14,14 +14,14 @@ import (
 // Everything one in-flight frame owns: its command buffer, sync objects and
 // upload arena
 type frame struct {
-	vkCommandBuffer    vk.CommandBuffer // for recording
-	vkFence            vk.Fence // signals when GPU has finished the frame
-	vkAcquireSemaphore vk.Semaphore // can be presented
-	vkArenaBuffer            vk.Buffer
-	vmaArenaAlloc       vk.VmaAllocation
-	arenaMapped      unsafe.Pointer
-	arenaAddr        uint64
-	arenaUsed        uint64
+	vkCommandBuffer    vk.CommandBuffer // command buffer for recording commands
+	vkFence            vk.Fence         // signals when GPU has finished the frame
+	vkAcquireSemaphore vk.Semaphore     // signals when image is ready to be presented
+	vkArenaBuffer      vk.Buffer // holds the frame's uniform arena
+	vmaArenaAlloc      vk.VmaAllocation // vma allocation of the arena buffer
+	arenaMapped        unsafe.Pointer // CPU pointer to the mapped arena region
+	arenaAddr          uint64 // GPU-side address of the uniform arena buffer
+	arenaUsed          uint64 // number of bytes already stored in the arena, max size is constant `arenaSize`
 }
 
 // The recording handles. A Pass value cannot exist outside Frame.Pass, so the
@@ -35,8 +35,8 @@ type vkFrame struct {
 type vkPass struct {
 	VKBackend       *VKBackend
 	vkCommandBuffer vk.CommandBuffer
-	flipY         bool
-	width, height int
+	flipY           bool
+	width, height   int
 }
 
 type vkCompute struct {
@@ -44,24 +44,27 @@ type vkCompute struct {
 	vkCommandBuffer vk.CommandBuffer
 }
 
-// Records and submits one frame
+// Frame records one rendering frame.
+// It waits on the previous frame’s fence, acquires a swap‑chain image,
+// resets/records a command buffer, submits it, and presents the image.
 func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
+	// No backend means nothing to do
 	if backend.vkDevice == 0 {
 		return
 	}
-	info := &backend.frames[backend.frameIndex]
 
-	// Throttle the CPU here: without it frame N+2 would overwrite the arena and
-	// the command buffer while the GPU still reads them
-	fatalVk(vk.WaitForFences(backend.vkDevice, []vk.Fence{info.vkFence}, true, math.MaxUint64), "wait frame fence")
+	// Grab the bookkeeping entry for the current frame
+	frame := &backend.frames[backend.frameIndex]
 
-	idx, err := vk.AcquireNextImageKHR(backend.vkDevice, backend.vkSwapchain, math.MaxUint64, info.vkAcquireSemaphore, 0)
-	// The swapchain is a new size, so every image the caller sized to the old
-	// one is too small for this frame's render area. Rebuild and record
-	// nothing: the caller compares BackbufferSize before its next Frame and
-	// rebuilds its own images then. Returning here rather than re-acquiring is
-	// what leaves the acquire semaphore unsignalled, which is the state the
-	// next acquire needs it in
+	// Wait for the GPU to finish the previous command buffer for this frame
+	fatalVk(vk.WaitForFences(backend.vkDevice, []vk.Fence{frame.vkFence},
+		true, math.MaxUint64), "wait frame fence")
+
+	// Acquire the next swapchain image. If the swapchain is out‑of‑date
+	// (resized) we recreate it and return: the caller will rebuild its
+	// own per‑frame targets on the next Frame call.
+	idx, err := vk.AcquireNextImageKHR(backend.vkDevice, backend.vkSwapchain,
+		math.MaxUint64, frame.vkAcquireSemaphore, 0)
 	if err == vk.ErrOutOfDateKHR {
 		backend.recreateSwapchain()
 		return
@@ -71,50 +74,70 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) { // TODO: review
 	}
 	backend.imageIndex = idx
 
-	fatalVk(vk.ResetFences(backend.vkDevice, []vk.Fence{info.vkFence}), "reset frame fence")
-	info.arenaUsed = 0
+	// Reset the frame fence and clear the arena‑usage counter
+	fatalVk(vk.ResetFences(backend.vkDevice, []vk.Fence{frame.vkFence}),
+		"reset frame fence")
+	frame.arenaUsed = 0
 	backend.frameCounter++
 	backend.drainRetired()
 
-	fatalVk(vk.ResetCommandBuffer(info.vkCommandBuffer), "reset command buffer")
-	fatalVk(vk.BeginCommandBuffer(info.vkCommandBuffer, vk.CommandBufferUsageOneTimeSubmit), "begin command buffer")
+	// Reset and begin the command buffer that will record this frame
+	fatalVk(vk.ResetCommandBuffer(frame.vkCommandBuffer),
+		"reset command buffer")
+	fatalVk(vk.BeginCommandBuffer(frame.vkCommandBuffer,
+		vk.CommandBufferUsageOneTimeSubmit), "begin command buffer")
 
-	// One descriptor set for the whole frame, only its contents changing
-	vk.CmdBindDescriptorSets(info.vkCommandBuffer, vk.PipelineBindPointGraphics, backend.vkPipelineLayout, 0,
-		[]vk.DescriptorSet{backend.vkDescriptorSet})
-	vk.CmdBindDescriptorSets(info.vkCommandBuffer, vk.PipelineBindPointCompute, backend.vkPipelineLayout, 0,
-		[]vk.DescriptorSet{backend.vkDescriptorSet})
+	// Bind the single descriptor set that holds all bindless (accessed by linear index) descriptors
+	vk.CmdBindDescriptorSets(frame.vkCommandBuffer, vk.PipelineBindPointGraphics,
+		backend.vkPipelineLayout, 0, []vk.DescriptorSet{backend.vkDescriptorSet})
+	vk.CmdBindDescriptorSets(frame.vkCommandBuffer, vk.PipelineBindPointCompute,
+		backend.vkPipelineLayout, 0, []vk.DescriptorSet{backend.vkDescriptorSet})
 
-	// The swapchain image holds nothing worth keeping, so this frame's first
-	// pass on it discards rather than loads
+	// Mark the swapchain image as unused
 	backend.swapchainImages[backend.imageIndex].use = useNone
 
-	// Anything staged during the previous frame's passes, copies being legal
-	// only outside a render pass
-	backend.flushPendingUploads(info.vkCommandBuffer)
+	// Record copies of all pending uploads
+	// Example: shadow map has been updated mid-frame but is still being read,
+	// then we wait for the beginning of next frame to upload the new shadow map value
+	// and use it when rendering the next frame
+	backend.executePendingUploads(frame.vkCommandBuffer)
 
+	// TODO here2
+	// Record the user’s frame closure, passing a thin wrapper that hides
+	// the backend and exposes the command buffer
 	backend.recording = true
-	record(&vkFrame{VKBackend: backend, vkCommandBuffer: info.vkCommandBuffer})
+	record(&vkFrame{VKBackend: backend, vkCommandBuffer: frame.vkCommandBuffer})
 	backend.recording = false
 
-	backend.useImage(info.vkCommandBuffer, &backend.swapchainImages[backend.imageIndex], usePresent)
-	fatalVk(vk.EndCommandBuffer(info.vkCommandBuffer), "end command buffer")
+	// Record a transition to the present layout for the swapchain image
+	backend.useImage(frame.vkCommandBuffer,
+		&backend.swapchainImages[backend.imageIndex], usePresent)
+	fatalVk(vk.EndCommandBuffer(frame.vkCommandBuffer),
+		"end command buffer")
 
-	// Wait on the frame's semaphore, signal the image's: present waits on the
-	// image's own, and the two index spaces are not interchangeable
+	// Submit the command buffer to the GPU, signalling the render
+	// semaphore for the image when finished
 	fatalVk(vk.QueueSubmit2(backend.vkQueue, []vk.SubmitInfo2{{
-		WaitSemaphores:   []vk.SemaphoreSubmitInfo{{Semaphore: info.vkAcquireSemaphore, StageMask: vk.PipelineStage2ColorAttachmentOutput}},
-		CommandBuffers:   []vk.CommandBuffer{info.vkCommandBuffer},
-		SignalSemaphores: []vk.SemaphoreSubmitInfo{{Semaphore: backend.vkRenderSemaphores[backend.imageIndex], StageMask: vk.PipelineStage2AllCommands}},
-	}}, info.vkFence), "queue submit")
+		WaitSemaphores: []vk.SemaphoreSubmitInfo{{Semaphore: frame.vkAcquireSemaphore,
+			StageMask: vk.PipelineStage2ColorAttachmentOutput}},
+		CommandBuffers: []vk.CommandBuffer{frame.vkCommandBuffer},
+		SignalSemaphores: []vk.SemaphoreSubmitInfo{{Semaphore: backend.vkRenderSemaphores[backend.imageIndex],
+			StageMask: vk.PipelineStage2AllCommands}},
+	}}, frame.vkFence), "queue submit")
 
-	if err := vk.QueuePresentKHR(backend.vkQueue, backend.vkRenderSemaphores[backend.imageIndex], backend.vkSwapchain, backend.imageIndex); err != nil {
+	// Present the swapchain image. Handle OutOfDate/Suboptimal by recreating
+	// the swapchain: the caller will rebuild its targets next frame
+	if err := vk.QueuePresentKHR(backend.vkQueue,
+		backend.vkRenderSemaphores[backend.imageIndex],
+		backend.vkSwapchain, backend.imageIndex); err != nil {
 		if err == vk.ErrOutOfDateKHR || err == vk.SuboptimalKHR {
 			backend.recreateSwapchain()
 		} else {
 			fmt.Fprintf(os.Stderr, "vulkan: present failed: %v\n", err)
 		}
 	}
+
+	// Advance the frame index for the next iteration
 	backend.frameIndex = (backend.frameIndex + 1) % framesInFlight
 }
 

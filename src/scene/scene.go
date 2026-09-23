@@ -81,7 +81,7 @@ func EmptyScene() Scene {
 }
 
 // Reuploads the vertices of every mesh a physics step moved this frame
-func (scene *Scene) UpdateMeshes() { // TODO: review
+func (scene *Scene) UpdateMeshes() { 
 	if scene == nil {
 		return
 	}

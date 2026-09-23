@@ -23,7 +23,7 @@ func (world *World) Init() {
 }
 
 // Steps every entity, resolves collisions pairwise, then integrates the Verlet positions
-func (world *World) Update(timeInterval time.Duration) { // TODO: review
+func (world *World) Update(timeInterval time.Duration) { 
 	for _, entity := range world.entities {
 		entity.Update(world)
 	}
