@@ -253,13 +253,13 @@ type shadowRequest struct {
 // Rank picks the slot, the tier caps it. Running out costs the least important
 // light its resolution, a pool at a time, and never costs frame time
 func (atlas *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) { // TODO: review
-	reqs := atlas.rankRequests(lights, camPos)
+	shadowRequests := atlas.rankRequests(lights, camPos)
+	poolAssignments, availableSlotsCountPerSize := atlas.planByTier(shadowRequests)
 	// TODO here3
-	plan, avail := atlas.planByTier(reqs)
-	atlas.offerSpareSlots(reqs, plan, avail)
-	keep := atlas.keepMatchingAllocs(reqs, plan)
+	atlas.offerSpareSlots(shadowRequests, poolAssignments, availableSlotsCountPerSize)
+	keep := atlas.keepMatchingAllocs(shadowRequests, poolAssignments)
 	atlas.rebuildFreeLists()
-	atlas.assignPlanned(reqs, plan, keep)
+	atlas.assignPlanned(shadowRequests, poolAssignments, keep)
 }
 
 // Scores every light, applies the tier hysteresis and sorts by rank.
@@ -307,48 +307,55 @@ func (atlas *shadowAtlas) rankRequests(lights []Light, camPos mgl32.Vec3) []shad
 	return reqs
 }
 
-// Phase 1: plans against slot counts alone, in rank order, before touching what
-// anyone holds — pools run largest first, so the first one both small enough and
-// deep enough is the best slot this light is allowed
-func (atlas *shadowAtlas) planByTier(reqs []shadowRequest) (map[int32]int, []int) { // TODO: review
-	plan := make(map[int32]int, len(reqs))
-	avail := make([]int, len(atlas.slotsPool))
+// Assigns an atlas pool to each shadow request until all slots are taken
+func (atlas *shadowAtlas) planByTier(requests []shadowRequest) (map[int32]int, []int) { 
+	poolAssignments := make(map[int32]int, len(requests))
+
+	// Compute available slots count per size
+	availableSlotsCountPerSize := make([]int, len(atlas.slotsPool))
 	for i := range atlas.slotsPool {
-		avail[i] = len(atlas.slotsPool[i].slots)
+		availableSlotsCountPerSize[i] = len(atlas.slotsPool[i].slots)
 	}
-	for _, req := range reqs {
+
+	// Assign a pool to each request until full
+	for _, req := range requests {
 		for poolIdx := range atlas.slotsPool {
-			if atlas.slotsPool[poolIdx].size > req.sizeWanted || avail[poolIdx] < req.tilesCount {
+			// If slot size is too big or there are not enough slots for the request, 
+			// we move to the next slot size (slot sizes go from largest to smallest)
+			if atlas.slotsPool[poolIdx].size > req.sizeWanted || availableSlotsCountPerSize[poolIdx] < req.tilesCount {
 				continue
 			}
-			avail[poolIdx] -= req.tilesCount
-			plan[req.index] = poolIdx
+			// Remove tiles from the available list of that pool
+			availableSlotsCountPerSize[poolIdx] -= req.tilesCount
+			// Assign pool to request
+			poolAssignments[req.index] = poolIdx
 			break
 		}
 	}
-	return plan, avail
+	return poolAssignments, availableSlotsCountPerSize
 }
 
-// Phase 1b: re-offers spare slots to lights under their ceiling, never to lights
-// at it (LIGHTING_PLAN.md §4.3: offering to everyone stops the score selecting a
-// size at all)
+// Phase 1b: upgrades lights that landed under their ceiling into any pool left
+// over from phase 1, largest spare first. A light already at its ceiling is
+// skipped (LIGHTING_PLAN.md §4.3: offering to everyone stops the score
+// selecting a size at all)
 func (atlas *shadowAtlas) offerSpareSlots(reqs []shadowRequest, plan map[int32]int, avail []int) { // TODO: review
 	for _, req := range reqs {
 		poolIdx, planned := plan[req.index]
 		if planned && atlas.slotsPool[poolIdx].size >= req.sizeWanted {
-			continue
+			continue // already at its ceiling, nothing to offer
 		}
 		for otherIdx := range atlas.slotsPool {
 			if planned && atlas.slotsPool[otherIdx].size <= atlas.slotsPool[poolIdx].size {
 				break // nothing larger than what it already has is spare
 			}
 			if avail[otherIdx] < req.tilesCount {
-				continue
+				continue // this pool can't fit the request, try the next
 			}
 			if planned {
-				avail[poolIdx] += req.tilesCount
+				avail[poolIdx] += req.tilesCount // hand back the smaller pool it's leaving
 			}
-			avail[otherIdx] -= req.tilesCount
+			avail[otherIdx] -= req.tilesCount // claim the bigger pool
 			plan[req.index] = otherIdx
 			break
 		}
