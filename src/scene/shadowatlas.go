@@ -80,7 +80,7 @@ type shadowAtlas struct {
 	dynamicView  renderer.ViewHandle
 
 	slotsPool   []slotsPool           // one per size, largest first
-	lightAllocs map[int32]*lightAlloc // by index into Scene.Lights
+	lightAllocs map[int32]*lightAlloc // map of light allocs from a light index in Scene.Lights
 }
 
 // One slot of the fixed layout: a top-left corner that never moves
@@ -197,47 +197,34 @@ func zOrder(cell int) (int, int) { // TODO: review
 
 // --- allocation policy -------------------------------------------------------
 
-// The tier a raw score earns, len(shadowTiers) meaning no tile at all
-func rawTier(score float32) int { // TODO: review
+// The tier a light should hold, given what it holds now: 
+// both directions need the score to clear the threshold by nextTierThreshold,
+// between the two the light keeps what it has
+func tierFor(score float32, cur int) int { 
+	scoreTier := len(shadowTiers)
 	for i, tier := range shadowTiers {
 		if score > tier.minScore {
-			return i
+			scoreTier = i
 		}
 	}
-	return len(shadowTiers)
-}
 
-// The tier a light should hold, given what it holds now
-//
-// Both directions need the score to clear the threshold by nextTierThreshold;
-// between the two the light keeps what it has
-func tierFor(score float32, cur int) int { // TODO: review
-	switch want := rawTier(score); {
-	case want < cur: // a smaller index is a bigger tile
-		if score > shadowTiers[want].minScore*nextTierThreshold {
-			return want
+	switch {
+	case scoreTier < cur: // a smaller index is a bigger tile
+		if score > shadowTiers[scoreTier].minScore*nextTierThreshold {
+			return scoreTier
 		}
-	case want > cur:
+	case scoreTier > cur:
 		if score < shadowTiers[cur].minScore/nextTierThreshold {
-			return want
+			return scoreTier
 		}
 	}
 	return cur
 }
 
-// How many tiles a light needs: one per cube face, or one
-func tileCount(light *Light) int { // TODO: review
-	if light.Type == renderer.LightPoint {
-		return 6
-	}
-	return 1
-}
-
-// A light's screen-space importance: how much of the view its lit volume covers
-//
+// A light's screen-space importance: how much of the view its lit volume covers.
 // A sun has no radius and no position that means anything to this, and it is the
 // one light every pixel sees, so it outranks everything scored.
-func lightScore(light *Light, camPos mgl32.Vec3) float32 { // TODO: review
+func lightScore(light *Light, camPos mgl32.Vec3) float32 { 
 	if light.Type == renderer.LightSun {
 		return math.MaxFloat32
 	}
@@ -249,18 +236,16 @@ func lightScore(light *Light, camPos mgl32.Vec3) float32 { // TODO: review
 }
 
 // Gives back everything a light holds
-//
-// Only the map entry: the free lists are rebuilt wholesale from what survives
-func (atlas *shadowAtlas) drop(light int32) { // TODO: review
+func (atlas *shadowAtlas) drop(light int32) { 
 	delete(atlas.lightAllocs, light)
 }
 
 // One light's claim on the atlas this frame, as the ranked phases see it
-type request struct {
-	idx        int32
-	eff        float32 // score, times slotStickiness when the light already holds slots
-	tier, want int     // index into shadowTiers, -1 for a sun, and the size it caps at
-	count      int     // tiles needed: 6 for a point light, 1 otherwise
+type shadowRequest struct {
+	index        int32
+	effectiveScore        float32 // score, times slotStickiness when the light already holds slots
+	tier, sizeWanted int     // index into shadowTiers, -1 for a sun, and the size it caps at
+	tilesCount      int     // tiles needed: 6 for a point light, 1 otherwise
 }
 
 // Rescores every light and hands out the fixed layout's slots
@@ -269,6 +254,7 @@ type request struct {
 // light its resolution, a pool at a time, and never costs frame time
 func (atlas *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) { // TODO: review
 	reqs := atlas.rankRequests(lights, camPos)
+	// TODO here3
 	plan, avail := atlas.planByTier(reqs)
 	atlas.offerSpareSlots(reqs, plan, avail)
 	keep := atlas.keepMatchingAllocs(reqs, plan)
@@ -276,46 +262,55 @@ func (atlas *shadowAtlas) allocate(lights []Light, camPos mgl32.Vec3) { // TODO:
 	atlas.assignPlanned(reqs, plan, keep)
 }
 
-// Scores every light, applies the tier hysteresis and sorts by rank
-//
+// Scores every light, applies the tier hysteresis and sorts by rank.
 // A light already holding slots ranks above an equal challenger, so the two
-// either side of the last free slot do not trade it every frame
-func (atlas *shadowAtlas) rankRequests(lights []Light, camPos mgl32.Vec3) []request { // TODO: review
-	reqs := make([]request, 0, len(lights))
+// either side of the last free slot do not trade it every frame.
+func (atlas *shadowAtlas) rankRequests(lights []Light, camPos mgl32.Vec3) []shadowRequest { 
+	reqs := make([]shadowRequest, 0, len(lights))
 	for i := range lights {
 		light := &lights[i]
-		cur, held := len(shadowTiers), false
+		current, held := len(shadowTiers), false
 		if alloc, ok := atlas.lightAllocs[int32(i)]; ok {
-			cur, held = alloc.tier, true
+			current, held = alloc.tier, true
 		}
 		score := lightScore(light, camPos)
 		// A sun is never scored, so it never enters shadowTiers: tier -1
-		tier, want := -1, sunTileSize
+		tier, sizeWanted := -1, sunTileSize
 		if light.Type != renderer.LightSun {
-			tier = tierFor(score, cur)
+			tier = tierFor(score, current)
 			if tier == len(shadowTiers) {
 				atlas.drop(int32(i))
 				continue
 			}
-			want = shadowTiers[tier].size
+			sizeWanted = shadowTiers[tier].size
 		}
-		eff := score
+
+		// If light alreadys holds a shadow, it gets extra stickiness to avoid being replaced
+		// by a light very close in score since switching to a new light is expensive
+		effectiveScore := score
 		if held {
-			eff *= slotStickiness
+			effectiveScore *= slotStickiness
 		}
-		reqs = append(reqs, request{
-			idx: int32(i), eff: eff,
-			tier: tier, want: want, count: tileCount(light),
+		
+		tilesCount := 1
+		if light.Type == renderer.LightPoint {
+			tilesCount = 6
+		}
+		reqs = append(reqs, shadowRequest{
+			index: int32(i), effectiveScore: effectiveScore,
+			tier: tier, sizeWanted: sizeWanted, tilesCount: tilesCount,
 		})
 	}
-	sort.SliceStable(reqs, func(i, j int) bool { return reqs[i].eff > reqs[j].eff })
+
+	// Sort by effective score
+	sort.SliceStable(reqs, func(i, j int) bool { return reqs[i].effectiveScore > reqs[j].effectiveScore })
 	return reqs
 }
 
 // Phase 1: plans against slot counts alone, in rank order, before touching what
 // anyone holds — pools run largest first, so the first one both small enough and
 // deep enough is the best slot this light is allowed
-func (atlas *shadowAtlas) planByTier(reqs []request) (map[int32]int, []int) { // TODO: review
+func (atlas *shadowAtlas) planByTier(reqs []shadowRequest) (map[int32]int, []int) { // TODO: review
 	plan := make(map[int32]int, len(reqs))
 	avail := make([]int, len(atlas.slotsPool))
 	for i := range atlas.slotsPool {
@@ -323,11 +318,11 @@ func (atlas *shadowAtlas) planByTier(reqs []request) (map[int32]int, []int) { //
 	}
 	for _, req := range reqs {
 		for poolIdx := range atlas.slotsPool {
-			if atlas.slotsPool[poolIdx].size > req.want || avail[poolIdx] < req.count {
+			if atlas.slotsPool[poolIdx].size > req.sizeWanted || avail[poolIdx] < req.tilesCount {
 				continue
 			}
-			avail[poolIdx] -= req.count
-			plan[req.idx] = poolIdx
+			avail[poolIdx] -= req.tilesCount
+			plan[req.index] = poolIdx
 			break
 		}
 	}
@@ -337,24 +332,24 @@ func (atlas *shadowAtlas) planByTier(reqs []request) (map[int32]int, []int) { //
 // Phase 1b: re-offers spare slots to lights under their ceiling, never to lights
 // at it (LIGHTING_PLAN.md §4.3: offering to everyone stops the score selecting a
 // size at all)
-func (atlas *shadowAtlas) offerSpareSlots(reqs []request, plan map[int32]int, avail []int) { // TODO: review
+func (atlas *shadowAtlas) offerSpareSlots(reqs []shadowRequest, plan map[int32]int, avail []int) { // TODO: review
 	for _, req := range reqs {
-		poolIdx, planned := plan[req.idx]
-		if planned && atlas.slotsPool[poolIdx].size >= req.want {
+		poolIdx, planned := plan[req.index]
+		if planned && atlas.slotsPool[poolIdx].size >= req.sizeWanted {
 			continue
 		}
 		for otherIdx := range atlas.slotsPool {
 			if planned && atlas.slotsPool[otherIdx].size <= atlas.slotsPool[poolIdx].size {
 				break // nothing larger than what it already has is spare
 			}
-			if avail[otherIdx] < req.count {
+			if avail[otherIdx] < req.tilesCount {
 				continue
 			}
 			if planned {
-				avail[poolIdx] += req.count
+				avail[poolIdx] += req.tilesCount
 			}
-			avail[otherIdx] -= req.count
-			plan[req.idx] = otherIdx
+			avail[otherIdx] -= req.tilesCount
+			plan[req.index] = otherIdx
 			break
 		}
 	}
@@ -362,14 +357,14 @@ func (atlas *shadowAtlas) offerSpareSlots(reqs []request, plan map[int32]int, av
 
 // Phase 2: a light whose plan lands in the pool it already holds keeps its exact
 // slots, so Part E can leave the tile baked. Everyone else gives theirs back
-func (atlas *shadowAtlas) keepMatchingAllocs(reqs []request, plan map[int32]int) map[int32]bool { // TODO: review
+func (atlas *shadowAtlas) keepMatchingAllocs(reqs []shadowRequest, plan map[int32]int) map[int32]bool { // TODO: review
 	keep := make(map[int32]bool, len(reqs))
 	for _, req := range reqs {
-		alloc, ok := atlas.lightAllocs[req.idx]
-		poolIdx, planned := plan[req.idx]
-		if ok && planned && alloc.pool == poolIdx && len(alloc.slots) == req.count {
+		alloc, ok := atlas.lightAllocs[req.index]
+		poolIdx, planned := plan[req.index]
+		if ok && planned && alloc.pool == poolIdx && len(alloc.slots) == req.tilesCount {
 			alloc.tier = req.tier
-			keep[req.idx] = true
+			keep[req.index] = true
 		}
 	}
 	for idx := range atlas.lightAllocs {
@@ -409,24 +404,24 @@ func (atlas *shadowAtlas) rebuildFreeLists() { // TODO: review
 //
 // The plan was made against the same counts and the keepers hold exactly what it
 // gave them, so a pool coming up short is a bug in the phases above
-func (atlas *shadowAtlas) assignPlanned(reqs []request, plan map[int32]int, keep map[int32]bool) { // TODO: review
+func (atlas *shadowAtlas) assignPlanned(reqs []shadowRequest, plan map[int32]int, keep map[int32]bool) { // TODO: review
 	for _, req := range reqs {
-		if keep[req.idx] {
+		if keep[req.index] {
 			continue
 		}
-		poolIdx, planned := plan[req.idx]
+		poolIdx, planned := plan[req.index]
 		if !planned {
 			continue
 		}
 		pool := &atlas.slotsPool[poolIdx]
-		if len(pool.free) < req.count {
+		if len(pool.free) < req.tilesCount {
 			panic("the shadow slot plan promised slots the pool does not hold")
 		}
-		idxs := make([]int, req.count)
-		copy(idxs, pool.free[len(pool.free)-req.count:])
-		pool.free = pool.free[:len(pool.free)-req.count]
+		idxs := make([]int, req.tilesCount)
+		copy(idxs, pool.free[len(pool.free)-req.tilesCount:])
+		pool.free = pool.free[:len(pool.free)-req.tilesCount]
 
-		atlas.lightAllocs[req.idx] = &lightAlloc{
+		atlas.lightAllocs[req.index] = &lightAlloc{
 			tier: req.tier, size: pool.size,
 			pool: poolIdx, slots: idxs,
 		}
@@ -501,9 +496,6 @@ type dynamicUpdate struct {
 
 // Allocates a tile per casting light, decides this frame's bake work and builds
 // the shadow records
-//
-// Runs before FillFrameUniforms and before the bake, both of which read what it
-// leaves behind
 func (scene *Scene) UpdateShadows(nearPlane, farPlane float32) { // TODO: review
 	scene.atlas.allocate(scene.Lights, scene.Cam.Pos)
 	scene.resetQueues()
