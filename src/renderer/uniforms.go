@@ -43,8 +43,8 @@ type LightData struct {
 // packing and both sides memcpy (notes/ENGINE_FLOW.md §5). Every Tex* member is
 // a shader-visible slot from Backend.Slot, not a handle.
 
-// One shadow tile: where it lives in the atlas and how to project into it
-// A sun or a spot owns one and a point light six consecutive ones
+// One shadow tile: where it lives in the atlas and how to project into it,
+// a sun or a spot owns one and a point light six consecutive ones
 type ShadowTile struct {
 	WorldToTile mgl32.Mat4 // world to this tile's clip space, both baking and sampling
 	AtlasCoords [4]float32 // uv offset.xy, uv scale.xy

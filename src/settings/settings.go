@@ -94,7 +94,7 @@ func IsMSAAEnabled() bool {
 }
 
 // Returns the combined resolution of dynamic shadow tiles a frame may spend rebuilding
-func ShadowBakeBudget() int { // TODO: review
+func ShadowBakeBudget() int { 
 	return ShadowBakeBudgetMiB << 20
 }
 

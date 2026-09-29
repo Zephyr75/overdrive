@@ -24,9 +24,9 @@ type Scene struct {
 	Skybox Skybox
 	Cam    Camera
 
-	// The one depth texture every shadow in the scene is a sub-rect of, plus the
-	// records describing the tiles handed out this frame
+	// The one depth texture every shadow in the scene is a sub-rect of
 	atlas       shadowAtlas
+	// The records describing the tiles handed out this frame
 	shadowTiles []renderer.ShadowTile
 
 	// This frame's bake work, as indices into Lights, and the tiles it drew into
