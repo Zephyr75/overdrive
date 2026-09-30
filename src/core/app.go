@@ -173,7 +173,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 			frameAddr = frame.Upload(&frameUniforms)
 
 			if loadedScene != nil {
-				recordAddr = frame.Upload(loadedScene.ShadowRecords())
+				recordAddr = frame.Upload(loadedScene.ShadowTiles())
 				// The static atlas when allocation moved, then the dynamic one:
 				// a settled scene bakes nothing at all
 				loadedScene.BakeShadows(frame, pipelines)

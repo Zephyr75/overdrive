@@ -245,11 +245,11 @@ func (backend *VKBackend) uploadNow(info *image, pixels []byte, copyRegion vk.Bu
 // Records one staged copy into an image, between the two transitions it needs
 func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, image *image, stagingBuffer vk.Buffer, copyRegion vk.BufferImageCopy) { 
 	// Record barrier to move the image to a state it can be copied to
-	backend.useImage(commandBuffer, image, useCopyDst)
+	backend.recordUseImage(commandBuffer, image, useCopyDst)
 	// The copy itself, naming the layout the barrier above just put the image in
 	vk.CmdCopyBufferToImage(commandBuffer, stagingBuffer, image.vkImage, vk.ImageLayoutTransferDstOptimal, []vk.BufferImageCopy{copyRegion})
 	// Record barrier to move image back to a layout a sampler can read
-	backend.useImage(commandBuffer, image, useSampled)
+	backend.recordUseImage(commandBuffer, image, useSampled)
 }
 
 // Records the copies staged during the previous frame, from the top of this one.
@@ -280,14 +280,11 @@ func (backend *VKBackend) image(handle renderer.ImageHandle) *image {
 }
 
 // Resolves a view handle to its view and the image behind it
-//
-// The one reserved view is the backend's own: Backbuffer is this frame's
-// swapchain image, which a multisampled pass names as its resolve target
-func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *image, int, int, uint32) { // TODO: review
+func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *image, int, int, uint32) {
 	switch handle {
 	case renderer.NoView:
 		return 0, nil, 0, 0, 0
-	case renderer.Backbuffer:
+	case renderer.Backbuffer: // this frame's swapchain image
 		info := &backend.swapchainImages[backend.imageIndex]
 		return info.vkView, info, int(backend.vkSwapExtent.Width), int(backend.vkSwapExtent.Height), 1
 	}

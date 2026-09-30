@@ -158,7 +158,7 @@ func LoadScene(path string) (Scene, error) {
 }
 
 // Writes the per-frame values into u: camera matrices, the light array, and the scene-wide texture handles
-func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) { // TODO: review
+func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) { 
 	uniforms.View = mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
 	uniforms.Projection = mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov),
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
@@ -247,6 +247,6 @@ func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes 
 
 // The images the main pass samples, which it must declare so they are
 // transitioned out of the layout the bake left them in
-func (scene *Scene) ShadowImages() []renderer.Handle { // TODO: review
+func (scene *Scene) ShadowImages() []renderer.Handle { 
 	return []renderer.Handle{scene.atlas.staticImage, scene.atlas.dynamicImage}
 }

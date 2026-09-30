@@ -67,10 +67,6 @@ type Backend interface {
 // rules that used to be runtime guards are scope now.
 type Frame interface {
 	// Copies a block into this frame's arena and returns its device address
-	//
-	// Frame-scoped: the arena resets every frame, so an address stored across
-	// frames points at another frame's data. data is a pointer to a value or a
-	// slice, and is memcpyd, never reinterpreted
 	Upload(data any) Address
 
 	// Runs one render pass. Attachments and Reads are transitioned first

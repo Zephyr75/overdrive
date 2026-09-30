@@ -17,11 +17,11 @@ type frame struct {
 	vkCommandBuffer    vk.CommandBuffer // command buffer for recording commands
 	vkFence            vk.Fence         // signals when GPU has finished the frame
 	vkAcquireSemaphore vk.Semaphore     // signals when image is ready to be presented
-	vkArenaBuffer      vk.Buffer // holds the frame's uniform arena
+	vkArenaBuffer      vk.Buffer        // holds the frame's uniform arena
 	vmaArenaAlloc      vk.VmaAllocation // vma allocation of the arena buffer
-	arenaMapped        unsafe.Pointer // CPU pointer to the mapped arena region
-	arenaAddr          uint64 // GPU-side address of the uniform arena buffer
-	arenaUsed          uint64 // number of bytes already stored in the arena, max size is constant `arenaSize`
+	arenaMapped        unsafe.Pointer   // CPU pointer to the mapped arena region
+	arenaAddr          uint64           // GPU-side address of the same arena region
+	arenaUsed          uint64           // number of bytes already stored in the arena, max size is constant `arenaSize`
 }
 
 // The recording handles. A Pass value cannot exist outside Frame.Pass, so the
@@ -109,7 +109,7 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) {
 	backend.recording = false
 
 	// Record a transition to the present layout for the swapchain image
-	backend.useImage(frame.vkCommandBuffer,
+	backend.recordUseImage(frame.vkCommandBuffer,
 		&backend.swapchainImages[backend.imageIndex], usePresent)
 	fatalVk(vk.EndCommandBuffer(frame.vkCommandBuffer),
 		"end command buffer")
@@ -144,51 +144,53 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) {
 // --- Frame -------------------------------------------------------------------
 
 // Copies a block into this frame's arena and returns its device address
-//
-// Frame-scoped: the arena resets every frame, so an address kept across frames
-// points at another frame's data. An overflow panics rather than wrapping — an
-// overflowed frame is already wrong, and wrapping made it wrong silently
-func (frame *vkFrame) Upload(data any) renderer.Address { // TODO: review
-	info := &frame.VKBackend.frames[frame.VKBackend.frameIndex]
+func (vkFrame *vkFrame) Upload(data any) renderer.Address {
+	frame := &vkFrame.VKBackend.frames[vkFrame.VKBackend.frameIndex]
 	ptr, n := getDataPointer(data)
 	if n == 0 {
-		return renderer.Address(info.arenaAddr)
+		return renderer.Address(frame.arenaAddr)
 	}
 	// 64-byte aligned, keeping each block on a cache line
-	info.arenaUsed = (info.arenaUsed + 63) &^ 63
-	if info.arenaUsed+n > arenaSize {
-		panic(fmt.Sprintf("vulkan: uniform arena overflow at %d bytes (cap %d)", info.arenaUsed+n, arenaSize))
+	frame.arenaUsed = (frame.arenaUsed + 63) &^ 63
+	if frame.arenaUsed+n > arenaSize {
+		panic(fmt.Sprintf("vulkan: uniform arena overflow at %d bytes (cap %d)", frame.arenaUsed+n, arenaSize))
 	}
-	memoryCopy(unsafe.Add(info.arenaMapped, info.arenaUsed), ptr, n)
-	addr := info.arenaAddr + info.arenaUsed
-	info.arenaUsed += n
+	// Use CPU-side mapped address to copy data
+	memoryCopy(unsafe.Add(frame.arenaMapped, frame.arenaUsed), ptr, n)
+	// Update GPU-side address
+	addr := frame.arenaAddr + frame.arenaUsed
+	frame.arenaUsed += n
 	return renderer.Address(addr)
 }
 
-// Runs one render pass: transitions everything it names, opens dynamic
-// rendering, and closes it again
-func (frame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) { // TODO: review
-	backend, commandBuffer := frame.VKBackend, frame.vkCommandBuffer
+// Pass records a Vulkan render pass that may contain colour and/or depth
+// attachments. It transitions attachments, starts a dynamic rendering
+// block, invokes the supplied closure, and then ends the block.
+func (vkFrame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) { 
+	backend, commandBuffer := vkFrame.VKBackend, vkFrame.vkCommandBuffer
+	// Transition any images that will be read by this pass
 	backend.transitionReads(commandBuffer, spec.Reads)
 
+	// Build the list of colour attachments and determine render area
 	width, height := 0, 0
 	color := make([]vk.RenderingAttachmentInfo, 0, len(spec.Color))
 	for _, attachment := range spec.Color {
-		att, attachWidth, attachHeight := backend.colorAttachment(commandBuffer, attachment)
+		att, attachWidth, attachHeight := backend.buildColorAttachment(commandBuffer, attachment)
 		if att.ImageView == 0 {
 			continue
-		}
+		} // ignore unused attachment
 		if width == 0 {
 			width, height = attachWidth, attachHeight
-		}
+		} // use first attachment’s size
 		color = append(color, att)
 	}
 
+	// Prepare the optional depth attachment
 	var depthPtr *vk.RenderingAttachmentInfo
 	if spec.Depth != nil {
 		view, img, attachWidth, attachHeight, _ := backend.view(spec.Depth.View)
 		if view != 0 {
-			backend.useImage(commandBuffer, img, useDepthAttach)
+			backend.recordUseImage(commandBuffer, img, useDepthAttach)
 			att := vk.RenderingAttachmentInfo{
 				ImageView:   view,
 				ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
@@ -205,18 +207,23 @@ func (frame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) {
 			}
 		}
 	}
+
+	// No usable attachment → skip the pass
 	if width == 0 || height == 0 {
 		fmt.Fprintf(os.Stderr, "vulkan: pass %q has no live attachment, skipped\n", spec.Name)
 		return
 	}
 
+	// Determine how many layers to render
 	layers := uint32(spec.Layers)
 	if layers == 0 {
 		layers = 1
 	}
 
+	// Start profiling label
 	backend.beginLabel(commandBuffer, spec.Name)
 
+	// Record begin dynamic rendering with the gathered attachments
 	vk.CmdBeginRendering(commandBuffer, vk.RenderingInfo{
 		RenderArea:       vk.Rect2D{Extent: vk.Extent2D{Width: uint32(width), Height: uint32(height)}},
 		LayerCount:       layers,
@@ -224,11 +231,13 @@ func (frame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) {
 		DepthAttachment:  depthPtr,
 	})
 
+	// Provide the pass object to the caller and run the closure
 	pass := &vkPass{VKBackend: backend, vkCommandBuffer: commandBuffer, flipY: spec.FlipY, width: width, height: height}
 	pass.Viewport(0, 0, width, height)
 	backend.vkBoundPipeline = 0
 	record(pass)
 
+	// Record end the rendering block and finish the profiling label
 	vk.CmdEndRendering(commandBuffer)
 	backend.endLabel(commandBuffer, spec.Name)
 }
@@ -238,15 +247,15 @@ func (frame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) {
 // A dispatch reaches its resources through descriptors and device addresses,
 // which the backend cannot inspect — so ComputeSpec names them and this is where
 // they are transitioned
-func (frame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Compute)) { // TODO: review
-	backend, commandBuffer := frame.VKBackend, frame.vkCommandBuffer
+func (vkFrame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Compute)) { // TODO: review
+	backend, commandBuffer := vkFrame.VKBackend, vkFrame.vkCommandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
 	for _, height := range spec.Writes {
 		switch renderer.Kind(height) {
 		case renderer.KindImage:
-			backend.useImage(commandBuffer, backend.image(renderer.ImageHandle(renderer.Index(height))), useStorage)
+			backend.recordUseImage(commandBuffer, backend.image(renderer.ImageHandle(renderer.Index(height))), useStorage)
 		case renderer.KindBuffer:
-			backend.useBuffer(commandBuffer, backend.buffer(renderer.BufferHandle(renderer.Index(height))), useStorage)
+			backend.recordUseBuffer(commandBuffer, backend.buffer(renderer.BufferHandle(renderer.Index(height))), useStorage)
 		}
 	}
 
@@ -256,44 +265,54 @@ func (frame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Co
 	backend.endLabel(commandBuffer, spec.Name)
 }
 
-// Transitions everything a pass declares it samples or reads
-func (backend *VKBackend) transitionReads(commandBuffer vk.CommandBuffer, reads []renderer.Handle) { // TODO: review
+// Prepares images and buffers for reading
+func (backend *VKBackend) transitionReads(commandBuffer vk.CommandBuffer, reads []renderer.Handle) {
 	for _, height := range reads {
+		// Determine the kind of handle (image or buffer)
 		switch renderer.Kind(height) {
 		case renderer.KindImage:
-			entry := backend.image(renderer.ImageHandle(renderer.Index(height)))
-			if entry == nil {
+			// Resolve the actual image object
+			image := backend.image(renderer.ImageHandle(renderer.Index(height)))
+			if image == nil {
 				continue
 			}
+
+			// Decide which layout we need:
+			// - If the image was created with ImageSampled, we need a sampled layout
+			// - Otherwise, we need a general storage layout
 			want := useSampled
-			if entry.usage&renderer.ImageSampled == 0 {
+			if image.usage&renderer.ImageSampled == 0 {
 				want = useStorage
 			}
-			backend.useImage(commandBuffer, entry, want)
+
+			// Record the transition/descriptor bind for this image
+			backend.recordUseImage(commandBuffer, image, want)
 		case renderer.KindBuffer:
-			backend.useBuffer(commandBuffer, backend.buffer(renderer.BufferHandle(renderer.Index(height))), useShaderRead)
+			// Resolve the buffer and mark it for shader read
+			backend.recordUseBuffer(commandBuffer, backend.buffer(renderer.BufferHandle(renderer.Index(height))), useShaderRead)
 		}
 	}
 }
 
 // Builds one colour attachment, resolving the reserved backbuffer view into the
 // multisampled image plus its resolve target when the backend multisamples
-func (backend *VKBackend) colorAttachment(commandBuffer vk.CommandBuffer, attachment renderer.Attachment) (vk.RenderingAttachmentInfo, int, int) { // TODO: review
+func (backend *VKBackend) buildColorAttachment(commandBuffer vk.CommandBuffer, attachment renderer.Attachment) (vk.RenderingAttachmentInfo, int, int) { 
 	view, img, width, height, _ := backend.view(attachment.View)
 	if view == 0 {
 		return vk.RenderingAttachmentInfo{}, 0, 0
 	}
-	backend.useImage(commandBuffer, img, useColorAttach)
+	backend.recordUseImage(commandBuffer, img, useColorAttach)
 
-	att := vk.RenderingAttachmentInfo{
+	vkAttachmentInfo := vk.RenderingAttachmentInfo{
 		ImageView:   view,
 		ImageLayout: vk.ImageLayoutColorAttachmentOptimal,
 		LoadOp:      vk.AttachmentLoadOpLoad,
 		StoreOp:     storeOp(attachment.Store),
 	}
-	if clear := attachment.Clear; clear != nil {
-		att.LoadOp = vk.AttachmentLoadOpClear
-		att.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
+	clear := attachment.Clear
+	if clear != nil {
+		vkAttachmentInfo.LoadOp = vk.AttachmentLoadOpClear
+		vkAttachmentInfo.ClearValue = vk.ClearColor(clear[0], clear[1], clear[2], clear[3])
 	}
 
 	// A multisampled pass names its own colour image and resolves into the
@@ -301,22 +320,22 @@ func (backend *VKBackend) colorAttachment(commandBuffer vk.CommandBuffer, attach
 	resolve := attachment.Resolve
 	if resolve != renderer.NoView {
 		var resolveView vk.ImageView
-		var rimg *image
+		var resolvedImage *image
 		if resolve == renderer.Backbuffer {
-			rimg = &backend.swapchainImages[backend.imageIndex]
-			resolveView = rimg.vkView
+			resolvedImage = &backend.swapchainImages[backend.imageIndex]
+			resolveView = resolvedImage.vkView
 		} else {
-			resolveView, rimg, _, _, _ = backend.view(resolve)
+			resolveView, resolvedImage, _, _, _ = backend.view(resolve)
 		}
 		if resolveView != 0 {
-			backend.useImage(commandBuffer, rimg, useColorAttach)
-			att.ResolveImageView = resolveView
-			att.ResolveImageLayout = vk.ImageLayoutColorAttachmentOptimal
-			att.ResolveMode = vk.ResolveModeAverage
-			att.StoreOp = vk.AttachmentStoreOpDontCare
+			backend.recordUseImage(commandBuffer, resolvedImage, useColorAttach)
+			vkAttachmentInfo.ResolveImageView = resolveView
+			vkAttachmentInfo.ResolveImageLayout = vk.ImageLayoutColorAttachmentOptimal
+			vkAttachmentInfo.ResolveMode = vk.ResolveModeAverage
+			vkAttachmentInfo.StoreOp = vk.AttachmentStoreOpDontCare
 		}
 	}
-	return att, width, height
+	return vkAttachmentInfo, width, height
 }
 
 func storeOp(store bool) vk.AttachmentStoreOp { // TODO: review
@@ -326,9 +345,11 @@ func storeOp(store bool) vk.AttachmentStoreOp { // TODO: review
 	return vk.AttachmentStoreOpDontCare
 }
 
-// Copies between images and buffers, outside any pass
-func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
-	backend, commandBuffer := frame.VKBackend, frame.vkCommandBuffer
+// Copy moves data between different Vulkan resources, regardless of
+// whether the source and destination are both images, both buffers, or
+// an image and a buffer. It runs outside any rendering pass.
+func (vkFrame *vkFrame) Copy(spec renderer.CopySpec) {
+	backend, commandBuffer := vkFrame.VKBackend, vkFrame.vkCommandBuffer
 	layers := uint32(spec.Layers)
 	if layers == 0 {
 		layers = 1
@@ -346,13 +367,14 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 	sbuf, dbuf := backend.buffer(spec.SrcBuffer), backend.buffer(spec.DstBuffer)
 
 	switch {
+	// Image to Image copy: Handles moving data between two images (e.g., static to dynamic atlas)
 	case src != nil && dst != nil:
 		if !backend.inBounds(src, spec.SrcOffset, spec.Extent) || !backend.inBounds(dst, spec.DstOffset, spec.Extent) {
 			fmt.Fprintln(os.Stderr, "vulkan: image copy out of bounds, ignored")
 			return
 		}
-		backend.useImage(commandBuffer, src, useCopySrc)
-		backend.useImage(commandBuffer, dst, useCopyDst)
+		backend.recordUseImage(commandBuffer, src, useCopySrc)
+		backend.recordUseImage(commandBuffer, dst, useCopyDst)
 		vk.CmdCopyImage(commandBuffer, src.vkImage, vk.ImageLayoutTransferSrcOptimal,
 			dst.vkImage, vk.ImageLayoutTransferDstOptimal, []vk.ImageCopy{{
 				AspectMask:        aspect,
@@ -362,9 +384,10 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 				DstOffset:         vk.Offset2D{X: int32(spec.DstOffset[0]), Y: int32(spec.DstOffset[1])},
 				LayerCount:        layers, Extent: ext,
 			}})
+	// Image to Buffer copy: Handles moving data from an image (e.g., a sampled texture) into a buffer.
 	case src != nil && dbuf != nil:
-		backend.useImage(commandBuffer, src, useCopySrc)
-		backend.useBuffer(commandBuffer, dbuf, useCopyDst)
+		backend.recordUseImage(commandBuffer, src, useCopySrc)
+		backend.recordUseBuffer(commandBuffer, dbuf, useCopyDst)
 		vk.CmdCopyImageToBuffer(commandBuffer, src.vkImage, vk.ImageLayoutTransferSrcOptimal, dbuf.vkBuffer,
 			[]vk.BufferImageCopy{{
 				BufferOffset: spec.DstBytes, AspectMask: aspect,
@@ -372,9 +395,10 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 				ImageOffset: vk.Offset2D{X: int32(spec.SrcOffset[0]), Y: int32(spec.SrcOffset[1])},
 				ImageExtent: ext,
 			}})
+	// Buffer to Image copy: Handles moving data from a buffer (e.g., an index buffer) into an image.
 	case sbuf != nil && dst != nil:
-		backend.useBuffer(commandBuffer, sbuf, useCopySrc)
-		backend.useImage(commandBuffer, dst, useCopyDst)
+		backend.recordUseBuffer(commandBuffer, sbuf, useCopySrc)
+		backend.recordUseImage(commandBuffer, dst, useCopyDst)
 		vk.CmdCopyBufferToImage(commandBuffer, sbuf.vkBuffer, dst.vkImage, vk.ImageLayoutTransferDstOptimal,
 			[]vk.BufferImageCopy{{
 				BufferOffset: spec.SrcBytes, AspectMask: aspect,
@@ -382,9 +406,10 @@ func (frame *vkFrame) Copy(spec renderer.CopySpec) { // TODO: review
 				ImageOffset: vk.Offset2D{X: int32(spec.DstOffset[0]), Y: int32(spec.DstOffset[1])},
 				ImageExtent: ext,
 			}})
+	// Buffer to Buffer copy: Copies data directly between two buffers.
 	case sbuf != nil && dbuf != nil:
-		backend.useBuffer(commandBuffer, sbuf, useCopySrc)
-		backend.useBuffer(commandBuffer, dbuf, useCopyDst)
+		backend.recordUseBuffer(commandBuffer, sbuf, useCopySrc)
+		backend.recordUseBuffer(commandBuffer, dbuf, useCopyDst)
 		vk.CmdCopyBuffer(commandBuffer, sbuf.vkBuffer, dbuf.vkBuffer, []vk.BufferCopy{{
 			SrcOffset: spec.SrcBytes, DstOffset: spec.DstBytes, Size: uint64(spec.Extent[0]),
 		}})
@@ -402,13 +427,13 @@ func (backend *VKBackend) inBounds(entry *image, off [3]int, ext [3]int) bool { 
 }
 
 // Clears a colour image outside any pass
-func (frame *vkFrame) Clear(spec renderer.ClearSpec) { // TODO: review
-	entry := frame.VKBackend.image(spec.Image)
+func (vkFrame *vkFrame) Clear(spec renderer.ClearSpec) { // TODO: review
+	entry := vkFrame.VKBackend.image(spec.Image)
 	if entry == nil {
 		return
 	}
-	frame.VKBackend.useImage(frame.vkCommandBuffer, entry, useCopyDst)
-	vk.CmdClearColorImage(frame.vkCommandBuffer, entry.vkImage, vk.ImageLayoutTransferDstOptimal, spec.Color,
+	vkFrame.VKBackend.recordUseImage(vkFrame.vkCommandBuffer, entry, useCopyDst)
+	vk.CmdClearColorImage(vkFrame.vkCommandBuffer, entry.vkImage, vk.ImageLayoutTransferDstOptimal, spec.Color,
 		vk.ImageSubresourceRange{
 			AspectMask: entry.vkAspect, BaseMipLevel: 0, LevelCount: 1,
 			BaseArrayLayer: 0, LayerCount: entry.layerCount,
@@ -418,11 +443,7 @@ func (frame *vkFrame) Clear(spec renderer.ClearSpec) { // TODO: review
 // --- Pass --------------------------------------------------------------------
 
 // Narrows the viewport and scissor to a rect of the pass's target
-//
-// A flipped pass gets a negative-height viewport, which makes clip space y-up
-// and inverts winding with it — which is why a pipeline drawn there declares
-// counter-clockwise front faces
-func (pass *vkPass) Viewport(x, y, width, height int) { // TODO: review
+func (pass *vkPass) Viewport(x, y, width, height int) {
 	viewport := vk.Viewport{X: float32(x), Y: float32(y), Width: float32(width), Height: float32(height), MaxDepth: 1}
 	if pass.flipY {
 		viewport.Y = float32(y + height)
@@ -460,7 +481,7 @@ func (pass *vkPass) Draw(call renderer.DrawCall) { // TODO: review
 		if indirectBuffer == nil {
 			return
 		}
-		backend.useBuffer(pass.vkCommandBuffer, indirectBuffer, useIndirect)
+		backend.recordUseBuffer(pass.vkCommandBuffer, indirectBuffer, useIndirect)
 		if mesh.indexed {
 			vk.CmdDrawIndexedIndirect(pass.vkCommandBuffer, indirectBuffer.vkBuffer, call.Indirect.Offset, uint32(call.Indirect.Count), uint32(call.Indirect.Stride))
 		} else {
@@ -490,7 +511,7 @@ func (compute *vkCompute) Dispatch(call renderer.DispatchCall) { // TODO: review
 		if indirectBuffer == nil {
 			return
 		}
-		backend.useBuffer(compute.vkCommandBuffer, indirectBuffer, useIndirect)
+		backend.recordUseBuffer(compute.vkCommandBuffer, indirectBuffer, useIndirect)
 		vk.CmdDispatchIndirect(compute.vkCommandBuffer, indirectBuffer.vkBuffer, call.Indirect.Offset)
 		return
 	}
@@ -527,10 +548,7 @@ func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer
 // --- capture labels ----------------------------------------------------------
 
 // Opens a labelled region, which is what groups a RenderDoc capture by pass
-//
-// An unnamed pass opens none, so the two calls are conditioned identically and
-// the regions cannot end up unbalanced
-func (backend *VKBackend) beginLabel(commandBuffer vk.CommandBuffer, name string) { // TODO: review
+func (backend *VKBackend) beginLabel(commandBuffer vk.CommandBuffer, name string) { 
 	if backend.hasLabels && name != "" {
 		vk.CmdBeginDebugLabel(commandBuffer, name)
 	}

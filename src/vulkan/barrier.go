@@ -50,7 +50,7 @@ var useTable = [...]useInfo{
 }
 
 // Transitions a whole image from current use to a new use
-func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, image *image, want use) {
+func (backend *VKBackend) recordUseImage(commandBuffer vk.CommandBuffer, image *image, want use) {
 	if image == nil || image.vkImage == 0 {
 		return
 	}
@@ -78,7 +78,7 @@ func (backend *VKBackend) useImage(commandBuffer vk.CommandBuffer, image *image,
 }
 
 // Transitions a buffer, which is stage and access masks alone
-func (backend *VKBackend) useBuffer(commandBuffer vk.CommandBuffer, info *bufferInfo, want use) { // TODO: review
+func (backend *VKBackend) recordUseBuffer(commandBuffer vk.CommandBuffer, info *bufferInfo, want use) { // TODO: review
 	if info == nil || info.vkBuffer == 0 {
 		return
 	}

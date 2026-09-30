@@ -94,6 +94,7 @@ the backend contract, `cheatsheets/VULKAN.md` for the general object model,
 | `PCF` | percentage-closer filtering — several shadow taps averaged to soften the edge |
 | `shadow atlas` | one big depth texture carved into fixed rects, so every light's shadow shares one image and the pass count does not grow with the light count |
 | `tile` | one light's rect within the atlas. A sun or spot takes one, a point light six |
+| `resolve` | The Vulkan operation that collapses a multisampled image into a single‑sample image by averaging its samples. In a render pass this is expressed via `ResolveImageView`, `ResolveImageLayout`, and `ResolveMode = Average`. It is used when rendering into a multisampled attachment and writing the result to the swapchain or another non‑multisampled image. |
 
 ## Engine-specific
 
