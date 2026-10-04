@@ -37,7 +37,7 @@ var (
 )
 
 // Rebuilds the layout tables from settings, before any slot is carved
-func loadLayoutSettings() { // TODO: review
+func loadLayoutSettings() { 
 	atlasSize = settings.ShadowAtlasSize
 	div, count := settings.ShadowSlotDivisors, settings.ShadowSlotCounts
 
@@ -161,7 +161,7 @@ func (atlas *shadowAtlas) reset() {
 //
 // Power-of-two divisions in descending size, so placement needs no search: Z
 // order is what a buddy tree filled largest-first emits, and cannot fragment
-func buildLayout() []slotsPool { // TODO: review
+func buildLayout() []slotsPool { 
 	pools := make([]slotsPool, 0, len(slotLayout))
 	cell, side := 0, atlasSize/minTileSize
 	for _, spec := range slotLayout {
@@ -188,7 +188,7 @@ func buildLayout() []slotsPool { // TODO: review
 }
 
 // De-interleaves a Z-order cell index into the atlas pixels of its top-left corner
-func zOrder(cell int) (int, int) { // TODO: review
+func zOrder(cell int) (int, int) { 
 	x, y := 0, 0
 	for bit := 0; cell != 0; bit, cell = bit+1, cell>>2 {
 		x |= (cell & 1) << bit
@@ -468,7 +468,7 @@ var cubeFaceDirs = [6][2]mgl32.Vec3{
 
 // Bake a bit more than 90°, so the outer one-texel band of every face tile
 // holds real depth for geometry instead of sampling data outside the frustum
-func cubeFaceFov(tile int) float32 { // TODO: review
+func cubeFaceFov(tile int) float32 { 
 	half := math.Tan(math.Pi/4) * float64(tile+2) / float64(tile)
 	return float32(2 * math.Atan(half))
 }
@@ -704,7 +704,7 @@ func (light *Light) shadowTile(slot slot, size int, face, faces int, dynamic boo
 }
 
 // An up vector that is not parallel to dir, LookAtV producing NaNs when it is
-func spotUp(dir mgl32.Vec3) mgl32.Vec3 { // TODO: review
+func spotUp(dir mgl32.Vec3) mgl32.Vec3 { 
 	if math.Abs(float64(dir[1])) > 0.99 {
 		return mgl32.Vec3{0, 0, 1}
 	}
@@ -715,7 +715,7 @@ func spotUp(dir mgl32.Vec3) mgl32.Vec3 { // TODO: review
 //
 // Gribb-Hartmann: each plane is a row of the matrix combined with the w row.
 // These matrices are the OpenGL convention, so near is row3 + row2
-func frustumPlanes(matrix mgl32.Mat4) [6]mgl32.Vec4 { // TODO: review
+func frustumPlanes(matrix mgl32.Mat4) [6]mgl32.Vec4 { 
 	r0, r1, r2, r3 := matrix.Row(0), matrix.Row(1), matrix.Row(2), matrix.Row(3)
 	planes := [6]mgl32.Vec4{
 		r3.Add(r0), r3.Sub(r0),
@@ -734,7 +734,7 @@ func frustumPlanes(matrix mgl32.Mat4) [6]mgl32.Vec4 { // TODO: review
 //
 // Conservative at the corners by design: over-including costs a draw the
 // rasteriser discards, under-including costs a shadow
-func sphereInFrustum(planes *[6]mgl32.Vec4, center mgl32.Vec3, radius float32) bool { // TODO: review
+func sphereInFrustum(planes *[6]mgl32.Vec4, center mgl32.Vec3, radius float32) bool { 
 	for _, plane := range planes {
 		if plane[0]*center[0]+plane[1]*center[1]+plane[2]*center[2]+plane[3] < -radius {
 			return false
@@ -749,7 +749,7 @@ func sphereInFrustum(planes *[6]mgl32.Vec4, center mgl32.Vec3, radius float32) b
 // own ~80-byte bake block rather than republishing the whole frame block, which
 // is what keeps a 337-tile atlas inside the arena
 func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
-	lightIdx int32, alloc *shadowAlloc, movable bool) int { // TODO: review
+	lightIdx int32, alloc *shadowAlloc, movable bool) int { 
 
 	// Static mesh geometry is baked into the OBJ vertices, so the depth passes
 	// draw everything with an identity model matrix and no material at all
@@ -801,7 +801,7 @@ func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pi
 // BakeShadows writes the queued shadow tiles into the static and dynamic atlases.
 // It clears the static atlas if needed, copies static tiles to the dynamic atlas,
 // and then renders movable casters onto the dynamic tiles.
-func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) { // TODO: review
+func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) { 
 	if len(scene.shadowTiles) == 0 {
 		return
 	}
@@ -821,7 +821,6 @@ func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) { // TODO
 		})
 	}
 
-	// TODO here 2
 	// Copy static to dynamic: every dynamic tile begins as a copy of the corresponding static tile
 	for _, idx := range scene.dynamicQueue {
 		alloc := scene.atlas.shadowAllocs[idx]

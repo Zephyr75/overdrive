@@ -136,7 +136,7 @@ func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offse
 //
 // Stalls on the frames in flight before mapping. Right for a screenshot or an
 // image test, wrong inside a frame loop — that is the intended trade
-func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { // TODO: review
+func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { 
 	entry := backend.buffer(handle)
 	if entry == nil {
 		return nil
@@ -167,7 +167,7 @@ func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { // T
 }
 
 // Resolves a buffer handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufferInfo { // TODO: review
+func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufferInfo { 
 	if handle == 0 || int(handle) >= len(backend.buffers) || !backend.buffers[handle].valid {
 		return nil
 	}
@@ -218,7 +218,7 @@ func (backend *VKBackend) CreateMesh(spec renderer.MeshSpec) renderer.MeshHandle
 }
 
 // Resolves a mesh handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) mesh(handle renderer.MeshHandle) *meshInfo { // TODO: review
+func (backend *VKBackend) mesh(handle renderer.MeshHandle) *meshInfo { 
 	if handle == 0 || int(handle) >= len(backend.meshes) || !backend.meshes[handle].valid {
 		return nil
 	}

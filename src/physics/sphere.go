@@ -13,22 +13,22 @@ type Sphere struct {
 // func (Sphere) Collider() string { return "Sphere" }
 
 // Returns the Verlet state the integrator steps
-func (sphere *Sphere) Body() *Verlet { return &sphere.Verlet } // TODO: review
+func (sphere *Sphere) Body() *Verlet { return &sphere.Verlet } 
 
 // Creates a sphere collider at a position
-func NewSphere(pos mgl32.Vec3, radius float32, fixed bool) *Sphere { // TODO: review
+func NewSphere(pos mgl32.Vec3, radius float32, fixed bool) *Sphere { 
 	verlet := NewVerlet(pos, fixed)
 	return &Sphere{verlet, radius}
 }
 
 // Fits a sphere collider to a mesh, its radius being the distance to the first vertex
-func NewSphereFromMesh(mesh *scene.Mesh, fixed bool) *Sphere { // TODO: review
+func NewSphereFromMesh(mesh *scene.Mesh, fixed bool) *Sphere { 
 	radius := mesh.Vertices[0].Sub(mesh.Position).Len()
 	return &Sphere{NewVerlet(mesh.Position, fixed), radius}
 }
 
 // Dispatches to the collision routine matching the other collider's shape
-func (sphere *Sphere) Collide(collider Collider) { // TODO: review
+func (sphere *Sphere) Collide(collider Collider) { 
 	switch collider := collider.(type) {
 	case *Sphere:
 		sphere.sphereCollide(*collider)
@@ -39,7 +39,7 @@ func (sphere *Sphere) Collide(collider Collider) { // TODO: review
 }
 
 // Pushes this sphere half the overlap out along the axis between the two centres
-func (sphere *Sphere) sphereCollide(other Sphere) { // TODO: review
+func (sphere *Sphere) sphereCollide(other Sphere) { 
 	colAxis := sphere.Pos.Sub(other.Pos)
 	colDist := colAxis.Len()
 	dist := sphere.Radius + other.Radius
@@ -51,7 +51,7 @@ func (sphere *Sphere) sphereCollide(other Sphere) { // TODO: review
 }
 
 // Lifts this sphere out of a plane, but only within the plane's finite extent
-func (sphere *Sphere) planeCollide(plane Plane) { // TODO: review
+func (sphere *Sphere) planeCollide(plane Plane) { 
 	distNormal := sphere.Pos.Sub(plane.Pos).Dot(plane.Normal)
 	distMain := sphere.Pos.Sub(plane.Pos).Dot(plane.MainAxis)
 	distCross := sphere.Pos.Sub(plane.Pos).Dot(plane.CrossAxis)

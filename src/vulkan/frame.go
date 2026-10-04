@@ -247,7 +247,7 @@ func (vkFrame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass))
 // A dispatch reaches its resources through descriptors and device addresses,
 // which the backend cannot inspect — so ComputeSpec names them and this is where
 // they are transitioned
-func (vkFrame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Compute)) { // TODO: review
+func (vkFrame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Compute)) { 
 	backend, commandBuffer := vkFrame.VKBackend, vkFrame.vkCommandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
 	for _, height := range spec.Writes {
@@ -338,7 +338,7 @@ func (backend *VKBackend) buildColorAttachment(commandBuffer vk.CommandBuffer, a
 	return vkAttachmentInfo, width, height
 }
 
-func storeOp(store bool) vk.AttachmentStoreOp { // TODO: review
+func storeOp(store bool) vk.AttachmentStoreOp { 
 	if store {
 		return vk.AttachmentStoreOpStore
 	}
@@ -420,14 +420,14 @@ func (vkFrame *vkFrame) Copy(spec renderer.CopySpec) {
 
 // Whether a rect fits inside an image, an out-of-bounds copy being a device loss
 // rather than a clipped one
-func (backend *VKBackend) inBounds(entry *image, off [3]int, ext [3]int) bool { // TODO: review
+func (backend *VKBackend) inBounds(entry *image, off [3]int, ext [3]int) bool { 
 	return ext[0] > 0 && ext[1] > 0 &&
 		off[0] >= 0 && off[1] >= 0 &&
 		off[0]+ext[0] <= entry.width && off[1]+ext[1] <= entry.height
 }
 
 // Clears a colour image outside any pass
-func (vkFrame *vkFrame) Clear(spec renderer.ClearSpec) { // TODO: review
+func (vkFrame *vkFrame) Clear(spec renderer.ClearSpec) { 
 	entry := vkFrame.VKBackend.image(spec.Image)
 	if entry == nil {
 		return
@@ -456,7 +456,7 @@ func (pass *vkPass) Viewport(x, y, width, height int) {
 	})
 }
 
-func (pass *vkPass) Draw(call renderer.DrawCall) { // TODO: review
+func (pass *vkPass) Draw(call renderer.DrawCall) { 
 	backend := pass.VKBackend
 	pipeline := backend.pipeline(call.Pipeline)
 	mesh := backend.mesh(call.Mesh)
@@ -498,7 +498,7 @@ func (pass *vkPass) Draw(call renderer.DrawCall) { // TODO: review
 
 // --- Compute -----------------------------------------------------------------
 
-func (compute *vkCompute) Dispatch(call renderer.DispatchCall) { // TODO: review
+func (compute *vkCompute) Dispatch(call renderer.DispatchCall) { 
 	backend := compute.VKBackend
 	pipeline := backend.pipeline(call.Pipeline)
 	if pipeline == nil {
@@ -519,7 +519,7 @@ func (compute *vkCompute) Dispatch(call renderer.DispatchCall) { // TODO: review
 }
 
 // A dispatch of zero groups is a no-op the caller never means
-func max1(value int) int { // TODO: review
+func max1(value int) int { 
 	if value < 1 {
 		return 1
 	}
@@ -529,7 +529,7 @@ func max1(value int) int { // TODO: review
 // --- shared recording helpers ------------------------------------------------
 
 // Binds a pipeline, skipping the call when it is already bound
-func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelineInfo) { // TODO: review
+func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelineInfo) { 
 	if pipeline.pipeline == backend.vkBoundPipeline {
 		return
 	}
@@ -541,7 +541,7 @@ func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelin
 //
 // The backend never looks inside them: which block each slot points at is the
 // shader's declaration and the caller's business
-func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer.Address) { // TODO: review
+func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer.Address) { 
 	vk.CmdPushConstants(commandBuffer, backend.vkPipelineLayout, pushStages, 0, pushConstantSize, unsafe.Pointer(&addrs))
 }
 
@@ -554,7 +554,7 @@ func (backend *VKBackend) beginLabel(commandBuffer vk.CommandBuffer, name string
 	}
 }
 
-func (backend *VKBackend) endLabel(commandBuffer vk.CommandBuffer, name string) { // TODO: review
+func (backend *VKBackend) endLabel(commandBuffer vk.CommandBuffer, name string) { 
 	if backend.hasLabels && name != "" {
 		vk.CmdEndDebugLabel(commandBuffer)
 	}

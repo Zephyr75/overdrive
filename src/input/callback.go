@@ -25,13 +25,13 @@ func SetScene(scene *scene.Scene) {
 }
 
 // Records the new window size, which is all a resize needs because Backend.BeginPass sets the viewport per pass
-func FramebufferSizeCallback(window *glfw.Window, width int, height int) { // TODO: review
+func FramebufferSizeCallback(window *glfw.Window, width int, height int) { 
 	settings.WindowWidth = width
 	settings.WindowHeight = height
 }
 
 // Turns mouse motion into camera yaw and pitch, clamped to ±89° to avoid a flipped up vector
-func DefaultMouseCallback(window *glfw.Window, xPos, yPos float64) { // TODO: review
+func DefaultMouseCallback(window *glfw.Window, xPos, yPos float64) { 
 	if firstMouse {
 		lastX = xPos
 		lastY = yPos
@@ -61,7 +61,7 @@ func DefaultMouseCallback(window *glfw.Window, xPos, yPos float64) { // TODO: re
 }
 
 // Zooms the camera by changing its field of view, clamped to 1°..90°
-func ScrollCallback(window *glfw.Window, xOffset, yOffset float64) { // TODO: review
+func ScrollCallback(window *glfw.Window, xOffset, yOffset float64) { 
 	s.Cam.Fov -= float32(yOffset)
 	if s.Cam.Fov < 1.0 {
 		s.Cam.Fov = 1.0

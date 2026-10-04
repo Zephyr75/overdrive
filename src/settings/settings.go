@@ -84,7 +84,7 @@ var (
 )
 
 // Reports whether material textures are sampled anisotropically, 1 meaning plain isotropic filtering
-func AnisotropyEnabled() bool { // TODO: review
+func AnisotropyEnabled() bool { 
 	return Anisotropy > 1
 }
 
@@ -102,6 +102,6 @@ func ShadowBakeBudget() int {
 //
 // forward.slang's offsets are world-space constants tuned at 4096, so a smaller
 // atlas doubles a texel's world footprint and brings back the acne they hide
-func ShadowNormalScale() float32 { // TODO: review
+func ShadowNormalScale() float32 { 
 	return float32(shadowReferenceAtlas) / float32(ShadowAtlasSize)
 }

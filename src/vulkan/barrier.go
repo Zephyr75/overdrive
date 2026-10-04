@@ -78,7 +78,7 @@ func (backend *VKBackend) recordUseImage(commandBuffer vk.CommandBuffer, image *
 }
 
 // Transitions a buffer, which is stage and access masks alone
-func (backend *VKBackend) recordUseBuffer(commandBuffer vk.CommandBuffer, info *bufferInfo, want use) { // TODO: review
+func (backend *VKBackend) recordUseBuffer(commandBuffer vk.CommandBuffer, info *bufferInfo, want use) { 
 	if info == nil || info.vkBuffer == 0 {
 		return
 	}

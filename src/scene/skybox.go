@@ -108,11 +108,7 @@ func (skybox *Skybox) setup(backend renderer.Backend) error {
 }
 
 // Draws the skybox first in the main pass, with a depth test that lets it fill the far plane
-//
-// It uploads its own copy of the frame block with the view translation stripped,
-// so the cube follows the camera. The forward pass keeps using the address of
-// the untouched one, which is why nothing has to be restored afterwards
-func (scene *Scene) RenderSkybox(frame renderer.Frame, pass renderer.Pass, pipes Pipelines, base *renderer.FrameUniforms) { // TODO: review
+func (scene *Scene) RenderSkybox(frame renderer.Frame, pass renderer.Pass, pipes Pipelines, base *renderer.FrameUniforms) {
 	sky := *base
 	view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
 	sky.View = view.Mat3().Mat4()

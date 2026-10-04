@@ -34,7 +34,7 @@ func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.P
 //
 // The old objects are retired rather than destroyed: a frame in flight may still
 // reference them
-func (backend *VKBackend) ReloadPipelines() error { // TODO: review
+func (backend *VKBackend) ReloadPipelines() error { 
 	_ = vk.DeviceWaitIdle(backend.vkDevice)
 	for name, module := range backend.vkShaderModules {
 		vk.DestroyShaderModule(backend.vkDevice, module)
@@ -147,7 +147,7 @@ func (backend *VKBackend) buildPipeline(info *pipelineInfo) error {
 
 // Builds the vertex input state a layout describes, or none when it has no
 // attributes — a fullscreen pass generating its own positions has no stream
-func (backend *VKBackend) vertexInput(layout renderer.VertexLayout) *vk.PipelineVertexInputStateCreateInfo { // TODO: review
+func (backend *VKBackend) vertexInput(layout renderer.VertexLayout) *vk.PipelineVertexInputStateCreateInfo { 
 	if len(layout.Attrs) == 0 {
 		return &vk.PipelineVertexInputStateCreateInfo{}
 	}
@@ -191,7 +191,7 @@ func (backend *VKBackend) module(name string, stage renderer.ShaderStage) (vk.Sh
 }
 
 // Resolves a pipeline handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) pipeline(handle renderer.PipelineHandle) *pipelineInfo { // TODO: review
+func (backend *VKBackend) pipeline(handle renderer.PipelineHandle) *pipelineInfo { 
 	if handle == 0 || int(handle) > len(backend.pipelines) || !backend.pipelines[handle-1].valid {
 		return nil
 	}

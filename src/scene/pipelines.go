@@ -11,9 +11,13 @@ import (
 // PushConstants struct in shaders/slang/common.slang. The backend pushes four
 // opaque words; these names are the only thing that gives them meaning
 const (
+	// Camera and lights, shared by the whole pass
 	PushFrame = iota
+	// This object's position and material
 	PushDraw
+	// The list of shadow tiles the lights sample
 	PushRecords
+	// The one shadow tile being baked right now
 	PushBake
 )
 
@@ -155,14 +159,18 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) {
 // Only the draw block is uploaded per draw, which is what the split by update
 // frequency was for
 type drawContext struct {
-	frame    renderer.Frame
-	pass     renderer.Pass
+	// The frame being recorded, used to upload each draw's data
+	frame renderer.Frame
+	// The pass the draws go into
+	pass renderer.Pass
+	// The shader setup every draw uses
 	pipeline renderer.PipelineHandle
-	push     [4]renderer.Address
+	// The template note: shared slots filled once, the draw slot per draw
+	push [4]renderer.Address
 }
 
 // Uploads this draw's block and records the draw
-func (ctx *drawContext) draw(mesh renderer.MeshHandle, uniforms *renderer.DrawUniforms) { // TODO: review
+func (ctx *drawContext) draw(mesh renderer.MeshHandle, uniforms *renderer.DrawUniforms) {
 	push := ctx.push
 	push[PushDraw] = ctx.frame.Upload(uniforms)
 	ctx.pass.Draw(renderer.DrawCall{Pipeline: ctx.pipeline, Mesh: mesh, Push: push})

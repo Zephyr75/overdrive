@@ -49,7 +49,7 @@ func (world *World) Update(timeInterval time.Duration) {
 }
 
 // Returns every entity reporting a type
-func (world *World) Entities(entityType string) []Entity { // TODO: review
+func (world *World) Entities(entityType string) []Entity { 
 	var entities []Entity
 	for _, entity := range world.entities {
 		if entity.Type() == entityType {
@@ -60,7 +60,7 @@ func (world *World) Entities(entityType string) []Entity { // TODO: review
 }
 
 // Returns the first entity reporting a type, or nil
-func (world *World) FirstEntity(entityType string) Entity { // TODO: review
+func (world *World) FirstEntity(entityType string) Entity { 
 	for _, entity := range world.entities {
 		if entity.Type() == entityType {
 			return entity

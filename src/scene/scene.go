@@ -104,7 +104,7 @@ func (scene *Scene) FindMesh(name string) *Mesh {
 }
 
 // Finds a light by name, returning nil when the scene has none
-func (scene *Scene) Light(name string) *Light { // TODO: review
+func (scene *Scene) Light(name string) *Light { 
 	for i, light := range scene.Lights {
 		if light.Name == name {
 			return &scene.Lights[i]
@@ -114,7 +114,7 @@ func (scene *Scene) Light(name string) *Light { // TODO: review
 }
 
 // Returns the scene's camera
-func (scene *Scene) Camera() *Camera { // TODO: review
+func (scene *Scene) Camera() *Camera { 
 	return &scene.Cam
 }
 
@@ -202,16 +202,8 @@ func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) {
 }
 
 // Opens the depth prepass, draws every mesh depth-only and closes it
-//
-// Run rather than Render because it owns its pass, as BakeShadows does:
-// RenderScene and RenderSkybox instead draw inside a pass the caller opened.
-//
-// It is handed the same uploaded frame block the forward pass gets, so the two
-// read the same bytes rather than two rebuilt copies of them. An EQUAL depth
-// test rejects a difference down to the last bit, and prepass.slang combines the
-// matrices in exactly the order forward.slang's vsMain does
 func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frameAddr renderer.Address,
-	depthView renderer.ViewHandle) { // TODO: review
+	depthView renderer.ViewHandle) { 
 
 	clear := [4]float32{1, 0, 0, 0}
 	frame.Pass(renderer.PassSpec{
@@ -231,7 +223,7 @@ func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frame
 
 // Draws every mesh of the scene with the forward pipeline, inside the main pass
 func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
-	frameAddr, recordAddr renderer.Address) { // TODO: review
+	frameAddr, recordAddr renderer.Address) { 
 
 	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Forward}
 	ctx.push[PushFrame] = frameAddr

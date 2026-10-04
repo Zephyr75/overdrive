@@ -61,7 +61,7 @@ type Mesh struct {
 }
 
 // Offsets the mesh and rebuilds its vertex data for the next upload
-func (mesh *Mesh) MoveBy(x float32, y float32, z float32) { // TODO: review
+func (mesh *Mesh) MoveBy(x float32, y float32, z float32) { 
 	mesh.Movable = true
 	mesh.Position[0] += x
 	mesh.Position[1] += y
@@ -71,7 +71,7 @@ func (mesh *Mesh) MoveBy(x float32, y float32, z float32) { // TODO: review
 }
 
 // Moves the mesh to a position and rebuilds its vertex data for the next upload
-func (mesh *Mesh) MoveTo(dest mgl32.Vec3) { // TODO: review
+func (mesh *Mesh) MoveTo(dest mgl32.Vec3) { 
 	mesh.Movable = true
 	mesh.Position = dest
 	mesh.fillVertices()
@@ -79,7 +79,7 @@ func (mesh *Mesh) MoveTo(dest mgl32.Vec3) { // TODO: review
 }
 
 // Parses the OBJ and MTL files an XML mesh names into geometry and materials
-func (mXml MeshXml) toMesh() (Mesh, error) { // TODO: review
+func (mXml MeshXml) toMesh() (Mesh, error) { 
 	obj, err := parseOBJ(paths.Mesh(mXml.Obj))
 	if err != nil {
 		return Mesh{}, err
@@ -93,7 +93,7 @@ func (mXml MeshXml) toMesh() (Mesh, error) { // TODO: review
 
 // The MTL a mesh names, falling back to the .obj basename because an OBJ names
 // its own material library and it conventionally matches
-func (mXml MeshXml) mtlPath() string { // TODO: review
+func (mXml MeshXml) mtlPath() string { 
 	if mXml.Mtl != "" {
 		return mXml.Mtl
 	}
@@ -101,7 +101,7 @@ func (mXml MeshXml) mtlPath() string { // TODO: review
 }
 
 // The i'th field of a line as a float32, 0 when the line is too short
-func f32(fields []string, i int) float32 { // TODO: review
+func f32(fields []string, i int) float32 { 
 	if i >= len(fields) {
 		return 0
 	}
@@ -110,7 +110,7 @@ func f32(fields []string, i int) float32 { // TODO: review
 }
 
 // Fields 1 to 3 of a line as a vector, the form every OBJ and MTL triple takes
-func vec3(fields []string) mgl32.Vec3 { // TODO: review
+func vec3(fields []string) mgl32.Vec3 { 
 	return mgl32.Vec3{f32(fields, 1), f32(fields, 2), f32(fields, 3)}
 }
 
@@ -123,7 +123,7 @@ type objData struct {
 }
 
 // Reads an OBJ file's vertex streams and face groups
-func parseOBJ(path string) (objData, error) { // TODO: review
+func parseOBJ(path string) (objData, error) { 
 	file, err := os.Open(path)
 	if err != nil {
 		return objData{}, fmt.Errorf("open OBJ: %w", err)
@@ -169,7 +169,7 @@ func parseOBJ(path string) (objData, error) { // TODO: review
 //
 // Triangles carrying all three indices only, which is what the exporter writes;
 // anything else is dropped rather than left to break fillVertices' stride
-func triangleIndices(fields []string) []uint32 { // TODO: review
+func triangleIndices(fields []string) []uint32 { 
 	if len(fields) < 4 {
 		return nil
 	}
@@ -188,7 +188,7 @@ func triangleIndices(fields []string) []uint32 { // TODO: review
 }
 
 // Reads an MTL file's material definitions, in the order the OBJ's groups use them
-func parseMTL(path string) ([]Material, error) { // TODO: review
+func parseMTL(path string) ([]Material, error) { 
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open MTL: %w", err)
@@ -238,7 +238,7 @@ func parseMTL(path string) ([]Material, error) { // TODO: review
 }
 
 // Builds the mesh from the two parsed halves and the XML's own fields
-func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh { // TODO: review
+func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh { 
 	pos := utils.ParseVec3(mXml.Position)
 	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 
@@ -263,13 +263,13 @@ func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh { // TODO: 
 //
 // Blender bakes the exporting machine's absolute path, so only the basename
 // survives — otherwise a scene loads nowhere but where it was authored.
-func texturePath(ref string) string { // TODO: review
+func texturePath(ref string) string { 
 	ref = strings.ReplaceAll(ref, "\\", "/")
 	return paths.Texture(path.Base(ref))
 }
 
 // Flattens the OBJ face lists into the interleaved vertex array and per-group index lists
-func (mesh *Mesh) fillVertices() { // TODO: review
+func (mesh *Mesh) fillVertices() { 
 	var value []float32
 	var faces [][]uint32
 	var index uint32
@@ -367,7 +367,7 @@ func uploadTexture(backend renderer.Backend, name string, pixels []byte, width, 
 }
 
 // Reuploads the vertex buffer when a Move marked it dirty
-func (mesh *Mesh) updateVertices() { // TODO: review
+func (mesh *Mesh) updateVertices() { 
 	if !mesh.needsUpdate {
 		return
 	}
@@ -376,7 +376,7 @@ func (mesh *Mesh) updateVertices() { // TODO: review
 }
 
 // Draws every face group, writing its material fields into u first; the caller owns u.Model
-func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) { // TODO: review
+func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) { 
 	for i := range mesh.indexGroups {
 		mat := mesh.Materials[i]
 

@@ -298,7 +298,7 @@ func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *image
 }
 
 // Destroys an image's view and allocation once the frames in flight have retired
-func (backend *VKBackend) destroyImage(handle renderer.ImageHandle) { // TODO: review
+func (backend *VKBackend) destroyImage(handle renderer.ImageHandle) { 
 	// The backbuffer is the swapchain's, not the caller's
 	if handle == renderer.BackbufferImage {
 		return

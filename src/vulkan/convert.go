@@ -132,7 +132,7 @@ func samplesToInt(samples vk.SampleCountFlags) int {
 	return 1
 }
 
-func toVkViewType(kind renderer.ImageKind, layers uint32) vk.ImageViewType { // TODO: review
+func toVkViewType(kind renderer.ImageKind, layers uint32) vk.ImageViewType { 
 	switch kind {
 	case renderer.Image2DArray:
 		return vk.ImageViewType2DArray
@@ -147,14 +147,14 @@ func toVkViewType(kind renderer.ImageKind, layers uint32) vk.ImageViewType { // 
 	return vk.ImageViewType2D
 }
 
-func aspectOf(aspect vk.ImageAspectFlags) renderer.Aspect { // TODO: review
+func aspectOf(aspect vk.ImageAspectFlags) renderer.Aspect { 
 	if aspect == vk.ImageAspectDepth {
 		return renderer.AspectDepth
 	}
 	return renderer.AspectColor
 }
 
-func toVkCullModeFlags(mode renderer.CullMode) vk.CullModeFlags { // TODO: review
+func toVkCullModeFlags(mode renderer.CullMode) vk.CullModeFlags { 
 	switch mode {
 	case renderer.CullFront:
 		return vk.CullModeFront
@@ -164,14 +164,14 @@ func toVkCullModeFlags(mode renderer.CullMode) vk.CullModeFlags { // TODO: revie
 	return vk.CullModeBack
 }
 
-func toVkFrontFace(winding renderer.WindingDirection) vk.FrontFace { // TODO: review
+func toVkFrontFace(winding renderer.WindingDirection) vk.FrontFace { 
 	if winding == renderer.WindingClockwise {
 		return vk.FrontFaceClockwise
 	}
 	return vk.FrontFaceCounterClockwise
 }
 
-func toVkCompareOp(op renderer.CompareOperation) vk.CompareOp { // TODO: review
+func toVkCompareOp(op renderer.CompareOperation) vk.CompareOp { 
 	switch op {
 	case renderer.CompareNever:
 		return vk.CompareOpNever
@@ -191,21 +191,21 @@ func toVkCompareOp(op renderer.CompareOperation) vk.CompareOp { // TODO: review
 	return vk.CompareOpLess
 }
 
-func toVkFilter(filterMode renderer.FilterType) vk.Filter { // TODO: review
+func toVkFilter(filterMode renderer.FilterType) vk.Filter { 
 	if filterMode == renderer.FilterNearest {
 		return vk.FilterNearest
 	}
 	return vk.FilterLinear
 }
 
-func toVkMipmapMode(filterMode renderer.FilterType) vk.SamplerMipmapMode { // TODO: review
+func toVkMipmapMode(filterMode renderer.FilterType) vk.SamplerMipmapMode { 
 	if filterMode == renderer.FilterNearest {
 		return vk.SamplerMipmapModeNearest
 	}
 	return vk.SamplerMipmapModeLinear
 }
 
-func toVkAddressMode(mode renderer.OutsideMode) vk.SamplerAddressMode { // TODO: review
+func toVkAddressMode(mode renderer.OutsideMode) vk.SamplerAddressMode { 
 	switch mode {
 	case renderer.OutsideMirroredRepeat:
 		return vk.SamplerAddressModeMirroredRepeat
@@ -217,14 +217,14 @@ func toVkAddressMode(mode renderer.OutsideMode) vk.SamplerAddressMode { // TODO:
 	return vk.SamplerAddressModeRepeat
 }
 
-func toVkBorderColor(color renderer.BorderColor) vk.BorderColor { // TODO: review
+func toVkBorderColor(color renderer.BorderColor) vk.BorderColor { 
 	if color == renderer.BorderWhite {
 		return vk.BorderColorOpaqueWhiteFloat
 	}
 	return vk.BorderColorOpaqueBlackFloat
 }
 
-func toVkShaderStageFlags(stage renderer.ShaderStage) vk.ShaderStageFlags { // TODO: review
+func toVkShaderStageFlags(stage renderer.ShaderStage) vk.ShaderStageFlags { 
 	switch stage {
 	case renderer.StageFragment:
 		return vk.ShaderStageFragment
@@ -237,7 +237,7 @@ func toVkShaderStageFlags(stage renderer.ShaderStage) vk.ShaderStageFlags { // T
 }
 
 // The blend state of one colour attachment
-func toVkBlendAttachment(mode renderer.BlendMode) vk.PipelineColorBlendAttachmentState { // TODO: review
+func toVkBlendAttachment(mode renderer.BlendMode) vk.PipelineColorBlendAttachmentState { 
 	att := vk.PipelineColorBlendAttachmentState{
 		ColorWriteMask: vk.ColorComponentR | vk.ColorComponentG | vk.ColorComponentB | vk.ColorComponentA,
 	}

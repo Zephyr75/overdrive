@@ -78,7 +78,7 @@ func newOverlay(backend renderer.Backend) (*overlay, error) {
 }
 
 // Replaces the canvas image when the window size changed
-func (ovl *overlay) resize(width, height int) { // TODO: review
+func (ovl *overlay) resize(width, height int) { 
 	if ovl.image != 0 && ovl.width == width && ovl.height == height {
 		return
 	}
@@ -98,7 +98,7 @@ func (ovl *overlay) resize(width, height int) { // TODO: review
 
 // Rasterises the widget tree into the canvas, uploads it and draws it as a
 // fullscreen quad, inside the main pass
-func (ovl *overlay) draw(frame renderer.Frame, pass renderer.Pass, app App, widget func(app App) ui.UIElement) { // TODO: review
+func (ovl *overlay) draw(frame renderer.Frame, pass renderer.Pass, app App, widget func(app App) ui.UIElement) { 
 	window := app.Window
 	ovl.resize(settings.WindowWidth, settings.WindowHeight)
 

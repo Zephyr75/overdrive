@@ -95,7 +95,7 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 }
 
 // Builds the pipelines and runs the frame loop until the window closes
-func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) { // TODO: review
+func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) { 
 	backend := app.Backend
 
 	pipelines, err := scene.NewPipelines(backend)

@@ -230,7 +230,7 @@ const (
 )
 
 // The file suffix build_shaders.sh writes for a stage
-func (spec ShaderStage) Suffix() string { // TODO: review
+func (spec ShaderStage) Suffix() string { 
 	switch spec {
 	case StageFragment:
 		return "frag"

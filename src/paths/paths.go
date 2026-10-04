@@ -33,7 +33,7 @@ var (
 //
 // Walks up from the working directory, so `go run .` from src/ and
 // `go test ./scene/` resolve alike. Falls back to the working directory.
-func Root() string { // TODO: review
+func Root() string { 
 	once.Do(func() {
 		if env := os.Getenv(rootEnv); env != "" {
 			root = env
@@ -62,7 +62,7 @@ func Root() string { // TODO: review
 }
 
 // Reports whether dir looks like the project root, both markers being required to avoid a false match on the way up
-func isRoot(dir string) bool { // TODO: review
+func isRoot(dir string) bool { 
 	for _, marker := range [...]string{assetsDir, "src"} {
 		if _, err := os.Stat(filepath.Join(dir, marker)); err != nil {
 			return false
@@ -80,16 +80,16 @@ func resolve(parts ...string) string {
 func Asset(name string) string { return resolve(assetsDir, name) } 
 
 // Returns the path of an OBJ or MTL file
-func Mesh(name string) string { return resolve(meshesDir, name) } // TODO: review
+func Mesh(name string) string { return resolve(meshesDir, name) } 
 
 // Returns the path of a texture, name being allowed a subdirectory ("skybox/top.png")
-func Texture(name string) string { return resolve(texturesDir, name) } // TODO: review
+func Texture(name string) string { return resolve(texturesDir, name) } 
 
 // Returns the path of a compiled shader module
-func Shader(name string) string { return resolve(shadersDir, name) } // TODO: review
+func Shader(name string) string { return resolve(shadersDir, name) } 
 
 // Returns the path of a settings file
-func Config(name string) string { // TODO: review
+func Config(name string) string { 
 	if filepath.Base(name) != name {
 		return name
 	}

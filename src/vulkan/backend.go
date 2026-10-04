@@ -429,7 +429,7 @@ func (backend *VKBackend) BackbufferSize() (int, int) {
 
 // Waits for the GPU to go idle, then destroys every Vulkan object the backend
 // owns, in reverse creation order
-func (backend *VKBackend) Shutdown() { // TODO: review
+func (backend *VKBackend) Shutdown() { 
 	if backend.vkDevice == 0 {
 		return
 	}

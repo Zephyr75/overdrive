@@ -194,7 +194,7 @@ func (backend *VKBackend) writeSlot(info *image) {
 }
 
 // Destroys a resource once the frames that could reference it have retired
-func (backend *VKBackend) Destroy(handle renderer.Handle) { // TODO: review
+func (backend *VKBackend) Destroy(handle renderer.Handle) { 
 	switch renderer.Kind(handle) {
 	case renderer.KindImage:
 		backend.destroyImage(renderer.ImageHandle(renderer.Index(handle)))
@@ -234,7 +234,7 @@ func (backend *VKBackend) retire(resource retired) {
 //
 // An item retired in frame F is referenced by F's command buffer at the latest,
 // which has certainly completed once framesInFlight further frames have begun
-func (backend *VKBackend) drainRetired() { // TODO: review
+func (backend *VKBackend) drainRetired() { 
 	kept := backend.retired[:0]
 	for _, resource := range backend.retired {
 		if backend.frameCounter-resource.frame <= framesInFlight {
