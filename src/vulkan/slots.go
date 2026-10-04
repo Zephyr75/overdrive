@@ -38,10 +38,8 @@ var bindingCapacity = [bindingKinds]uint32{
 	bindStorage: maxStorageImages, bindHot: maxHotTextures,
 }
 
-// A resource whose GPU objects are waiting for the frames that could reference
-// them to complete
-//
-// Destroying immediately would invalidate the command buffer being recorded, and
+// A resource whose GPU objects are waiting for the frames that could reference them to complete:
+// destroying immediately would invalidate the command buffer being recorded, and
 // reusing a bindless slot too early is silent wrong pixels rather than an error
 type retired struct {
 	frame           uint64
@@ -230,9 +228,8 @@ func (backend *VKBackend) retire(resource retired) {
 }
 
 // Destroys everything retired long enough ago to be unreferenced, and only then
-// gives its descriptor slot back
-//
-// An item retired in frame F is referenced by F's command buffer at the latest,
+// gives its descriptor slot back:
+// an item retired in frame F is referenced by F's command buffer at the latest,
 // which has certainly completed once framesInFlight further frames have begun
 func (backend *VKBackend) drainRetired() { 
 	kept := backend.retired[:0]

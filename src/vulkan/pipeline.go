@@ -30,8 +30,7 @@ func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.P
 	return renderer.PipelineHandle(len(backend.pipelines)), nil
 }
 
-// Rebuilds every live pipeline, re-reading the SPIR-V modules first
-//
+// Rebuilds every live pipeline, re-reading the SPIR-V modules first.
 // The old objects are retired rather than destroyed: a frame in flight may still
 // reference them
 func (backend *VKBackend) ReloadPipelines() error { 

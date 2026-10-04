@@ -135,7 +135,7 @@ func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offse
 // Copies a buffer back to the CPU
 //
 // Stalls on the frames in flight before mapping. Right for a screenshot or an
-// image test, wrong inside a frame loop — that is the intended trade
+// image test, wrong inside a frame loop — that is the intended trade TODO check
 func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { 
 	entry := backend.buffer(handle)
 	if entry == nil {

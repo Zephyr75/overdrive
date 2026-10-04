@@ -155,7 +155,6 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 			input.DefaultInput(app.Window, deltaTime)
 		}
 
-		// TODO here: study parameter
 		backend.Frame(func(frame renderer.Frame) {
 			var frameUniforms renderer.FrameUniforms
 			var frameAddr, recordAddr renderer.Address

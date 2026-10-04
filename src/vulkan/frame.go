@@ -243,10 +243,6 @@ func (vkFrame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass))
 }
 
 // Runs one compute pass, outside any render pass
-//
-// A dispatch reaches its resources through descriptors and device addresses,
-// which the backend cannot inspect — so ComputeSpec names them and this is where
-// they are transitioned
 func (vkFrame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Compute)) { 
 	backend, commandBuffer := vkFrame.VKBackend, vkFrame.vkCommandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
@@ -538,9 +534,6 @@ func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelin
 }
 
 // Pushes the four opaque addresses a draw or dispatch carries
-//
-// The backend never looks inside them: which block each slot points at is the
-// shader's declaration and the caller's business
 func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer.Address) { 
 	vk.CmdPushConstants(commandBuffer, backend.vkPipelineLayout, pushStages, 0, pushConstantSize, unsafe.Pointer(&addrs))
 }
