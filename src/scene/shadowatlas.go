@@ -537,11 +537,13 @@ func (scene *Scene) UpdateShadows(nearPlane, farPlane float32) {
 	scene.commitBakes()
 }
 
-// Empties this frame's tile and bake lists
+// Empties this frame's tile and bake lists, and the bake counts
 func (scene *Scene) resetQueues() { 
 	scene.shadowTiles = scene.shadowTiles[:0]
 	scene.staticQueue = scene.staticQueue[:0]
 	scene.dynamicQueue = scene.dynamicQueue[:0]
+	// Here rather than in the bakes, so a frame that bakes nothing reports zero
+	scene.staticBakes, scene.dynamicBakes = 0, 0
 }
 
 
@@ -798,30 +800,28 @@ func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pi
 	return drawn
 }
 
-// BakeShadows writes the queued shadow tiles into the static and dynamic atlases.
-// It clears the static atlas if needed, copies static tiles to the dynamic atlas,
-// and then renders movable casters onto the dynamic tiles.
-func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) { 
-	if len(scene.shadowTiles) == 0 {
-		return
-	}
-	scene.staticBakes, scene.dynamicBakes = 0, 0
+// Whether allocation moved this frame, so the static atlas must be cleared and re-baked
+func (scene *Scene) HasStaticBakes() bool { return len(scene.staticQueue) > 0 }
 
-	// Static pass
-	if len(scene.staticQueue) > 0 {
-		clear := [4]float32{1, 0, 0, 0}
-		frame.Pass(renderer.PassSpec{
-			Name:  "shadowStatic",
-			Depth: &renderer.Attachment{View: scene.atlas.staticView, Clear: &clear, Store: true},
-		}, func(pass renderer.Pass) {
-			for _, idx := range scene.staticQueue {
-				alloc := scene.atlas.shadowAllocs[idx]
-				scene.staticBakes += scene.bakeLight(frame, pass, pipes, idx, alloc, false)
-			}
-		})
-	}
+// Whether a movable caster dirtied any dynamic tile this frame
+func (scene *Scene) HasDynamicBakes() bool { return len(scene.dynamicQueue) > 0 }
 
-	// Copy static to dynamic: every dynamic tile begins as a copy of the corresponding static tile
+// The depth target of the static bake pass
+func (scene *Scene) StaticAtlasView() renderer.ViewHandle { return scene.atlas.staticView }
+
+// The depth target of the dynamic bake pass
+func (scene *Scene) DynamicAtlasView() renderer.ViewHandle { return scene.atlas.dynamicView }
+
+// Draws every static caster into the tiles of every allocated light, inside the static bake pass
+func (scene *Scene) RenderStaticBakes(frame renderer.Frame, pass renderer.Pass, pipes Pipelines) {
+	for _, idx := range scene.staticQueue {
+		alloc := scene.atlas.shadowAllocs[idx]
+		scene.staticBakes += scene.bakeLight(frame, pass, pipes, idx, alloc, false)
+	}
+}
+
+// Seeds each queued dynamic tile with its static tile, which the dynamic pass then draws over
+func (scene *Scene) InitDynamicTiles(frame renderer.Frame) {
 	for _, idx := range scene.dynamicQueue {
 		alloc := scene.atlas.shadowAllocs[idx]
 		pool := &scene.atlas.slotsPool[alloc.pool]
@@ -834,19 +834,13 @@ func (scene *Scene) BakeShadows(frame renderer.Frame, pipes Pipelines) {
 			})
 		}
 	}
+}
 
-	// Dynamic pass
-	// Render movable casters onto the copied depth, producing the final dynamic shadow tiles
-	if len(scene.dynamicQueue) > 0 {
-		frame.Pass(renderer.PassSpec{
-			Name:  "shadowDynamic",
-			Depth: &renderer.Attachment{View: scene.atlas.dynamicView, Store: true},
-		}, func(pass renderer.Pass) {
-			for _, idx := range scene.dynamicQueue {
-				alloc := scene.atlas.shadowAllocs[idx]
-				scene.dynamicBakes += scene.bakeLight(frame, pass, pipes, idx, alloc, true)
-			}
-		})
+// Draws the movable casters over the copied tiles, inside the dynamic bake pass
+func (scene *Scene) RenderDynamicBakes(frame renderer.Frame, pass renderer.Pass, pipes Pipelines) {
+	for _, idx := range scene.dynamicQueue {
+		alloc := scene.atlas.shadowAllocs[idx]
+		scene.dynamicBakes += scene.bakeLight(frame, pass, pipes, idx, alloc, true)
 	}
 }
 

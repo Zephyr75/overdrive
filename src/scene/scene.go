@@ -201,24 +201,17 @@ func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) {
 	uniforms.ShadowNormalScale = settings.ShadowNormalScale()
 }
 
-// Opens the depth prepass, draws every mesh depth-only and closes it
-func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frameAddr renderer.Address,
-	depthView renderer.ViewHandle) { 
+// Draws every mesh of the scene depth-only, inside the depth prepass
+func (scene *Scene) RenderDepth(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
+	frameAddr renderer.Address) { 
 
-	clear := [4]float32{1, 0, 0, 0}
-	frame.Pass(renderer.PassSpec{
-		Name:  "depthPrepass",
-		Depth: &renderer.Attachment{View: depthView, Clear: &clear, Store: true},
-		FlipY: true,
-	}, func(pass renderer.Pass) {
-		ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Prepass}
-		ctx.push[PushFrame] = frameAddr
+	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Prepass}
+	ctx.push[PushFrame] = frameAddr
 
-		uniforms := renderer.DrawUniforms{Model: mgl32.Ident4()}
-		for i := range scene.Meshes {
-			scene.Meshes[i].draw(ctx, &uniforms)
-		}
-	})
+	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4()}
+	for i := range scene.Meshes {
+		scene.Meshes[i].draw(ctx, &uniforms)
+	}
 }
 
 // Draws every mesh of the scene with the forward pipeline, inside the main pass

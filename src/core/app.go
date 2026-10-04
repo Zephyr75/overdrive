@@ -173,9 +173,30 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 
 			if loadedScene != nil {
 				recordAddr = frame.Upload(loadedScene.ShadowTiles())
-				// The static atlas when allocation moved, then the dynamic one:
-				// a settled scene bakes nothing at all
-				loadedScene.BakeShadows(frame, pipelines)
+
+				// A settled scene runs neither bake pass. The check is not an
+				// optimisation: the static pass clears its atlas, so opening it
+				// with nothing to draw would erase every static tile
+				if loadedScene.HasStaticBakes() {
+					frame.Pass(renderer.PassSpec{
+						Name:  "shadowStatic",
+						Depth: &renderer.Attachment{View: loadedScene.StaticAtlasView(), Clear: &depthClear, Store: true},
+					}, func(pass renderer.Pass) {
+						loadedScene.RenderStaticBakes(frame, pass, pipelines)
+					})
+				}
+				// Between the two passes: each dynamic tile starts as the static
+				// tile just baked, and the dynamic pass draws over it
+				loadedScene.InitDynamicTiles(frame)
+				// No clear, or it would erase the tiles just copied in
+				if loadedScene.HasDynamicBakes() {
+					frame.Pass(renderer.PassSpec{
+						Name:  "shadowDynamic",
+						Depth: &renderer.Attachment{View: loadedScene.DynamicAtlasView(), Store: true},
+					}, func(pass renderer.Pass) {
+						loadedScene.RenderDynamicBakes(frame, pass, pipelines)
+					})
+				}
 				staticBakes, dynamicBakes = loadedScene.BakeCounts()
 			}
 
@@ -183,7 +204,13 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 			// rather than once per surface drawn over it
 			prepass := loadedScene != nil && settings.DepthPrepass
 			if prepass {
-				loadedScene.RunDepthPrepass(frame, pipelines, frameAddr, targets.depthView)
+				frame.Pass(renderer.PassSpec{
+					Name:  "depthPrepass",
+					Depth: &renderer.Attachment{View: targets.depthView, Clear: &depthClear, Store: true},
+					FlipY: true,
+				}, func(pass renderer.Pass) {
+					loadedScene.RenderDepth(frame, pass, pipelines, frameAddr)
+				})
 			}
 
 			// The main pass keeps the depth the prepass left, which is what the
