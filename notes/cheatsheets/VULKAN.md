@@ -18,19 +18,22 @@
 6. [Surface and swapchain](#surface-and-swapchain)
 7. [Images and layouts](#images-and-layouts)
 8. [Synchronization](#synchronization)
-9. [Buffers](#buffers)
-10. [Descriptors](#descriptors)
-11. [Shaders: SPIR-V and Slang](#shaders--spir-v-and-slang)
-12. [Pipelines](#pipelines)
-13. [Command buffers](#command-buffers)
-14. [Textures: KTX](#textures--ktx)
-15. [Frames in flight](#frames-in-flight)
-16. [Render loop](#render-loop)
-17. [Cleanup](#cleanup)
-18. [Validation layers](#validation-layers)
-19. [Beginner mistakes](#beginner-mistakes)
-20. [Learning order](#learning-order)
-21. [Resources](#resources)
+9. [Buffers vs images](#buffers-vs-images)
+10. [Transfer commands and staging](#transfer-commands-and-staging)
+11. [Usage flags](#usage-flags)
+12. [Buffers](#buffers)
+13. [Descriptors](#descriptors)
+14. [Shaders: SPIR-V and Slang](#shaders--spir-v-and-slang)
+15. [Pipelines](#pipelines)
+16. [Command buffers](#command-buffers)
+17. [Textures: KTX](#textures--ktx)
+18. [Frames in flight](#frames-in-flight)
+19. [Render loop](#render-loop)
+20. [Cleanup](#cleanup)
+21. [Validation layers](#validation-layers)
+22. [Beginner mistakes](#beginner-mistakes)
+23. [Learning order](#learning-order)
+24. [Resources](#resources)
 
 ---
 
@@ -317,6 +320,66 @@ Reads as: *the depth writes from the late-fragment-test stage must complete and 
 > The per-barrier stage masks are the practical win. Under 1.0, batching two barriers into one call forced the **union** of their stage masks, dragging a cheap barrier up into an expensive one's scope
 
 > Use it wholesale. Mixing `vkCmdPipelineBarrier2` with the old `vkQueueSubmit` works and is a common half-migration, but then `VkSemaphoreSubmitInfo`'s per-semaphore stage mask is not available to you
+
+## Buffers vs images
+
+Both are GPU memory. The difference is how much the hardware knows about it.
+
+| | `VkBuffer` | `VkImage` |
+|---|---|---|
+| shape | linear bytes, meaning is yours | typed grid, `VkFormat` declared |
+| layout in memory | row-major, guaranteed | opaque tiling, vendor-swizzled |
+| layout *state* | none | `VkImageLayout`, changes per use |
+| read by a shader | raw fetch, or a pointer via BDA | through a `VkSampler` |
+| can be an attachment | no | yes |
+
+> **Buffer = you decide what the bytes mean. Image = the hardware already knows.** Vertices, indices, uniforms, indirect args, SSBO output are buffers because you define the layout. Anything you *sample* with filtering, or *render into*, is an image
+
+What the image machinery buys, none of which a buffer can have:
+
+- **tiling** — texels that are 2D neighbours are memory neighbours, so a 2x2 filter footprint is one cache line rather than two. This is *why* images have layouts: the driver reshuffles per use
+- **sampler hardware** — filtering, mip selection, anisotropy, address modes, border colour, depth comparison (hardware PCF). From a buffer, one bilinear tap is four loads plus three lerps in ALU
+- **format conversion for free** — sRGB decode, depth formats, and BC/ASTC block compression decoded in the texture unit. Compressed formats are simply unavailable to a buffer, which is 4-6x the memory on real textures
+- **attachment** — only an image can be a render target; the ROP hardware writes images
+
+## Transfer commands and staging
+
+A transfer command is **always GPU to GPU**. Both ends are Vulkan resources; neither end is ever the CPU.
+
+| command | src → dst |
+|---|---|
+| `vkCmdCopyBuffer` | buffer → buffer |
+| `vkCmdCopyImage` | image → image |
+| `vkCmdCopyBufferToImage` | buffer → image |
+| `vkCmdCopyImageToBuffer` | image → buffer |
+
+> There is no command that copies to or from CPU RAM. The CPU reaches GPU memory through exactly one mechanism — `memcpy` through a mapped pointer — and only `HOST_VISIBLE` memory has one
+
+So "upload to the GPU" is two steps of two different kinds, and only the second is a command:
+
+```
+memcpy into a HOST_VISIBLE staging buffer   <- a pointer write, no command, no usage flag
+vkCmdCopyBuffer staging -> DEVICE_LOCAL     <- the transfer command
+```
+
+Readback is the mirror: copy device → staging, then memcpy out of staging's mapping.
+
+**Why image↔buffer copies exist at all**: an image can never be host-mapped, because its tiling is opaque. So a buffer is the only possible bridge between the CPU and an image.
+
+- **buffer → image** — every texture upload: pixels from disk, a CPU-rendered UI overlay, streamed texture pages, video frames
+- **image → buffer** — readback: screenshots and image-diff tests, GPU picking (render IDs, read the pixel under the cursor). Rare, because it stalls
+
+> The asymmetry is the thing to remember. buffer→image is routine and happens constantly; image→buffer is a stall you do deliberately, a handful of times, never in a frame loop
+
+## Usage flags
+
+Usage is a **promise made at creation, before the allocation exists**, so the driver can place and align the memory. Not a runtime permission check.
+
+It is orthogonal to which memory type you asked for. Memory location decides whether the *CPU* can reach it; usage decides which *commands* may name it.
+
+`TRANSFER_SRC_BIT` / `TRANSFER_DST_BIT` are the pair people over-read. They mean only: a transfer command may name this as its source / its destination. They say nothing about CPU access — a mapped buffer is memcpy-able either way. Src and dst are separate because a copy has two ends with different requirements, and most resources are only ever one of the two.
+
+> The trap: copying to a resource that never declared `TRANSFER_DST_BIT` usually *appears to work*. There is no hardware permission bit — you get a validation error and formally undefined behaviour, then a black frame on someone else's GPU. Run with the layers on
 
 ## Buffers
 

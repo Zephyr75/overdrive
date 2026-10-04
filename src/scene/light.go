@@ -11,17 +11,13 @@ import (
 
 // The constant term of the falloff forward.slang implements, 1/(kConstant + d²)
 //
-// Lives here rather than at the FillFrameUniforms literal it feeds because
-// lightRadius solves the same expression: two copies would let the radius drift
-// out of step with the attenuation the day this is tuned
+// One copy, because lightRadius solves the same expression as the shading does
 const lightConstant = float32(1.0)
 
 // Radiance below which a light is treated as contributing nothing
 //
-// Linear space, so it is not one 8-bit step: fsMain ends on a Reinhard curve
-// and a 1/2.2 gamma, which lifts a linear 1/255 to roughly 21/255 on screen.
-// That makes this conservative rather than perceptual, which is the right
-// direction for a culling threshold. A quality knob eventually
+// Linear, so conservative rather than perceptual: fsMain's Reinhard plus 1/2.2
+// gamma lifts a linear 1/255 to roughly 21/255 on screen
 const lightCutoff = float32(1.0 / 255.0)
 
 type LightXml struct {
@@ -44,7 +40,7 @@ type Light struct {
 	Pos       mgl32.Vec3 // shading ignores this for a sun; its shadow camera still sits here
 	Dir       mgl32.Vec3 // sun and spot only, points away from the light
 	Color     mgl32.Vec3
-	Diffuse   float32    // second radiance multiplier beside Intensity
+	Diffuse   float32 // second radiance multiplier beside Intensity
 	Intensity float32
 	// Cone cosines, not angles: the shader compares them against a dot product
 	Cutoff      float32
@@ -62,54 +58,54 @@ type Light struct {
 }
 
 // Offsets the light's position
-func (l *Light) Move(x float32, y float32, z float32) {
-	l.Pos = l.Pos.Add(mgl32.Vec3{x, y, z})
+func (light *Light) Move(x float32, y float32, z float32) { 
+	light.Pos = light.Pos.Add(mgl32.Vec3{x, y, z})
 }
 
 // Converts a parsed XML light into engine coordinates and units
-func (l LightXml) toLight() Light {
-	t := renderer.LightSun
-	name := l.Name
-	pos := utils.ParseVec3(l.Pos)
-	dir := utils.ParseVec3(l.Dir)
-	color := utils.ParseVec3(l.Color)
+func (light LightXml) toLight() Light { 
+	kind := renderer.LightSun
+	name := light.Name
+	pos := utils.ParseVec3(light.Pos)
+	dir := utils.ParseVec3(light.Dir)
+	color := utils.ParseVec3(light.Color)
 
 	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 	dir = mgl32.Vec3{-dir[0], -dir[2], dir[1]}
-	intensity := l.Intensity
+	intensity := light.Intensity
 	// Cone cosines, only meaningful for a spot. 1 and 1 make the smoothstep
 	// degenerate rather than lighting nothing, so a malformed spot is visible
 	cutoff, outerCutoff := float32(1.0), float32(1.0)
-	switch l.Type {
+	switch light.Type {
 	case "sun":
-		t = renderer.LightSun
+		kind = renderer.LightSun
 	case "point":
-		t = renderer.LightPoint
+		kind = renderer.LightPoint
 		intensity /= 1000
 	case "spot":
-		t = renderer.LightSpot
+		kind = renderer.LightSpot
 		intensity /= 1000
 		// Blender gives the full cone angle; the shader compares a half-angle
 		// cosine against dot(-lightDir, direction)
-		outer := mgl32.DegToRad(l.Cone) * 0.5
+		outer := mgl32.DegToRad(light.Cone) * 0.5
 		outerCutoff = float32(math.Cos(float64(outer)))
-		cutoff = float32(math.Cos(float64(outer * (1.0 - l.ConeBlend))))
+		cutoff = float32(math.Cos(float64(outer * (1.0 - light.ConeBlend))))
 	}
 
 	// After the /1000 above, never before: the raw Blender energy would give a
 	// radius sqrt(1000) too large
 	radius := float32(0)
-	if t != renderer.LightSun {
-		radius = lightRadius(color, l.Diffuse, intensity)
+	if kind != renderer.LightSun {
+		radius = lightRadius(color, light.Diffuse, intensity)
 	}
 
 	return Light{
 		Name:        name,
-		Type:        t,
+		Type:        kind,
 		Pos:         pos,
 		Dir:         dir,
 		Color:       color,
-		Diffuse:     l.Diffuse,
+		Diffuse:     light.Diffuse,
 		Intensity:   intensity,
 		Cutoff:      cutoff,
 		OuterCutoff: outerCutoff,
@@ -117,15 +113,11 @@ func (l LightXml) toLight() Light {
 	}
 }
 
-// Solves the shader's falloff for the distance at which a light drops below
-// lightCutoff, which is what the shading early-out and the cluster bounds test
+// Solves forward.slang's falloff for where a light drops below lightCutoff
 //
-// forward.slang shades with color*diffuse*intensity / (kConstant + d²), so the
-// cutoff distance is sqrt(peak/lightCutoff - kConstant). The peak is the
-// brightest channel, not the average: averaging would cull a saturated light
-// while its strong channel is still visible. A zero or negative argument means
-// the light never reaches the threshold at all, hence the clamp
-func lightRadius(color mgl32.Vec3, diffuse, intensity float32) float32 {
+// Peak channel, not the average, which would cull a saturated light while its
+// strong channel is still visible
+func lightRadius(color mgl32.Vec3, diffuse, intensity float32) float32 { 
 	peak := float32(math.Max(math.Max(float64(color[0]), float64(color[1])),
 		float64(color[2]))) * diffuse * intensity
 	return float32(math.Sqrt(math.Max(0, float64(peak/lightCutoff-lightConstant))))

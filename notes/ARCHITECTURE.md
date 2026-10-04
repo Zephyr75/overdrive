@@ -44,19 +44,25 @@ overdrive/
     │
     ├── core/              app lifecycle and the frame loop
     │   ├── app.go         NewApp (window + backend), App.Run (the frame loop)
-    │   └── ui.go          renderUI: rasterise widgets → texture → fullscreen quad
+    │   ├── ui.go          the overlay: rasterise widgets → image → fullscreen quad
+    │   └── screenshot.go  Frame.Copy + ReadBuffer → a PNG, behind -screenshot
     │
     ├── renderer/          the abstraction, imports no graphics API
-    │   ├── backend.go     Backend interface, opaque handles, RenderTargetSpec
-    │   └── uniforms.go    FrameUniforms, DrawUniforms, the init() size guard
+    │   ├── backend.go     Backend / Frame / Pass / Compute, 24 methods
+    │   ├── handles.go     the opaque handle types and the reserved views
+    │   ├── spec.go        every *Spec, and the enums they are built from
+    │   └── uniforms.go    FrameUniforms, BakeUniforms, ShadowTile, DrawUniforms, the init() size guard
     │
     ├── vulkan/            Vulkan 1.3 backend — the only package that may import vk.*
-    │   ├── backend.go     device, swapchain, passes, lifetimes
-    │   ├── buffer.go      VMA allocations
-    │   ├── draw.go        the uniform ring, push constants, Draw
-    │   ├── shader.go      modules and lazy pipeline construction
-    │   ├── swapchain.go   creation and resize
-    │   └── texture.go     images, staging, bindless descriptors, render targets
+    │   ├── backend.go     device, instance, lifetimes, Caps
+    │   ├── frame.go       Frame/Pass/Compute, the upload arena, copies, timestamps
+    │   ├── barrier.go     the resource-use table: one entry, one barrier
+    │   ├── slots.go       the descriptor set, Slot, Destroy, the retire queue
+    │   ├── pipeline.go    CreatePipeline, ReloadPipelines, the module cache
+    │   ├── image.go       images, views, uploads, mip generation
+    │   ├── buffer.go      buffers, meshes, readback
+    │   ├── convert.go     every engine enum → Vulkan, and CreateSampler
+    │   └── swapchain.go   the swapchain and the two images sized to it
     │
     ├── scene/             what is in the world
     │   ├── scene.go       XML loading, shadow-caster budget, render dispatch
@@ -112,19 +118,20 @@ whose layout is not the repository's.
 
 Why it exists: the literals it replaced (`assets/…` in `scene/mesh.go`,
 `./textures/skybox/…` in `scene/skybox.go`, `shaders/vk/…` in
-`vulkan/shader.go`) each assumed the process had started from one specific
-directory. `go test ./scene/` runs with the working directory set to
-`src/scene/`, so `TestShowcaseLoads` never found its scene and skipped rather
-than ran — silently, for as long as it has existed.
+`vulkan/pipeline.go`) each assumed the process had started from one specific
+directory. A test run sets the working directory to the package's own — `go test
+./scene/` runs in `src/scene/` — which is how the since-deleted
+`TestShowcaseLoads` came to skip rather than run, silently, for as long as it
+existed. The `paths` package is what stops that recurring when tests come back.
 
 ---
 
 ## 2. The dependency rule
 
 **Nothing above `renderer/` imports a graphics API.** Scene, core, ecs, input and
-physics own opaque handles (`renderer.MeshHandle`, `TextureHandle`,
-`RenderTargetHandle`, `ShaderHandle`, `BufferHandle`) that the backend
-interprets in its own table. This is what makes `go test ./...` runnable without
+physics own opaque handles (`renderer.MeshHandle`, `ImageHandle`, `ViewHandle`,
+`PipelineHandle`, `SamplerHandle`, `BufferHandle`) that the backend
+interprets in its own table. This is what makes everything above `renderer/` testable without
 a GPU, and it is why the abstraction is kept with a single backend
 (`tmp/BACKEND_DECISION.md` §4).
 
@@ -153,8 +160,8 @@ another backend is rejected rather than ignored.
 
 Two further invariants, both enforced by convention rather than by the compiler:
 
-- **Clears and viewports exist only inside `Backend.BeginPass`.** No free-floating clear anywhere in scene or core code
-- **Uniforms are three typed structs split by update frequency**, mirroring `shaders/slang/common.slang` field for field. See `ENGINE_FLOW.md` §4.5
+- **Clears and viewports exist only inside `Frame.Pass`**, or are narrowed by `Pass.Viewport` within one. No free-floating clear anywhere in scene or core code
+- **Uniforms are opaque bytes to the backend**: `Frame.Upload` memcpys a block and returns a device address, and `DrawCall.Push` carries four of those. The blocks themselves are typed structs split by update frequency, mirroring `shaders/slang/common.slang` field for field. See `ENGINE_FLOW.md` §4.3
 
 ---
 
@@ -172,12 +179,11 @@ flowchart TD
     P --> LI["LightXml.toLight<br/>coordinate conversion"]
 
     ME --> FV["fillVertices<br/>flatten faces to interleaved vertices"]
-    FV --> SU["Mesh.setup<br/>CreateBuffer + one CreateMesh per face group<br/>decode + CreateTexture per material"]
+    FV --> SU["Mesh.setup<br/>CreateBuffer + one CreateMesh per face group<br/>decode + CreateImage/UpdateImage/Slot per material"]
 
-    LI --> PS["Scene.pickShadowCasters<br/>first sun + first point light"]
-    PS --> LS["shadowAtlas.setup<br/>one 4096² CreateRenderTarget, whatever the light count"]
+    LI --> LS["shadowAtlas.setup<br/>two 4096² depth CreateImage, whatever the light count<br/>both Hot, so they take dedicated descriptors<br/>who gets a tile of them is a per-frame decision"]
 
-    P --> SK["Skybox.setup<br/>CreateBuffer + CreateMesh + CreateCubemap"]
+    P --> SK["Skybox.setup<br/>CreateBuffer + CreateMesh + a 6-layer CreateImage"]
 
     style X fill:#553c9a,color:#e2e8f0
     style SU fill:#276749,color:#e2e8f0
@@ -188,13 +194,15 @@ flowchart TD
 `BufferHandle` plus three `MeshHandle`s, each owning only its index list. That is
 why `Mesh.gpu` is a slice.
 
-**The shadow budget is fixed at load.** `pickShadowCasters` picks the first
-directional and the first point light; every other light still lights the scene,
-it just casts nothing. What they get is **tiles of one atlas** — one for the sun,
-six for the point light's faces — allocated per frame by `Scene.UpdateShadows`
-(`scene/shadowatlas.go`), which also writes one `ShadowRecord` per tile. The
-atlas holds 16 tiles and 7 are used; the per-frame allocator that fills the rest
-is `tmp/LIGHTING_IMPL.md` Part D.
+**The atlas partition is fixed at load; who occupies it is decided per frame.**
+`buildLayout` (`scene/shadowatlas.go`) carves the one 4096 atlas into the slot
+counts `slotLayout` declares, once, and those rects never move again.
+`Scene.UpdateShadows` then scores every light by `Radius / distance to camera`,
+sorts by score, and hands each the best free slot no larger than the ceiling its
+score earns — one slot for a sun or a spot, six for a point light's faces, which
+need not be adjacent — writing one `ShadowRecord` per tile as it goes. A light
+that fits nowhere degrades a pool at a time and finally lights unshadowed. Load
+time allocates the atlas image and its slot table, nothing else.
 
 **Texture paths are made portable.** Blender bakes the absolute path of the
 machine that exported the scene into the MTL, so `texturePath` keeps only the
@@ -253,15 +261,17 @@ Only what exists. Unexported symbols are marked _(pkg)_.
 | `NewApp`           | func | Constructs the backend (`vulkan.New()`, the only place it is named), hints and creates the window, wires input, then `Backend.Init`                      |
 | `App.Run`          | func | Loads the five shader sets, builds the UI quad, then loops until the window closes. The frame shape is hardcoded here — see `tmp/BACKEND_DECISION.md` §6 |
 | `App.Quit`         | func | Asks the window to close                                                                                                                                 |
-| `renderUI` _(pkg)_ | func | Rasterises the widget tree to RGBA, uploads it, draws the quad. Redraws only when the tree or hover state changed                                        |
+| `overlay` _(pkg)_ | type | The UI overlay's quad, pipeline and canvas image. `draw` rasterises the widget tree to RGBA, uploads it and draws the quad; it redraws only when the tree or hover state changed, and recreates the canvas on a resize |
+| `screenshot` _(pkg)_ | type | Records a copy out of the swapchain image on one frame, then reads it back and writes a PNG |
 
 ### `renderer/`
 
 | Symbol                                                                              | Kind         | Description                                                                                                                                                       |
 | ----------------------------------------------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Backend`                                                                           | interface    | 27 methods, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency                                                                                  |
-| `TextureHandle`, `BufferHandle`, `MeshHandle`, `RenderTargetHandle`, `ShaderHandle` | type         | Opaque `uint32`. Texture 0 is the white pixel, render target 0 the backbuffer                                                                                     |
-| `VertexLayout`                                                                      | type         | `LayoutMesh`, `LayoutPosition`, `LayoutPositionUV` — how a mesh's vertex buffer is read. Recorded at creation, which is what lets one `Draw` serve every drawable |
+| `Backend`, `Frame`, `Pass`, `Compute`                                               | interface    | 24 methods across four interfaces, the whole contract. Grouped in `ENGINE_FLOW.md` §0 by call frequency. The nesting is the ordering rule: a `Pass` cannot exist outside `Frame.Pass` |
+| `ImageHandle`, `ViewHandle`, `BufferHandle`, `MeshHandle`, `SamplerHandle`, `PipelineHandle`, `AccelHandle` | type | Opaque `uint32` implementing `Handle`. Handle 0 is "none"; `Backbuffer`, `BackbufferDepth` and `BackbufferImage` are reserved for the swapchain |
+| `VertexLayout`                                                                      | type         | Stride plus `[]VertexAttr`, a field of `PipelineSpec` — vertex input is baked into the pipeline, which is where the hardware wants it |
+| `Address`                                                                           | type         | A GPU virtual address. Frame-scoped when it came from `Frame.Upload` |
 | `RenderTargetSpec`, `TargetFormat`                                                  | type         | Describes an offscreen target by what it _is_ — size, depth or colour, cube or not                                                                                |
 | `Feature`, `Supports`                                                               | type, method | The seam for ray tracing and compute; returns `false` today and has never been wired                                                                              |
 | `FrameUniforms`                                                                     | type         | 4844 B: camera, lights, the bake tile, the two atlas handles. Published once per pass, and once per tile inside the atlas pass                                    |
@@ -282,17 +292,21 @@ Only what exists. Unexported symbols are marked _(pkg)_.
 | `Scene.RenderScene`               | func | Rebinds the frame block, then draws every mesh with the forward shader                                                                                    |
 | `Scene.RenderSkybox`              | func | Binds a _copy_ of the frame block with the view translation stripped                                                                                      |
 | `Scene.UpdateMeshes`              | func | Reuploads the vertex buffers physics moved this frame                                                                                                     |
-| `Scene.ShadowCasters`             | func | Returns the two caster indices, or -1. No caller since the atlas landed                                                                                   |
-| `Scene.UpdateShadows`             | func | Allocates a tile per caster and builds this frame's `ShadowRecord` array. Must run before `FillFrameUniforms`, which copies each light's record index out |
-| `Scene.ShadowRecords`             | func | This frame's records, for `Backend.BindShadowRecords`                                                                                                     |
-| `Scene.BakeShadows`               | func | One pass over the atlas: per tile a `SetViewportScissor`, a `BakeMatrix` and every mesh                                                                   |
+| `Scene.UpdateShadows`             | func | Scores every light, allocates its tiles and builds this frame's `ShadowRecord` array. Must run before `FillFrameUniforms`, which copies each light's record index out |
+| `Scene.ShadowRecords`             | func | This frame's tiles, which the caller uploads once per frame                                                                                              |
+| `Scene.ShadowImages`              | func | The two atlases, for the main pass's `PassSpec.Reads`                                                                                                     |
+| `scene.NewPipelines`              | func | The five graphics pipelines the scene draws with, built once at startup                                                                                   |
+| `Mesh.CastsShadow`                | field | Whether the shadow bake draws this mesh. `<castsShadow>` in the XML, default true; false for a plane that can only occlude itself |
+| `Scene.BakeShadows`               | func | One pass per atlas: per tile a `Pass.Viewport`, an uploaded `BakeUniforms` and every caster that survives the frustum cull                                |
 | `Scene.Mesh` / `Light` / `Camera` | func | Lookup by name                                                                                                                                            |
 | `Mesh`                            | type | Vertices, normals, UVs, faces, materials, plus the GPU handles                                                                                            |
 | `Mesh.MoveTo` / `MoveBy`          | func | Rebuild vertex data and flag it for reupload                                                                                                              |
 | `Mesh.draw` _(pkg)_               | func | One `Backend.Draw` per face group, rewriting the material fields of `u`                                                                                   |
 | `Light`                           | type | Position, direction, colour, intensity, type, cone cosines, radius, and its record index into the atlas. Owns **no** GPU resource                         |
 | `Light.shadowRecord` _(pkg)_      | func | Builds one tile's record: ortho for a sun, one widened 90° face for a point                                                                               |
-| `shadowAtlas` _(pkg)_             | type | The one depth target and the interim grid allocator over it, in `shadowatlas.go`                                                                          |
+| `shadowAtlas` _(pkg)_             | type | The one depth target, its fixed slot pools and who holds them this frame, in `shadowatlas.go`                                                              |
+| `slotLayout` _(pkg)_              | var  | How many slots exist at each size, as divisions of `atlasSize`. The light budget lives here; the atlas size only sets sharpness                            |
+| `buildLayout` _(pkg)_             | func | Carves the slot rects out of the atlas once at load, largest size first, then discards the quadtree that placed them                                       |
 | `Material`                        | type | Ambient, diffuse (= albedo), specular, shininess, alpha, metallic, roughness, ao, plus diffuse and normal-map handles                                     |
 | `Camera`                          | type | Position, front, up, yaw, pitch, FOV                                                                                                                      |
 | `Skybox`                          | type | The cube mesh handle and the cubemap texture                                                                                                              |
@@ -369,6 +383,10 @@ Scenes are XML in `src/assets/`, referencing OBJ and MTL files in
     <position>0.0,0.0,0.0</position>
     <obj>DemoGround.obj</obj>
     <!-- <mtl> is optional: it defaults to the .obj basename -->
+    <!-- <castsShadow> is optional and defaults to true. False keeps the mesh
+         out of the shadow bake, which a single-sided ground plane wants: with
+         the whole scene above it, it can only occlude itself -->
+    <castsShadow>false</castsShadow>
   </mesh>
 
   <light name="Sun">
@@ -444,23 +462,17 @@ distribution and geometry terms of the BRDF.
 
 ## 8. Dead code
 
-These files are on disk but contain nothing the build uses. They are kept as
-placeholders for planned work; delete or implement.
-
-| File                     | State                                                                                                                            |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| `src/physics/box.go`     | Empty, a placeholder for box colliders (`TODO.md`)                                                                               |
-| `src/physics/box_old.go` | Fully commented out, the earlier box attempt                                                                                     |
-| `src/physics/link.go`    | Fully commented out, Verlet distance constraints                                                                                 |
-| `src/ecs/ecs.go`         | Fully commented out, an earlier set-based World. `entity.go` is the live one, and this file is the only thing `gofmt -l` reports |
-| `src/algorithms/wfc.go`  | Empty, the Wave Function Collapse placeholder                                                                                    |
+None. The five placeholder files this section used to list —
+`physics/box.go`, `physics/box_old.go`, `physics/link.go`, `ecs/ecs.go` and
+`algorithms/wfc.go`, together ~290 lines of empty or commented-out code — are
+gone: the first four were deleted on 2026-09-05 and `algorithms/` no longer
+exists. Deleted with them: `scene.NewCamera`, `utils.EulerToDirection`
+(`Camera.toCamera` inlines its own version), `settings.AspectRatio` and
+`Features.Has`, none of which had a caller. `gofmt -l` reports nothing now.
 
 Live code with no caller, which is different — each is a step ahead of its user,
 not an abandoned one:
 
 | Symbol                                                                                     | Waiting for                                                                             |
 | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `Backend.CopyDepthRegion`                                                                  | Part E's static-to-dynamic tile promotion                                               |
-| `Scene.ShadowCasters`                                                                      | Nothing — Part D deletes it along with `pickShadowCasters`                              |
-| `GeometryShader` device feature, `passShadowCube`, the cube branch of `CreateRenderTarget` | The escape hatch in `tmp/LIGHTING_PLAN.md` §11.3, if atlas corner filtering disappoints |
-| `renderer.TargetColor`                                                                     | An HDR target, once a half-float format is bound                                        |
+| `GeometryShader` device feature, `ShaderStage.StageGeometry`, `PipelineSpec.Stages`, `PassSpec.Layers` | The layered escape hatch in `tmp/LIGHTING_PLAN.md` §11.3, if atlas corner filtering disappoints. No pipeline sets `Stages`, so every one takes the vertex+fragment default |

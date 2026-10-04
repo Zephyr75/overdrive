@@ -37,6 +37,8 @@ for row in \
     depth:fsMain:fragment:frag \
     depth_point:vsMain:vertex:vert \
     depth_point:fsMain:fragment:frag \
+    prepass:vsMain:vertex:vert \
+    prepass:fsMain:fragment:frag \
     ui:vsMain:vertex:vert \
     ui:fsMain:fragment:frag
 do

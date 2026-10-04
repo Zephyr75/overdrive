@@ -1,21 +1,27 @@
 <?xml version="1.0" ?>
 <!-- Overdrive feature showcase. Geometry is baked into the Demo*.obj vertices
      (engine renders with an identity model matrix), so <position> is unused for
-     static meshes. Up to 8 lights are supported in any order; the first
-     directional and first point light cast shadows. -->
+     static meshes. Up to 64 lights are supported in any order; every one of
+     them casts a shadow if the atlas allocator can find it a tile, which it
+     scores per frame from radius over distance to the camera. -->
 <scene>
 	<camera name="Camera">
 		<type>persp</type>
-		<position>0.0,-9.5,3.5</position>
+		<position>0.0,-14.0,6.0</position>
 		<yaw>0.0</yaw>
-		<pitch>14.0</pitch>
+		<pitch>19.0</pitch>
 		<fov>45.0</fov>
 	</camera>
 
 	<!-- Paving-stone ground: normal-mapped flat surface, catches both shadows -->
+	<!-- The ground receives every shadow and casts none. With the whole scene
+	     above it, a single-sided plane in the shadow map can only ever occlude
+	     itself, and at the grazing angles a high light gives it that is acne
+	     across the entire surface -->
 	<mesh name="Ground">
 		<position>0.0,0.0,0.0</position>
 		<obj>DemoGround.obj</obj>
+		<castsShadow>false</castsShadow>
 	</mesh>
 
 	<!-- Hero: metal Suzanne, normal-mapped, high specular -->
@@ -42,79 +48,143 @@
 		<obj>DemoCube.obj</obj>
 	</mesh>
 
-	<!-- Six lights, placed so each is easy to tell apart:
-	     - warm point above centre  -> casts the cube shadow (first point)
-	     - red point on the left, green on the right, blue in front -> distinct
-	       coloured pools on the ground and props
-	     - violet spot high on the left -> a hard-edged pool, the cone test
-	     - white sun overhead       -> casts the 2D shadow (first directional)
-	     XML position is (GLx, -GLz, GLy) because of the Blender->GL axis swap.
-	     Direction is Blender's own: the way the lamp shines, so a lamp aimed
-	     straight down writes (0, 0, -1). -->
+	<!-- Nine lights, all nine shadowed: 6 spots + 2 point lights + 1 sun is
+	     6 tiles of 1024 + 2x6 of 512 + 1 of 2048, 81% of the 4096 atlas. That is
+	     the Part D allocator near its limit, and the point of the scene: every prop
+	     stands in two or three overlapping coloured shadows.
 
-	<!-- warm point, GL (1.0, 4.0, 1.5), above the scene -> cube shadow caster -->
+	     Three placement rules, every one of them learnt by rendering the scene and
+	     looking at it:
+
+	     1. A light casts a *visible* shadow only when it is well above the props
+	        and off to one side. Lights at eye level beside a prop throw their
+	        shadows away horizontally, where no visible ground catches them.
+	     2. Spots beat point lights for this. A spot contributes exactly zero
+	        outside its cone, so its pool is a region where it dominates and its
+	        shadow is most of the light lost. A point light lights everything a
+	        little, which is a pedestal that no shadow can cut through.
+	     3. Read the shadows by *hue*, not by brightness. fsMain ends on a Reinhard
+	        curve, which compresses hard above 1: with several lights on one spot,
+	        blocking one barely changes the luminance. Blocking a saturated one
+	        leaves a strongly tinted shadow, which is unmistakable. Hence six
+	        near-primary spots rather than six pastel ones.
+
+	     XML position is (GLx, -GLz, GLy) because of the Blender->GL axis swap, and
+	     XML direction is (shine.x, -shine.z, shine.y) of the GL shine vector, so a
+	     lamp aimed straight down writes (0, 0, -1). -->
+
+	<!-- Two spots per prop, from opposite sides, so each prop throws two coloured
+	     shadows that cross. 26 deg from 5 units of height and 13 out is a long raking ellipse, and a
+	     low light is what makes a shadow long enough to read as a silhouette -->
+
+	<!-- red, GL (-10, 9, 6), front-left, onto the chrome sphere -->
+	<light name="SpotRed">
+		<type>spot</type>
+		<position>-13.0,0.0,8.0</position>
+		<direction>9.2,-0.4,-6.7</direction>
+		<color>1.0,0.06,0.06</color>
+		<diffuse>1.0</diffuse>
+		<cone>24.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>800000.0</intensity>
+	</light>
+
+	<!-- green, GL (-10, 9, -6), back-left, onto the chrome sphere -->
+	<light name="SpotGreen">
+		<type>spot</type>
+		<position>-6.5,-11.3,8.0</position>
+		<direction>2.7,10.9,-6.7</direction>
+		<color>0.06,1.0,0.1</color>
+		<diffuse>1.0</diffuse>
+		<cone>24.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>800000.0</intensity>
+	</light>
+
+	<!-- blue, GL (0, 9, 9), in front, onto Suzanne -->
+	<light name="SpotBlue">
+		<type>spot</type>
+		<position>6.5,-11.3,8.0</position>
+		<direction>-6.3,12.1,-6.5</direction>
+		<color>0.1,0.25,1.0</color>
+		<diffuse>1.0</diffuse>
+		<cone>24.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>800000.0</intensity>
+	</light>
+
+	<!-- amber, GL (0, 9, -9), behind, onto Suzanne. Its shadow is the only one
+	     thrown toward the camera, so it never hides behind its own caster -->
+	<light name="SpotAmber">
+		<type>spot</type>
+		<position>-6.5,11.3,8.0</position>
+		<direction>6.7,-10.5,-6.5</direction>
+		<color>1.0,0.55,0.05</color>
+		<diffuse>1.0</diffuse>
+		<cone>24.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>800000.0</intensity>
+	</light>
+
+	<!-- cyan, GL (10, 9, 6), front-right, onto the brick sphere -->
+	<light name="SpotCyan">
+		<type>spot</type>
+		<position>13.0,0.0,8.0</position>
+		<direction>-9.2,-0.4,-6.8</direction>
+		<color>0.05,0.9,1.0</color>
+		<diffuse>1.0</diffuse>
+		<cone>24.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>800000.0</intensity>
+	</light>
+
+	<!-- magenta, GL (10, 9, -6), back-right, onto the brick sphere and the cube -->
+	<light name="SpotMagenta">
+		<type>spot</type>
+		<position>6.5,11.3,8.0</position>
+		<direction>-1.0,-9.3,-7.1</direction>
+		<color>1.0,0.05,0.7</color>
+		<diffuse>1.0</diffuse>
+		<cone>24.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>800000.0</intensity>
+	</light>
+
+	<!-- The two point lights, which is what puts 6-tile allocations in the atlas
+	     beside the 1-tile ones. Kept dim: a point light lights the whole scene a
+	     little, and that pedestal is what washes the spots' shadows out -->
+
+	<!-- warm point, GL (0, 11, 0), straight overhead -> the short shadow directly
+	     under each prop that the angled coloured ones fan out from -->
 	<light name="PointWarm">
 		<type>point</type>
-		<position>1.0,-1.5,4.0</position>
+		<position>0.0,0.0,11.0</position>
 		<direction>0.0,0.0,-1.0</direction>
 		<color>1.0,0.85,0.6</color>
 		<diffuse>1.0</diffuse>
-		<intensity>200.0</intensity>
+		<intensity>35000.0</intensity>
 	</light>
 
-	<!-- red point, GL (-4.5, 1.0, 1.8), low by the chrome sphere -->
-	<light name="PointRed">
+	<!-- violet point, GL (7, 6, -10), behind the cube, the one prop no spot owns -->
+	<light name="PointViolet">
 		<type>point</type>
-		<position>-4.5,-1.8,1.0</position>
+		<position>7.0,10.0,6.0</position>
 		<direction>0.0,0.0,-1.0</direction>
-		<color>1.0,0.1,0.1</color>
+		<color>0.65,0.3,1.0</color>
 		<diffuse>1.0</diffuse>
-		<intensity>20000.0</intensity>
+		<intensity>55000.0</intensity>
 	</light>
 
-	<!-- green point, GL (4.5, 1.0, 1.8), low by the brick sphere -->
-	<light name="PointGreen">
-		<type>point</type>
-		<position>4.5,-1.8,1.0</position>
-		<direction>0.0,0.0,-1.0</direction>
-		<color>0.1,1.0,0.1</color>
-		<diffuse>1.0</diffuse>
-		<intensity>30000.0</intensity>
-	</light>
-
-	<!-- blue point, GL (0.0, 0.9, 3.8), low and in front of Suzanne -->
-	<light name="PointBlue">
-		<type>point</type>
-		<position>0.0,-3.8,0.9</position>
-		<direction>0.0,0.0,-1.0</direction>
-		<color>0.2,0.3,1.0</color>
-		<diffuse>1.0</diffuse>
-		<intensity>20000.0</intensity>
-	</light>
-
-	<!-- violet spot, GL (-2.0, 6.0, 4.5), shining straight down. 40 deg full
-	     cone at 6 units of height is a ~2.2 unit pool on the ground, clear of
-	     the coloured points. coneBlend 0.25 leaves the rim visibly soft -->
-	<light name="SpotViolet">
-		<type>spot</type>
-		<position>-2.0,-4.5,6.0</position>
-		<direction>0.0,0.0,-1.0</direction>
-		<color>0.8,0.5,1.0</color>
-		<diffuse>1.0</diffuse>
-		<cone>40.0</cone>
-		<coneBlend>0.25</coneBlend>
-		<intensity>40000.0</intensity>
-	</light>
-
-	<!-- sun -> directional 2D shadow map (first directional = caster). direction
-	     points toward the light (up); the shadow camera looks along pos - direction.
-	     Kept dim so the coloured point lights stay visible. -->
+	<!-- sun -> the one ortho tile, and the only light with no falloff, so it is
+	     also the only one whose shadow reaches the whole ground. Kept dim: at its
+	     old 4.5 it drowned every coloured shadow and the scene read as having one -->
 	<light name="Sun">
 		<type>sun</type>
 		<position>6.0,-5.0,12.0</position>
 		<direction>-0.35,0.45,-1.0</direction>
 		<color>1.0,0.98,0.92</color>
 		<diffuse>1.0</diffuse>
-		<intensity>4.5</intensity>
+		<intensity>0.5</intensity>
 	</light>
+
 </scene>

@@ -12,6 +12,7 @@ import (
 	"github.com/Zephyr75/overdrive/physics"
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
+	"github.com/Zephyr75/overdrive/utils"
 
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/go-gl/mathgl/mgl32"
@@ -25,10 +26,10 @@ type StaticCollider struct {
 	collider physics.Collider
 }
 
-func (s *StaticCollider) Init(world *ecs.World)      {}
-func (s *StaticCollider) Update(world *ecs.World)    {}
-func (s *StaticCollider) Type() string               { return "StaticCollider" }
-func (s *StaticCollider) Collider() physics.Collider { return s.collider }
+func (collider *StaticCollider) Init(world *ecs.World)      {}                           
+func (collider *StaticCollider) Update(world *ecs.World)    {}                           
+func (collider *StaticCollider) Type() string               { return "StaticCollider" } 
+func (collider *StaticCollider) Collider() physics.Collider { return collider.collider }
 
 // A falling ball, its mesh following the collider each frame
 type Sphere struct {
@@ -36,16 +37,16 @@ type Sphere struct {
 	*scene.Mesh
 }
 
-func (s *Sphere) Init(world *ecs.World) {}
+func (sphere *Sphere) Init(world *ecs.World) {} 
 
-func (s *Sphere) Update(world *ecs.World) {
-	s.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
-	s.Mesh.MoveTo(s.Pos)
+func (sphere *Sphere) Update(world *ecs.World) { 
+	sphere.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
+	sphere.Mesh.MoveTo(sphere.Pos)
 }
 
-func (s *Sphere) Type() string { return "Sphere" }
+func (sphere *Sphere) Type() string { return "Sphere" } 
 
-func (s *Sphere) Collider() physics.Collider { return s.Sphere }
+func (sphere *Sphere) Collider() physics.Collider { return sphere.Sphere } 
 
 // A static ball the falling one collides against
 type Sphere2 struct {
@@ -54,14 +55,16 @@ type Sphere2 struct {
 	*scene.Mesh
 }
 
-func (s *Sphere2) Init(world *ecs.World)      {}
-func (s *Sphere2) Update(world *ecs.World)    {}
-func (s *Sphere2) Type() string               { return "Sphere2" }
-func (s *Sphere2) Collider() physics.Collider { return s.Sphere }
+func (sphere *Sphere2) Init(world *ecs.World)      {}                       
+func (sphere *Sphere2) Update(world *ecs.World)    {}                      
+func (sphere *Sphere2) Type() string               { return "Sphere2" }     
+func (sphere *Sphere2) Collider() physics.Collider { return sphere.Sphere } 
 
-func main() {
+func main() { 
 	// Must load before NewApp, which is where the window and backend read them
 	configName := flag.String("config", "vulkan.toml", "settings file: a bare name resolves under configs/, a path is used as given")
+	sceneName := flag.String("scene", "showcase.xml", "scene file, resolved under assets/")
+	shot := flag.String("screenshot", "", "write one PNG of the rendered frame to this path, then quit")
 	flag.Parse()
 	// A bad settings file is the user's mistake, not a crash, so it gets a line
 	// on stderr rather than utils.HandleError's stack
@@ -70,9 +73,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := core.NewApp("Gutter", settings.WindowWidth, settings.WindowHeight, true, nil, nil)
+	app := core.NewApp("Gutter", settings.WindowWidth, settings.WindowHeight, nil, nil)
+	app.ScreenshotFile = *shot
 
-	scene := scene.NewScene(paths.Asset("showcase.xml"), app.Backend)
+	scene, err := scene.NewScene(paths.Asset(*sceneName), app.Backend)
+	utils.HandleError(err)
 
 	world := createWorld(&scene)
 
@@ -83,17 +88,17 @@ func main() {
 }
 
 // Wires the physics bodies this demo needs, skipping any mesh the scene lacks so every scene still loads
-func createWorld(s *scene.Scene) *ecs.World {
+func createWorld(scene *scene.Scene) *ecs.World { 
 	world := ecs.World{}
 
-	if m := s.Mesh("Ground"); m != nil {
-		world.AddEntities(&StaticCollider{physics.NewPlaneFromMesh(m, true)})
+	if mesh := scene.FindMesh("Ground"); mesh != nil {
+		world.AddEntities(&StaticCollider{physics.NewPlaneFromMesh(mesh, true)})
 	}
-	if m := s.Mesh("Sphere2"); m != nil {
-		world.AddEntities(&StaticCollider{physics.NewSphereFromMesh(m, true)})
+	if mesh := scene.FindMesh("Sphere2"); mesh != nil {
+		world.AddEntities(&StaticCollider{physics.NewSphereFromMesh(mesh, true)})
 	}
-	if m := s.Mesh("Sphere"); m != nil {
-		world.AddEntities(&Sphere{physics.NewSphereFromMesh(m, false), m})
+	if mesh := scene.FindMesh("Sphere"); mesh != nil {
+		world.AddEntities(&Sphere{physics.NewSphereFromMesh(mesh, false), mesh})
 	}
 
 	world.Init()
@@ -105,7 +110,7 @@ var (
 )
 
 // Builds the demo's widget tree, one frame's worth of UI
-func MainWindow(app core.App) ui.UIElement {
+func MainWindow(app core.App) ui.UIElement { 
 	return ui.Row{
 		Style: ui.Style{
 			Color: color.Transparent,

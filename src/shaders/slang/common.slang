@@ -3,7 +3,7 @@
 // build_shaders.sh compiles this to SPIR-V: BDA push constant + bindless arrays
 //
 // The uniform data is split by update frequency: FrameUniforms once per pass,
-// DrawUniforms once per draw. The backend memcpys both into a host-visible ring
+// DrawUniforms once per draw. The backend memcpys both into a host-visible arena
 // and pushes their device addresses, with no marshalling — Slang's scalar
 // layout and Go's struct packing agree field for field
 
@@ -78,6 +78,7 @@ struct ShadowRecord {
   // 0..5 for a cube face, -1 for a 2D tile: also the depth encoding selector
   int face;
   // bit 0: sample the dynamic atlas rather than the static one
+  // bit 1: cheap PCF, the 4 corner taps without the 3x3 refinement
   int flags;
 };
 
@@ -95,24 +96,30 @@ struct ShadowRecord {
 // as long as the order matches. Nothing else is required: no 16-byte cells, no
 // vec3-plus-scalar pairing, no vectors standing in for scalar arrays.
 
-// Camera, lights and shadow maps: Update once per pass
+// Camera and lights: uploaded once per pass
 struct FrameUniforms {
   float4x4 view;
   float4x4 projection;
-  // The one tile a shadow pass is baking: meaningless in the main pass
-  // The bake shaders never read the record array, so these cannot come from it
-  float4x4 bakeMatrix;
-  float3 bakeLightPos;
-  float bakeFarPlane;
   float3 viewPos;
   // Active lights in lights[], 0 to MAX_LIGHTS
   int lightCount;
   LightData lights[MAX_LIGHTS];
-  // The two shadow atlases, as dedicated bindings rather than bindless slots
-  int texShadowStatic;
-  int texShadowDynamic;
   // Bindless texture-array slot, an index into texturesCube
   int texSkybox;
+  // Grows the shadow normal-offset bias when the atlas is smaller than the 4096
+  // its world-space constants were tuned at
+  float shadowNormalScale;
+};
+
+// 80 bytes, mirrored field for field by renderer.BakeUniforms
+//
+// The one tile a depth pass is baking. Its own block rather than three fields of
+// FrameUniforms: a bake uploads this per tile, and republishing the whole frame
+// block instead cost 4848 bytes a tile where this costs 80
+struct BakeUniforms {
+  float4x4 worldToTile;
+  float3 lightPos;
+  float farPlane;
 };
 
 // Transform and material of one face group: Update once per draw
@@ -133,16 +140,17 @@ struct DrawUniforms {
   int useNormalMap;
 };
 
-// BDA, one pointer per block lives in a 24-byte push constant
-// All three point into the host-visible ring the backend uploads into: the
-// frame entry is written once per pass and its address re-pushed per draw, the
-// draw entry is written per draw, the record array once per frame The records
-// are a variable-length array, which is why they are a pointer rather than a
-// member of FrameUniforms
+// Four device addresses in a 32-byte push constant
+//
+// The backend pushes four opaque words and never looks inside them: which block
+// each slot points at is this declaration, and the caller fills the slots
+// positionally. A shader dereferences only the ones it needs — the main pass
+// leaves bake unset, a depth pass leaves frame and records unset
 struct PushConstants {
   FrameUniforms *frame;
   DrawUniforms *draw;
   ShadowRecord *records;
+  BakeUniforms *bake;
 };
 [[vk::push_constant]]
 PushConstants pc;
@@ -153,20 +161,25 @@ Sampler2D textures2D[];
 [[vk::binding(1, 0)]]
 SamplerCube texturesCube[];
 
-// The two shadow atlases get dedicated non-bindless bindings
-// PCF kernels tap them many times per fragment
-// Intel's Vulkan driver re-fetches a dynamically indexed bindless descriptor
-// per tap Going bindless here cost ~1.7x the frame time; a plain bound
-// descriptor fixes it Every shadow in the scene is a sub-rect of one of these
-// two, whatever the light type: a cube face is an ordinary tile with its own 90
-// degree matrix
-[[vk::binding(2, 0)]]
-Sampler2D shadowAtlasStatic;
+// A short array of dedicated descriptors, for images tapped many times per
+// fragment. Binding 2 is the bindless storage-image array, which no shader reads
+// yet; binding 3 is this one
+//
+// Indexed by a literal, never by a value: Intel's Vulkan driver re-fetches a
+// dynamically indexed bindless descriptor on every tap, which cost ~1.7x the
+// frame time when the shadow atlases lived in textures2D. Which image is in
+// which slot is the scene's choice, declared through ImageSpec.HotSlot
 [[vk::binding(3, 0)]]
-Sampler2D shadowAtlasDynamic;
+Sampler2D hotTextures[4];
+
+// The scene puts the static shadow atlas in hot slot 0 and the dynamic one in 1,
+// which is what ShadowRecord.flags bit 0 selects between
+#define HOT_SHADOW_STATIC (hotTextures[0])
+#define HOT_SHADOW_DYNAMIC (hotTextures[1])
 
 #define FRAME (pc.frame)
 #define DRAW (pc.draw)
+#define BAKE (pc.bake)
 #define RECORD(i) (pc.records[i])
 #define TEX_OUR (textures2D[DRAW.texOurTexture])
 #define TEX_NORMAL (textures2D[DRAW.texNormalMap])

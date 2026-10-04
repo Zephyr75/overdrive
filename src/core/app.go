@@ -18,18 +18,18 @@ import (
 )
 
 type App struct {
-	Name          string
-	Width         int
-	Height        int
-	Debug         bool
-	Window        *glfw.Window
-	Backend       renderer.Backend
-	InputHandler  func(window *glfw.Window, deltaTime float32)
-	MouseCallback func(window *glfw.Window, x float64, y float64)
+	Name           string
+	Width          int
+	Height         int
+	Window         *glfw.Window
+	Backend        renderer.Backend
+	ScreenshotFile string // when set, one frame is captured and saved to a file with the given name
+	InputHandler   func(window *glfw.Window, deltaTime float32)
+	MouseCallback  func(window *glfw.Window, x float64, y float64)
 }
 
 // Pins the package to the main OS thread, where GLFW event handling must run
-func init() {
+func init() { 
 	runtime.LockOSThread()
 }
 
@@ -39,13 +39,11 @@ func (app App) Quit() {
 }
 
 // Creates the backend, the window and its input callbacks, then initialises the backend on that window
-func NewApp(name string, width int, height int, debug bool, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App {
-
+func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App { 
 	app := App{
 		Name:          name,
 		Width:         width,
 		Height:        height,
-		Debug:         debug,
 		MouseCallback: mouseCallback,
 		InputHandler:  inputHandler,
 	}
@@ -53,12 +51,15 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	// Create the backend before the window, so it can set its own hints
 	app.Backend = vulkan.New()
 
+	// Initialize GLFW and verify Vulkan support
 	glfw.Init()
 	if !glfw.VulkanSupported() {
 		utils.HandleError(fmt.Errorf("GLFW reports no Vulkan loader"))
 	}
+	// Set the GLFW window to use no API, indicating that we will handle rendering ourselves
 	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
 
+	// Create the GLFW window with specified width, height, and title
 	window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, name, nil, nil)
 	if err != nil {
 		glfw.Terminate()
@@ -68,38 +69,42 @@ func NewApp(name string, width int, height int, debug bool, inputHandler func(wi
 	// Wire the input callbacks, falling back to the built-in handlers
 	window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
 	window.SetScrollCallback(input.ScrollCallback)
-	if app.MouseCallback != nil {
-		window.SetCursorPosCallback(app.MouseCallback)
-	} else {
-		window.SetCursorPosCallback(input.DefaultMouseCallback)
+	if !settings.LockCamera {
+		if app.MouseCallback != nil {
+			window.SetCursorPosCallback(app.MouseCallback)
+		} else {
+			window.SetCursorPosCallback(input.DefaultMouseCallback)
+		}
+		window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 	}
-	window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)
 
-	utils.HandleError(app.Backend.Init(window))
+	// The backbuffer sample count is resolved against the device's limits and
+	// read back through Capacities: the images at that sample count are built
+	// here, not in the backend
+	samples := 1
+	if settings.IsMSAAEnabled() {
+		samples = settings.MSAASamples
+	}
+
+	utils.HandleError(app.Backend.Init(window, renderer.Request{
+		Features: []renderer.Feature{renderer.FeatureCompute},
+		Samples:  samples,
+	}))
 
 	return app
 }
 
-// Loads the shader sets and runs the frame loop until the window closes
-func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) {
-	b := app.Backend
+// Builds the pipelines and runs the frame loop until the window closes
+func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) { 
+	backend := app.Backend
 
-	forwardShader, err := b.CreateShader("forward")
+	pipelines, err := scene.NewPipelines(backend)
 	utils.HandleError(err)
-	depthShader, err := b.CreateShader("depth")
-	utils.HandleError(err)
-	depthPointShader, err := b.CreateShader("depth_point")
-	utils.HandleError(err)
-	uiShader, err := b.CreateShader("ui")
-	utils.HandleError(err)
-	skyboxShader, err := b.CreateShader("skybox")
+	overlay, err := newOverlay(backend)
 	utils.HandleError(err)
 
-	// The overlay's quad is built once, like any other mesh
-	uiQuad := createOverlayQuad(b)
-
-	if s != nil {
-		input.SetScene(s)
+	if loadedScene != nil {
+		input.SetScene(loadedScene)
 	} else {
 		emptyScene := scene.EmptyScene()
 		input.SetScene(&emptyScene)
@@ -107,72 +112,124 @@ func (app App) Run(s *scene.Scene, widget func(app App) ui.UIElement, world *ecs
 
 	// Init the frame timing
 	frames := 0
+	// Tiles the last frame baked into each atlas, printed beside the FPS: a
+	// static scene must settle at zero, which is what the static/dynamic split is for
+	staticBakes, dynamicBakes := 0, 0
 	curTime := glfw.GetTime()
 	var deltaTime float32 = 0.0
 	lastFrame := float64(0.0)
 
-	const nearPlane = float32(1.0)
-	const farPlane = float32(50.0)
+	clearColor := [4]float32{0.1, 0.1, 0.1, 1.0}
+	depthClear := [4]float32{1, 0, 0, 0}
+
+	// The depth buffer and, when multisampling, the colour image the main pass
+	// resolves out of. Rebuilt whenever the swapchain has resized under them
+	var targets screenTargets
+
+	// Late enough for the physics and the shadow allocator to have settled, so
+	// two runs photograph the same scene
+	var shot *screenshot
+	if app.ScreenshotFile != "" {
+		shot = &screenshot{path: app.ScreenshotFile, frame: 90}
+	}
+	frameNo := 0
+	captured := false
 
 	// Run one iteration per frame until the window closes
 	for !app.Window.ShouldClose() {
 
+		// Before Frame, which is where a resize is discovered: the frame that
+		// discovers one records nothing, so this is what catches up to it
+		targets.rebuildOnResize(backend)
+
 		world.Update(time.Second / 60)
 
-		s.UpdateMeshes()
+		loadedScene.UpdateMeshes()
 
 		// Process input before anything is recorded, so the camera is current
-		if app.InputHandler != nil {
+		if settings.LockCamera {
+			// Nothing moves the camera
+		} else if app.InputHandler != nil {
 			app.InputHandler(app.Window, deltaTime)
 		} else {
 			input.DefaultInput(app.Window, deltaTime)
 		}
 
-		b.BeginFrame()
+		// TODO here: study parameter
+		backend.Frame(func(frame renderer.Frame) {
+			var frameUniforms renderer.FrameUniforms
+			var frameAddr, recordAddr renderer.Address
+			var reads []renderer.Handle
 
-		// One pass-scoped block, refilled and rebound as each pass begins
-		var f renderer.FrameUniforms
+			if loadedScene != nil {
+				// Allocate this frame's tiles first: FillFrameUniforms copies each
+				// light's record index out of it, and the bake walks the same tiles
+				loadedScene.UpdateShadows(settings.ShadowNearPlane, settings.ShadowFarPlane)
+				loadedScene.FillFrameUniforms(&frameUniforms)
+				reads = loadedScene.ShadowImages()
+			}
+			// One upload for the whole frame: the prepass and the forward pass
+			// read the same bytes, which is what an EQUAL depth test needs
+			frameAddr = frame.Upload(&frameUniforms)
 
-		if s != nil {
-			// Allocate this frame's tiles first: FillFrameUniforms copies each
-			// light's record index out of it, and the bake walks the same tiles
-			s.UpdateShadows(nearPlane, farPlane)
-			b.BindShadowRecords(s.ShadowRecords())
-			s.FillFrameUniforms(&f)
+			if loadedScene != nil {
+				recordAddr = frame.Upload(loadedScene.ShadowTiles())
+				// The static atlas when allocation moved, then the dynamic one:
+				// a settled scene bakes nothing at all
+				loadedScene.BakeShadows(frame, pipelines)
+				staticBakes, dynamicBakes = loadedScene.BakeCounts()
+			}
 
-			// One pass for every shadow in the scene, a tile at a time
-			s.BakeShadows(depthShader, depthPointShader, &f)
+			// Depth first, so the forward pass shades each visible fragment once
+			// rather than once per surface drawn over it
+			prepass := loadedScene != nil && settings.DepthPrepass
+			if prepass {
+				loadedScene.RunDepthPrepass(frame, pipelines, frameAddr, targets.depthView)
+			}
+
+			// The main pass keeps the depth the prepass left, which is what the
+			// EQUAL test in the forward pipeline compares against
+			depth := renderer.Attachment{View: targets.depthView}
+			if !prepass {
+				depth.Clear = &depthClear
+			}
+			frame.Pass(renderer.PassSpec{
+				Name:  "main",
+				Color: []renderer.Attachment{targets.colorAttachment(&clearColor)},
+				Depth: &depth,
+				Reads: reads,
+				FlipY: true,
+			}, func(pass renderer.Pass) {
+				if loadedScene != nil {
+					loadedScene.RenderSkybox(frame, pass, pipelines, &frameUniforms)
+					loadedScene.RenderScene(frame, pass, pipelines, frameAddr, recordAddr)
+				}
+				overlay.draw(frame, pass, app, widget)
+			})
+
+			captured = shot.record(backend, frame, frameNo)
+		})
+		frameNo++
+
+		if captured {
+			utils.HandleError(shot.write(backend))
+			fmt.Printf("\nwrote %s\n", shot.path)
+			app.Window.SetShouldClose(true)
 		}
-
-		// Run the main pass, the only one that clears color
-		b.BeginPass(0, &[4]float32{0.1, 0.1, 0.1, 1.0})
-
-		if s != nil {
-			s.RenderSkybox(skyboxShader, &f)
-			s.RenderScene(forwardShader, &f)
-		} else {
-			// No scene binds the block, but the overlay's draw still pushes its
-			// address, so it has to point at something valid
-			b.BindFrameUniforms(&f)
-		}
-
-		renderUI(app, widget, uiShader, uiQuad)
-
-		b.EndPass()
-		b.EndFrame()
 
 		// Advance the clock and print the FPS once a second
 		frames++
 		deltaTime = float32(glfw.GetTime()) - float32(lastFrame)
 		lastFrame = glfw.GetTime()
 		if glfw.GetTime()-curTime > 1 {
-			fmt.Printf("\rFPS: %d", frames)
+			fmt.Printf("\rFPS: %d  bakes: %d static %d dynamic   ", frames, staticBakes, dynamicBakes)
 			frames = 0
 			curTime = glfw.GetTime()
 		}
 
 		glfw.PollEvents()
 	}
-	b.Shutdown()
+	targets.destroy(backend)
+	backend.Shutdown()
 	glfw.Terminate()
 }

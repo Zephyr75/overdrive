@@ -36,8 +36,10 @@ graph TD
 
 > Nothing above `renderer/` may import a graphics API.
 
-`scene/` owns `renderer.MeshHandle`, `renderer.TextureHandle` — opaque integers
-that only `vulkan/` knows how to interpret. That is why `go test ./...` runs
+`scene/` owns `renderer.MeshHandle`, `renderer.ImageHandle`,
+`renderer.PipelineHandle` — opaque integers that only `vulkan/` knows how to
+interpret. That is why those packages build and
+are testable
 with no GPU, and why the Vulkan object graph stays in one package.
 
 There is exactly one backend. The abstraction is kept for that rule, not for
@@ -56,8 +58,8 @@ graph LR
     A["settings.Load"] --> B["vulkan.New()"]
     B --> C["glfw.Init<br/>ConfigureWindow<br/>CreateWindow"]
     C --> D["Backend.Init"]
-    D --> E["CreateShader ×5"]
-    E --> F["scene.NewScene"]
+    D --> F["scene.NewScene"]
+    F --> E["NewPipelines ×5<br/>+ the overlay's"]
 ```
 
 `Backend.Init` is the big one. Inside it, again strictly ordered:
@@ -77,7 +79,7 @@ instance → surface → physical device → queue family → logical device
 Two things to notice:
 
 - **Per-frame data** is one function creating four things — command buffer,
-  fence, semaphore, uniform ring — because they share a lifetime, not a
+  fence, semaphore, uniform arena — because they share a lifetime, not a
   subsystem. Everything that exists _once per frame in flight_ is built there.
 - **Samplers and descriptors are independent.** Neither uses the other. They
   only meet later, when a texture is written into a descriptor (§4).
@@ -94,34 +96,45 @@ allocates the one shadow atlas.
 
 ```mermaid
 graph TD
-    P["physics · mesh re-upload · input"] --> BF["BeginFrame"]
-    BF --> AL["allocate tiles · build records<br/><i>one record per shadow</i>"]
-    AL --> S1["shadow-atlas pass<br/><i>depth only, one viewport per tile</i>"]
-    S1 --> MP["main pass"]
+    P["physics · mesh re-upload · input"] --> BF["Backend.Frame opens"]
+    BF --> AL["allocate tiles · build tiles · Upload them<br/><i>one tile per shadow</i>"]
+    AL --> S1["shadow-atlas passes<br/><i>depth only, one viewport per tile</i>"]
+    S1 --> DP["depth prepass"]
+    DP --> MP["main pass"]
     MP --> SK["skybox"] --> SC["scene meshes"] --> UI["UI overlay"]
-    UI --> EF["EndFrame<br/><i>submit + present</i>"]
+    UI --> EF["the closure returns<br/><i>submit + present</i>"]
     EF --> P
 
     style BF fill:#276749,color:#e2e8f0
     style EF fill:#9b2c2c,color:#e2e8f0
 ```
 
-Each pass is the same three beats: `BeginPass` → bind uniforms → draw → `EndPass`.
+Each pass is the same shape: `Frame.Pass(spec, func(p Pass) { p.Draw(...) })`.
+The spec says what is attached, what is sampled and what it is called; the
+closure is the only place a draw is legal, so a copy or a dispatch inside a
+render pass is a compile error.
 
 What the green and red boxes actually do:
 
 |                  |                                                                                                                                                                                         |
 | ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`BeginFrame`** | wait on this slot's fence _(the CPU throttle)_ · acquire a swapchain image · reset the ring · flush any staged texture uploads · begin the command buffer · bind the one descriptor set |
-| **`EndFrame`**   | barrier the image to present layout · end the command buffer · **submit** · present · advance the frame slot                                                                            |
+| **frame open**   | wait on this slot's fence _(the CPU throttle)_ · read back the timestamps this slot wrote two frames ago · acquire a swapchain image · reset the arena and the query pool · flush any staged image uploads · begin the command buffer · bind the one descriptor set |
+| **frame close**  | barrier the image to present layout · end the command buffer · **submit** · present · advance the frame slot                                                                            |
 
-Every shadow in the scene is a sub-rect of **one** 4096² depth texture: a sun or
-spot takes one tile, a point light six 90° tiles instead of a cubemap. So the
-pass count no longer grows with the light count — one `BeginPass`, then a
-`SetViewportScissor` per tile.
+Every shadow in the scene is a sub-rect of **one** 4096² depth texture — of two
+of them, static and dynamic: a sun or spot takes one tile, a point light six 90°
+tiles instead of a cubemap. So the pass count no longer grows with the light
+count — one `Frame.Pass` per atlas, then a `Pass.Viewport` per tile.
 
-The budget is still fixed at load: the first directional and the first point
-light get tiles. Other lights still light the scene, they just cast nothing.
+The image is carved into a **fixed slot layout** at load — so many slots at 2048,
+512, 256 and 128 — and those rects never move. Who occupies them is scored
+**per frame** from `radius / distance to camera`: lights sort by score and take
+the best free slot no larger than the ceiling their score earns. Running out of
+slots degrades a light a pool at a time and finally leaves it unshadowed — it
+still lights the scene, it just casts nothing. Because the layout is declared in
+divisions of the atlas rather than in pixels, changing the atlas size changes how
+sharp the shadows are and not how many lights cast them. The atlas is a render
+target nothing puts on screen, so it is read out of a RenderDoc capture.
 
 → `ENGINE_FLOW.md` §3.
 
@@ -134,8 +147,8 @@ Two completely separate paths, and the split is forced rather than chosen.
 ```mermaid
 graph LR
     subgraph BDA["buffer device address"]
-        U["FrameUniforms 4844 B<br/>DrawUniforms 128 B<br/>ShadowRecord[] 96 B each"] --> RG["per-frame ring<br/>1 MiB, mapped"]
-        RG --> PC["push constant<br/>3 × 64-bit address"]
+        U["FrameUniforms 4760 B<br/>BakeUniforms 80 B<br/>DrawUniforms 128 B<br/>ShadowTile[] 96 B each"] --> RG["per-frame arena<br/>2 MiB, mapped"]
+        RG --> PC["push constant<br/>4 × 64-bit address"]
     end
     subgraph DESC["descriptors"]
         T["textures"] --> DS["one descriptor set<br/>4 bindings"]
@@ -146,9 +159,16 @@ graph LR
 
 ### Uniforms — by pointer
 
-The blocks are memcpy'd into a mapped ring buffer, and their **GPU addresses**
-go out as a 24-byte push constant. The shader dereferences them like C pointers.
-No descriptors, no dynamic offsets, no binding.
+The blocks are memcpy'd into a mapped per-frame arena by `Frame.Upload`, and
+their **GPU addresses** go out as a 32-byte push constant. The shader
+dereferences them like C pointers. No descriptors, no dynamic offsets, no
+binding.
+
+The backend never looks inside a block. `Upload(data any) Address` takes bytes
+and gives back an address; `DrawCall.Push [4]Address` carries four of them
+positionally, and which slot means what is declared once in `common.slang` and
+filled in `scene/`. That is why the backend can be told to bake a shadow atlas
+without containing the word.
 
 They are split by **update frequency**, which is the whole reason it is cheap:
 
@@ -179,21 +199,25 @@ compressed — so they need descriptors, and always will.
 
 One set, four bindings, bound **once per frame**:
 
-| binding | what                                 | how many |
-| ------- | ------------------------------------ | -------- |
-| 0       | material textures — bindless         | 256      |
-| 1       | cubemaps — bindless                  | 64       |
-| 2       | the static shadow atlas — dedicated  | 1        |
-| 3       | the dynamic shadow atlas — dedicated | 1        |
+| binding | what                                     | how many |
+| ------- | ---------------------------------------- | -------- |
+| 0       | sampled 2D — bindless                    | 256      |
+| 1       | cubemaps — bindless                      | 64       |
+| 2       | storage images — bindless                | 64       |
+| 3       | "hot" sampled 2D — dedicated             | 4        |
 
 "Bindless" means the shader indexes an array: `textures2D[DRAW.texOurTexture]`.
-The engine translates a `TextureHandle` into a slot index on the CPU and writes
-that integer into the uniform block. **The shader never receives a descriptor —
-it receives an int.**
+`Backend.Slot(handle)` translates a handle into a slot index on the CPU and the
+caller writes that integer into its own uniform block. **The shader never
+receives a descriptor — it receives an int.** Slots are reclaimed when a resource
+is destroyed, but only once the frames that could still sample it have retired.
 
-Bindings 2 and 3 are deliberately _not_ bindless: PCF taps them up to 13× per
-fragment, and some drivers re-fetch a dynamically-indexed descriptor on every
-tap. That cost ~1.7× the frame time. Both are plain `Sampler2D` — a point
+Binding 3 is deliberately _not_ bindless, and deliberately indexed by a literal:
+PCF taps the shadow atlases up to 13× per fragment, and some drivers re-fetch a
+dynamically-indexed descriptor on every tap. That cost ~1.7× the frame time. An
+image asks for one of the four with `ImageSpec.Hot` and names which with
+`HotSlot`, so the backend still never learns what they are for. Both are plain
+`Sampler2D` — a point
 light's six faces are ordinary tiles of the same atlas, not a cubemap. The
 second one is Part E's static/dynamic split; today both point at one texture.
 
@@ -230,20 +254,21 @@ graph LR
     subgraph CPU["CPU — during the frame"]
         R1["vkCmd… ×~21 sites"] --> R2["command buffer<br/><i>inert bytes</i>"]
     end
-    R2 --> SUB["QueueSubmit2<br/><i>in EndFrame</i>"]
+    R2 --> SUB["QueueSubmit2<br/><i>when the frame closure returns</i>"]
     subgraph GPU["GPU — after the submit"]
         SUB --> EX["atlas pass, draws,<br/>barriers all execute"]
     end
 ```
 
 Every `vkCmd*` call **records**. Nothing in the frame's command buffer runs
-until `EndFrame` submits. The queue is touched in only three places:
+until the frame closure returns and the frame is submitted. The queue is touched
+in only three places:
 
 | where             | what                                                      |
 | ----------------- | --------------------------------------------------------- |
-| `EndFrame`        | `QueueSubmit2` — **one submit carries the entire frame**  |
-| `EndFrame`        | `QueuePresentKHR`                                         |
-| `immediateSubmit` | load-time texture uploads, which block the CPU until done |
+| frame close       | `QueueSubmit2` — **one submit carries the entire frame**  |
+| frame close       | `QueuePresentKHR`                                         |
+| `immediateSubmit` | load-time image and buffer uploads, and `ReadBuffer`, which block the CPU until done |
 
 But _host-side_ work is immediate, not deferred: memcpy into mapped memory,
 `vkUpdateDescriptorSets`, and lazy pipeline compilation all take effect the
@@ -276,11 +301,11 @@ counterpart; the engine uses the pair consistently.
 ### Frames in flight
 
 Two of everything the CPU and GPU both touch: command buffer, fence, acquire
-semaphore, uniform ring. While the GPU renders frame N, the CPU records N+1.
+semaphore, uniform arena. While the GPU renders frame N, the CPU records N+1.
 
 Two index spaces that are **not** interchangeable:
 
-- `frameIndex` cycles 0..1 — selects command buffer, fence, ring
+- `frameIndex` cycles 0..1 — selects command buffer, fence, arena
 - `imageIndex` comes back from acquire — selects the swapchain image and its
   render semaphore
 
@@ -320,5 +345,5 @@ next planned change.
 | whether a feature exists, and why it is built that way | `FEATURES.md`                  |
 | Vulkan concepts, engine-independent                    | `cheatsheets/VULKAN.md`        |
 | the theory behind the shading                          | `cheatsheets/PBR.md`           |
-| what is planned, in order                              | `tmp/BACKEND_DECISION.md` §9   |
+| what is planned, in order                              | `tmp/INTERFACE_PLAN.md` §6, then `tmp/BACKEND_DECISION.md` §9 |
 | the next small task                                    | `TODO.md`                      |

@@ -1,14 +1,15 @@
 # Lighting implementation — Parts A–H
 
-**Status: A, B and C landed.** The build order for `LIGHTING_PLAN.md`, split so
+**Status: A–F and H landed. G is deferred to [`CLUSTERED_FORWARD.md`](CLUSTERED_FORWARD.md).** The build order for `LIGHTING_PLAN.md`, split so
 each part is a session's work that leaves the tree running.
 
-The "As each part lands" sync below **has been done through C**:
+The "As each part lands" sync below **has been done through E** for
+`../../CLAUDE.md` and `../ENGINE_FLOW.md`, and **through D** for the rest:
 `../FEATURES.md`, `../ENGINE_FLOW.md`, `../ARCHITECTURE.md`, `../OVERVIEW.md`,
-`../TODO.md` and `../../CLAUDE.md` describe the atlas rather than per-light
-shadow targets. A–C are not struck from this file yet, since the deviations
-recorded under each are the only account of _why_ the shipped shape differs from
-`LIGHTING_PLAN.md`.
+`../TODO.md` and `../../CLAUDE.md` describe the atlas and its per-frame allocator
+rather than per-light shadow targets and a fixed caster pick. A–D are not struck
+from this file yet, since the deviations recorded under each are the only account
+of _why_ the shipped shape differs from `LIGHTING_PLAN.md`.
 
 Scope: what to edit, in what order, and how to know each part landed. Every
 `§n` below points into `LIGHTING_PLAN.md`.
@@ -26,11 +27,11 @@ the capacity arithmetic and the rejected alternatives all live in
 | [A](#part-a--light-model) _(landed)_                | light model, spot lights | struct layout  | ~64 lights           |
 | [B](#part-b--atlas-plumbing) _(landed)_             | atlas plumbing           | image layouts  | tiles drawable       |
 | [C](#part-c--records-and-atlas-sampling) _(landed)_ | records, atlas sampling  | tile bleeding  | one sampler, N tiles |
-| [D](#part-d--the-allocator)                         | quadtree allocator       | fragmentation  | variable resolution  |
-| [E](#part-e--staticdynamic-split)                   | static/dynamic, caching  | classification | the shadow budget    |
-| [F](#part-f--depth-prepass)                         | depth prepass            | MSAA + `EQUAL` | overdraw, AO input   |
-| [G](#part-g--clustered-forward)                     | clustered forward        | Z distribution | 1000s of lights      |
-| [H](#part-h--quality-tiers)                         | quality tiers            | dead knobs     | the low-end story    |
+| [D](#part-d--the-allocator) _(landed)_              | slot-layout allocator    | contention thrash | variable resolution  |
+| [E](#part-e--staticdynamic-split) _(landed)_        | static/dynamic, caching  | classification | the shadow budget    |
+| [F](#part-f--depth-prepass) _(landed)_              | depth prepass            | MSAA + `EQUAL` | overdraw, AO input   |
+| [G](CLUSTERED_FORWARD.md) _(deferred)_              | clustered forward        | Z distribution | 1000s of lights      |
+| [H](#part-h--quality-tiers) _(landed)_              | quality tiers            | dead knobs     | the low-end story    |
 
 Three positions in that order are fixed:
 
@@ -58,13 +59,15 @@ would otherwise have to reason about. Part A is independent and can land now.
 
 ## The gate
 
-Every part ends with the same check, from `src/`:
+Every part ended with the same check, from `src/`. **The `go test` step is
+historical** — the tests it counts below were deleted since, and `go test ./...`
+now reports `[no test files]` for every package (`CLAUDE.md`, `../TODO.md`):
 
 ```sh
 SLANGC=/opt/shader-slang-bin/bin/slangc ./build_shaders.sh
 go build ./... && go test ./...
 go run .                                       # eyeball the showcase scene
-OVERDRIVE_VK_VALIDATION=1 go run .             # clean log
+go run . -config <a copy with [debug] validation = true>   # clean log
 ```
 
 The eyeball step is not optional for any part touching `common.slang` or
@@ -235,7 +238,7 @@ so "the shadow still looks right" is unconfirmed. Re-apply with `git apply` to
 check that by hand.
 
 **Risk.** Image layout transitions around `vkCmdCopyImage` are the usual
-validation trap. Run with `OVERDRIVE_VK_VALIDATION=1` throughout this part, not
+validation trap. Run with `[debug] validation = true` throughout this part, not
 only at the end.
 
 ---
@@ -255,15 +258,15 @@ only at the end.
    `unsafe.Sizeof(pushAddresses{})` rather than a literal at the two call sites
    that had to agree.
 
-   The array rides the **existing per-frame ring**, not a separate storage
-   buffer: the ring is already `BufferUsageShaderDeviceAddress` and already
-   reset per frame, so `writeRing` only had to grow a slice form
-   (`writeRingSlice`). `CreateStorageBuffer` (`BACKEND_DECISION.md` §9 item 8)
+   The array rides the **existing per-frame arena**, not a separate storage
+   buffer: the arena is already `BufferUsageShaderDeviceAddress` and already
+   reset per frame, so `writeArena` only had to grow a slice form
+   (`writeArenaSlice`). `CreateStorageBuffer` (`BACKEND_DECISION.md` §9 item 8)
    is still worth having, but nothing here needed it.
 
    That took a **third `Backend` method**, which §8 did not list:
    `BindShadowRecords([]ShadowRecord)`, frame-scoped rather than pass-scoped.
-   `BeginFrame` seeds the ring with one empty record so a frame that never calls
+   `BeginFrame` seeds the arena with one empty record so a frame that never calls
    it still pushes a dereferenceable address.
 
 2. ~~Rework `FrameUniforms` per §5.3.~~ **Done, at 4844 bytes rather than the
@@ -333,7 +336,7 @@ only at the end.
 
 **Gate.** Standard gate: builds, `go test ./...` green, `spirv-val
 --scalar-block-layout` clean on all ten modules, and
-`OVERDRIVE_VK_VALIDATION=1 go run .` runs silent at ~180 FPS on the 5070 Ti.
+`go run .` with `[debug] validation = true` runs silent at ~180 FPS on the 5070 Ti.
 
 **The eyeball step has not been done** — no screenshot path on this Wayland
 session — so "the showcase's shadows are indistinguishable" is _unverified_.
@@ -358,37 +361,138 @@ against a wall corner deliberately.
 
 ---
 
-## Part D — The allocator
+## Part D — The allocator _(landed)_
 
 **Goal.** Tile sizes chosen per frame from screen-space importance.
 
-**Touches.** new `scene/shadowatlas.go`, `scene/scene.go`.
+**Touches.** `scene/shadowatlas.go`, `scene/scene.go`, and — not in the plan —
+`shaders/slang/forward.slang`, `assets/showcase.xml`, plus the atlas readback in
+`renderer/backend.go`, `vulkan/texture.go`, `scene/shadowdebug.go`,
+`core/app.go` and `go-vulkan`.
 
 **Steps.**
 
-1. Quadtree allocator over the atlas: split 4096 → 2048 → … → 128, with
-   `Alloc(size)` and `Free(rect)` coalescing freed siblings.
-2. Per-light score and tier, thresholds from §4.3.
-3. Hysteresis: a tier change requires the score to cross its threshold by more
-   than 20%. Without it a light on a boundary reallocates every frame and forces
-   a full re-bake every frame — the exact opposite of Part E's goal.
-4. Sort by score, allocate greedily, demote what does not fit to
-   `ShadowIndex = -1`. Running out of budget must cost shadow quality and never
-   frame time.
-5. Delete `Scene.pickShadowCasters`, `Scene.casts` and `Scene.ShadowCasters` —
-   the fixed 1-dir + 1-point budget they encode is what this part replaces.
+1. ~~Quadtree allocator over the atlas.~~ **Done**, then **superseded**: the
+   per-frame tree became a fixed slot layout (`slotLayout` / `buildLayout`),
+   carved once at load. `quadNode` still places the slots — largest size first,
+   which cannot fragment — but `release`, `free` and the sibling coalescing are
+   gone with the per-frame use that needed them.
+2. ~~Per-light score and tier.~~ **Done**, `lightScore` and `shadowTiers`, at
+   §4.3's thresholds exactly. The tier is now the **ceiling** on what a light may
+   hold rather than the size it is handed: rank picks the slot, the tier caps it.
+3. ~~Hysteresis.~~ **Done**, now `nextTierThreshold = 1.2` in `tierFor`, plus a
+   second margin `slotStickiness = 1.2` on the ranking — fixed pools let two
+   near-equal lights trade a contended pool's last slot, which the tier margin
+   cannot damp because it guards a threshold rather than a comparison.
+4. ~~Sort by score, allocate greedily, demote what does not fit.~~ **Done**, in
+   three phases rather than one; see below.
+5. ~~Delete `Scene.pickShadowCasters`, `Scene.casts` and `Scene.ShadowCasters`.~~
+   **Done.**
 
-**Gate.** Standard gate, plus: walking the camera toward a light visibly
-sharpens its shadow and walking away coarsens it, without popping every frame.
-Log one frame's allocation map and check it against §4.1.
+**Six things the plan did not say.**
 
-**Risk.** Quadtree fragmentation over a long session — many alloc/free cycles at
-mixed sizes leaving no contiguous slot. Coalescing on free is what prevents it;
-write that unit test specifically, it is cheap and CPU-only.
+- **The tree persists across frames**, and it has to. §4.3's hysteresis is
+  pointless against an allocator that resets every frame — the whole point of not
+  changing tier is not changing _pixels_, which only means something if the tiles
+  survive. So `shadowAtlas` carries `allocs map[int32]*lightAlloc` and only
+  touches a light whose tier actually moved.
+
+- **Two tier states, not one.** A point light takes one step below its scored
+  tier, because six faces cost 6× the texels of a spot at the same size. Feeding
+  that halved size back in as `cur` next frame reads as a demotion and the light
+  oscillates, so `lightAlloc` keeps `tier` (the hysteresis state, in
+  `shadowTiers`' units) separate from `want` (the per-face size it buys) and
+  `size` (what it actually got).
+
+- **Allocation is three passes.** Free everything whose tier moved _before_
+  allocating anything, so a promoting light can be served out of what a demoting
+  one just gave back; then allocate in score order, degrading a step at a time;
+  then retry the degraded ones at full size. Without the third pass a light that
+  lost a tier during one crowded frame stays coarse for the rest of the session.
+  That retry takes the new tiles before releasing the old, so a failed upgrade
+  leaves what it has alone.
+
+- **A sun is not scored at all.** It has no `Radius` — Part A step 4 gives a
+  directional light 0 — so `radius / distance` is 0 and the sun would be the
+  first light demoted to unshadowed. It takes a fixed 2048, which is also §4.1's
+  drawing.
+
+- **A spot needed its own projection.** `shadowRecord` had two branches, a cube
+  face and "everything else = the sun's ortho box". Nothing noticed because
+  `pickShadowCasters` never picked a spot. Now that every light is a candidate,
+  a spot bakes through `mgl32.Perspective` at `2·acos(outerCutoff)`, widened by
+  two texels for the same reason a cube face is, with `spotUp` avoiding the
+  degenerate `LookAtV` when the cone points straight down.
+
+- **The ×5 point-shadow scale had to go here**, not in Part E. Part C preserved
+  it deliberately so its gate was an unchanged image; with every point light
+  shadowed, `Lo += contrib * (1 - shadow)` going negative is black blotches
+  rather than an invisible bug.
+
+- **A caster flag was needed, and front-face culling is not a substitute.** With
+  every light casting, the ground plane baked into every point light's map and
+  shaded against itself — acne over the whole plane, which renders as a black
+  scene. Making every tile `CullFront` cures that (a single-sided plane has no
+  back face) and immediately peter-pans every closed caster by its own thickness.
+  `Mesh.CastsShadow` / `<castsShadow>` is the fix; the cull mode stays `CullBack`.
+
+**The atlas dump.** The eyeball step has had no answer since the OpenGL backend
+went — this session has no screenshot path at all, and the atlas is a target
+nothing draws to the screen anyway. So Part D also built one:
+`renderer.DepthReader` (optional, outside `Backend`, because it blocks on an idle
+queue), `VKBackend.ReadDepthTarget` on top of a new `vk.CmdCopyImageToBuffer`
+binding, and `Scene.DumpShadowAtlas` / `ShadowAllocationMap`. `F9` or
+`[debug] dumpAtlas = N` writes `shadow_atlas.png` with each tile
+contrast-stretched to its own range — the three bakes do not share an encoding —
+and outlined by light type.
+>
+> **Removed on 2026-08-17.** All of it: the two reader interfaces, the readback
+> in `vulkan/texture.go`, `scene/shadowdebug.go`, the `dumpFrame`/`dumpAtlas`
+> settings and the `F9`/`F10` keys. Images are inspected in RenderDoc instead,
+> which needs no engine code and does not put a pipeline stall in the
+> abstraction. `lockCamera` and `noShadows` stayed.
+
+**Gate.** Standard gate: builds, `go test ./...` green, `spirv-val
+--scalar-block-layout` clean, `go run .` with `[debug] validation = true` silent at
+~181 FPS on the 5070 Ti — **the same rate as Part C's two casters**, with six
+lights shadowed instead of two, which is the early-out and the tile budget both
+doing their job.
+
+The allocation map on the showcase, which is §4.1's shape at showcase scale:
+
+```
+  PointWarm    point score  0.875  tier 1024  6 tiles of 512
+  PointRed     point score  7.709  tier 1024  6 tiles of 512
+  PointGreen   point score  9.442  tier 1024  6 tiles of 512
+  PointBlue    point score 11.398  tier 1024  6 tiles of 512
+  SpotViolet   spot  score  9.927  tier 1024  1 tile  of 1024
+  Sun          sun                 tier 2048  1 tile  of 2048
+  11534336 texels of 16777216 used (68.8%)
+```
+
+**And the eyeball was actually done**, for the first time since Part B: the dump
+shows the sun's ortho tile with the props silhouetted, the spot's cone looking
+down at the chrome sphere, and 24 point-light faces each with the ground's
+radial-distance horizon. Tests standing in for the rest:
+`TestAtlasCoalescesFreedSiblings` (the Risk note's fragmentation case, an
+alloc/free cycle repeated eight times finding the same capacity),
+`TestTierHysteresis`, `TestTileSizeTracksCameraDistance` and
+`TestShowcaseLightsAllFitTheAtlas` (no two tiles overlap, and a point light holds
+six or none).
+
+**One showcase change.** `SpotViolet` moved from GL (-2, 6, 4.5) to (-3.8, 6,
+0.4) and widened 40° → 50°. Where it was, its cone covered bare ground, and the
+2D bake culls front faces — so its atlas tile baked **completely empty** and the
+spot shadow path was untested. Aimed at the chrome sphere the tile is 30%
+geometry. The dump is what caught that; nothing else would have.
+
+**Risk.** ~~Quadtree fragmentation over a long session.~~ Covered by
+`TestAtlasCoalescesFreedSiblings`. Still open: the score ignores whether a light
+is on screen at all, which is §2.2's cluster gate and belongs to Part G.
 
 ---
 
-## Part E — Static/dynamic split
+## Part E — Static/dynamic split _(landed)_
 
 **Goal.** The shadowed-light budget. Static lights bake once; dynamic lights
 bake within a texel allowance.
@@ -397,37 +501,106 @@ bake within a texel allowance.
 
 **Steps.**
 
-1. Two atlases, `staticAtlas` and `dynamicAtlas` (§2.1). `ShadowRecord.Flags`
-   bit 0 selects which one the shader samples.
-2. Classify meshes static vs movable — the ECS/physics entities are the movable
-   set, baked OBJ geometry is static.
-3. Bake `staticAtlas` at load from static casters only. Never re-bake unless a
-   tile is reallocated or the scene reloads.
-4. Per frame, for each light with a movable caster in range: `CopyDepthRegion`
-   its static tile into its `dynamicAtlas` tile, then draw only movable casters
-   on top with an ordinary depth test. The union falls out; one sample at
-   shading time.
-5. Dirty tracking: a light is dirty when it moved, its tile was reallocated, or
-   a movable caster in range moved. `Scene.UpdateMeshes` already knows which
-   meshes a physics step touched — feed that set in rather than adding a second
-   mechanism.
-6. Caster cull (mesh bounds vs light radius) and cube-face cull (face frustum vs
-   camera frustum), §4.4.
-7. Re-bake budget in **texels** per frame, queued by score (§4.5). Overflow
-   resolves on later frames.
+1. ~~Two atlases, `staticAtlas` and `dynamicAtlas` (§2.1). `ShadowRecord.Flags`
+   bit 0 selects which one the shader samples.~~ **Done**, as `staticTarget` /
+   `dynamicTarget` on `shadowAtlas`, over **one** `slotLayout` — so a tile's rect
+   is identical in the two and the copy needs no remap. The shader side needed no
+   edit at all: `forward.slang` has branched on the bit since Part C.
+2. ~~Classify meshes static vs movable.~~ **Done**, but not from the ECS. `Mesh.Movable`
+   is an XML `<movable>` element (the `*bool` default trick `CastsShadow` uses),
+   **and** `MoveBy`/`MoveTo` set it. The ECS route was rejected: `scene` does not
+   import `ecs`, and an entity owning a `*scene.Mesh` is a convention of `main.go`
+   rather than a rule. The two together are what defuse the Risk note below.
+3. ~~Bake `staticAtlas` at load from static casters only.~~ **Done**, though on
+   the first frame rather than at load — the bake needs a live command buffer, so
+   it runs where every other pass does.
+4. ~~Per frame, `CopyDepthRegion` then draw movable casters on top.~~ **Done.**
+5. ~~Dirty tracking.~~ **Done**, off `Scene.movedMeshes`, which `UpdateMeshes`
+   fills from the `needsUpdate` flag it was already clearing.
+6. ~~Caster cull and cube-face cull.~~ **Caster cull done**, twice over: bounding
+   sphere vs light radius decides whether a light needs a dynamic tile at all,
+   and sphere vs the tile's own six frustum planes (`frustumPlanes` /
+   `sphereInFrustum`, Gribb-Hartmann off `WorldToTile`) decides whether a tile is
+   drawn into. A face pointing at empty space now costs six plane tests and no
+   state changes. **The cube-face-vs-camera-frustum cull was not taken** — see
+   the deviations.
+7. ~~Re-bake budget in texels per frame, queued by score.~~ **Done for the
+   dynamic side**, `bakeTexelBudget` at 8 MiB, spent in `lightScore` order. The
+   static side is deliberately unbudgeted — see the deviations.
 
-**Gate.** Standard gate, plus a bake counter printed beside the FPS: a static
-showcase scene must settle at **zero** bakes per frame. Then move one physics
-entity and confirm only the lights that see it wake up.
+**Four things the plan did not say.**
 
-**Risk.** The static/dynamic classification will be wrong first — a mesh
-classified static that later moves leaves a shadow behind, with no crash and no
-log line. Make the counter and a debug atlas view part of the work, not an
-afterthought.
+- **`keepDepth` is a Part E prerequisite, not a Part F one.** `BeginPass`
+  hardcoded `LoadOp: Clear` on depth, and step 4 is impossible against it: the
+  copy must land in the dynamic atlas before the pass that draws over it, and
+  that pass would erase it. `CopyDepthRegion` refuses to run inside a pass, so no
+  ordering saves it. `BeginPass` therefore took F step 1's third parameter early.
+  Offscreen depth targets only: the backbuffer's depth image barriers from
+  `Undefined` every frame, which discards what a `Load` would read, so F still
+  owns that half. Without `keepDepth` the dynamic atlas is wiped every frame and
+  step 5's dirty tracking has nothing to cache.
+
+- **The static side is all-or-nothing, and unbudgeted.** Baking only the slots
+  whose light changed looks obviously right and is wrong: a tile whose frustum
+  holds no caster writes nothing, so a slot handed to a new light would keep its
+  old owner's depth and wear another light's shadow. Since `BeginPass` clears the
+  whole target anyway, a static re-bake clears and redraws every allocated light.
+  It is a spike, not a frame rate — the allocator's hysteresis is what keeps
+  allocation still, and the showcase does it once and never again.
+
+- **Queueing marks a tile current, not the bake.** `staticValid` / `dynamicValid`
+  are set in `UpdateShadows` where the decision is made, not in `BakeShadows`
+  which merely executes it. That is what lets the whole policy be tested on the
+  CPU, and it is safe because `BakeShadows` draws exactly what the queues hold and
+  cannot fail partway. It does mean the two must stay paired in the frame loop.
+
+- **A light waiting for its first static bake goes unshadowed**, `ShadowIndex = -1`,
+  rather than sampling a slot it has not been baked into. Same philosophy as
+  Part D's degrade path: running out of budget costs a light its shadow for a
+  frame, never the frame its time.
+
+**Gate.** Standard gate: builds, `go test ./...` green (15 tests in `scene`),
+`spirv-val --scalar-block-layout` clean, and `go run .` with
+`[debug] validation = true` silent on both `showcase.xml` and `stress.xml`.
+
+The bake counter prints beside the FPS and the showcase **settles at zero
+static, zero dynamic**, which is the gate's real question. Frame rate on the
+Intel UHD 620 this session runs on went **14 → 42 FPS** on the showcase, which is
+the per-frame bake disappearing.
+
+The second half of the gate — "move one physics entity and confirm only the
+lights that see it wake up" — was run against a temporary scene, since
+`main.go:createWorld` looks for meshes named `Sphere` / `Sphere2` that
+`showcase.xml` does not contain, so **the showcase drives no movement at all**.
+Renaming two of its spheres so the falling-ball demo picks them up gives: static
+queued on frame 1 only, dynamic re-queued every frame for 287 frames while the
+ball falls, validation clean throughout. Worth fixing the showcase or the demo
+so this is reachable without editing a scene.
+
+**Risk, as written.** The classification being wrong first. Defused two ways:
+`MoveBy`/`MoveTo` promote a mesh to movable themselves, so a mesh that moves
+without declaring it leaves a shadow behind for one frame rather than for the
+session; and `prevCenter` keeps a caster *leaving* a light's range dirtying the
+tile it is leaving, which its new position alone would not say.
+
+**Still open.**
+
+- **The cube-face-vs-camera-frustum cull (step 6's second half) was not taken.**
+  Every cheap version of it is a heuristic that silently drops a shadow, which is
+  exactly the failure mode this part's Risk note is about. The honest form of the
+  test is "can any visible fragment sample this face", which is §2.2's cluster
+  gate — Part G's, and already noted as Part D's open risk.
+- **A light that moves does not dirty its own tiles.** Nothing in the engine
+  moves a light today, so there is no path to the bug; the moment `Light.Pos`
+  becomes writable, `UpdateShadows` needs to compare it against the position the
+  tile was baked at.
+- **The debug atlas view the Risk note asks for** does not exist. It was built in
+  Part D and removed on 2026-08-17 in favour of RenderDoc; the bake counter is
+  what stands in for it.
 
 ---
 
-## Part F — Depth prepass
+## Part F — Depth prepass _(landed)_
 
 **Goal.** Draw depth first, shade only what survives, and put the buffer §10's
 AO work needs in place.
@@ -437,76 +610,102 @@ AO work needs in place.
 
 **Steps.**
 
-1. `BeginPass` always clears depth, which would erase the prepass result at the
-   start of the main pass. Add a `keepDepth bool` (or a small `PassOptions`)
-   giving the depth attachment a `Load` op rather than `Clear`. Only interface
-   change in the part — and if `BACKEND_DECISION.md` §9 item 7 has landed, it
-   belongs on the `Pass` description instead.
-2. Prepass: `BeginPass` on the backbuffer, depth only, `depth.slang`, every
-   scene mesh with its real model matrix.
-3. Main pass: `BeginPass(..., keepDepth: true)`, then `SetDepthCompare` to
-   `CompareEqual` for the forward scene draws. The skybox keeps `LessEqual`, the
-   UI is unchanged. `CompareEqual` is a new enum value in `renderer/` and may
-   need the matching `go-vulkan` constant.
-4. MSAA: the prepass must run at the same sample count as the main pass or the
-   `EQUAL` test fails along every geometric edge. Verify with
-   `[antialiasing] samples = 4` and again with `1`.
+1. ~~`BeginPass` always clears depth.~~ **Done**, in two halves. Part E took the
+   `keepDepth bool` for offscreen depth targets; this part finished it for the
+   backbuffer, whose depth image barriered from `Undefined` every frame and so
+   discarded what a `Load` would read. `VKBackend.depthLayout` now tracks it,
+   reset to `Undefined` in `BeginFrame` because the image genuinely does not
+   survive one. The `keepDepth`-on-the-backbuffer warning Part E left is gone.
+2. ~~Prepass: `BeginPass` on the backbuffer, depth only, `depth.slang`.~~ **Done,
+   but neither with `BeginPass` nor with `depth.slang`** — see the deviations.
+   `BeginDepthPrepass()` is a 28th `Backend` method and `prepass.slang` a new
+   shader.
+3. ~~Main pass with `CompareEqual` for the scene draws.~~ **Done**, in
+   `Scene.RenderScene`, bracketed the way `RenderSkybox` already brackets
+   `LessEqual` — and restoring `CompareLess` afterwards is load-bearing, the UI
+   testing depth and failing an EQUAL comparison against the geometry it
+   composites over. `renderer.CompareEqual` needed `vk.CompareOpEqual`, which
+   `go-vulkan` did not bind.
+4. ~~MSAA at the same sample count.~~ **Done**: `passSamples` returns `b.samples`
+   for the prepass as well as the main pass. Verified running at
+   `samples = 4` and `samples = 1`, both validation-clean.
+
+**Three things the plan did not say.**
+
+- **`depth.slang` is the wrong shader, and reusing it would z-fight.** It projects
+  through `FRAME.bakeMatrix`, a single premultiplied matrix, while
+  `forward.slang:20` does `mul(projection, mul(view, float4(fragPos, 1.0)))` with
+  `fragPos` already through `model`. Same value mathematically, different
+  associativity, different rounding — and `EQUAL` compares the bits. So
+  `prepass.slang` exists purely to repeat `forward.slang`'s vertex arithmetic
+  operation for operation. The Risk note says "the same matrices from the same
+  uniform block"; that is necessary and not sufficient. It has to be the same
+  *arithmetic*.
+
+- **The prepass binds no colour attachment**, which is why it is its own
+  `Backend` method rather than a `BeginPass` flag. Attachments are pass state:
+  under dynamic rendering a pipeline declares the formats it will be used with,
+  so "backbuffer, depth only" is a fifth `passKind` (`passDepthPrepass`) with its
+  own `renderingInfo`, not a variation on `passMain`. The payoff is that the
+  prepass writes no colour, blends nothing, and under MSAA **resolves nothing** —
+  it costs a geometry pass and a depth write, not a second pass over the
+  framebuffer. Reusing `passMain` would have cost a resolve of garbage every
+  frame.
+
+- **`StoreOp` differs between the two passes.** The prepass stores its depth,
+  the main pass still discards its own — the depth image is ordinary memory
+  rather than a transient attachment, so this works, and keeping the main pass on
+  `DontCare` means the prepass costs the write-out and nothing else does.
 
 **Not taken here.** The packed-normal attachment (§10) needs MRT in
 `RenderTargetSpec`, which nothing else in this plan requires. It belongs to the
 AO work; depth alone is what Part G benefits from, and normals can be
 reconstructed from depth in the meantime.
 
-**Gate.** Standard gate, plus: identical image with the prepass on and off, and
-a measurable FPS gain in a scene with real overdraw — the showcase may be too
-flat to show one, so build a deliberately layered test scene if needed.
+**Gate.** Standard gate: builds, `go test ./...` green, `spirv-val
+--scalar-block-layout` clean on all 12 modules, and `go run .` with
+`[debug] validation = true` silent on `showcase.xml` at `samples = 4` and
+`samples = 1`, with the prepass on and off, and on `stress.xml`.
 
-**Risk.** `EQUAL` depth is unforgiving of any difference between the two passes'
-vertex transforms. Both must use the same matrices from the same uniform block,
-not a recomputed copy.
+**Two halves of the gate are not met, and neither is a code problem.**
 
----
+- **"Identical image with the prepass on and off" is unverified.** There is still
+  no screenshot path — Part D's readback was removed on 2026-08-17 in favour of
+  RenderDoc — so this needs a human with two captures. The indirect evidence is
+  weak but real: a wholesale `EQUAL` failure would reject nearly every fragment
+  and the frame rate would *jump*, the expensive fragment shader having stopped
+  running. It does not.
+- **"A measurable FPS gain" is not measurable on the showcase**, exactly as the
+  plan predicted. Five meshes on a ground plane is almost no overdraw, and on the
+  Intel UHD 620 this session runs on the run-to-run spread (32–48 FPS on
+  *identical* settings) swamps any difference. The layered test scene Part A step
+  6 also wants is what would answer this; it is still unbuilt.
 
-## Part G — Clustered forward
+**Risk, as written.** `EQUAL` being unforgiving. Realised immediately, in the
+form the note did not predict — see the first deviation.
 
-**Goal.** Thousands of lights. Each fragment shades only the lights in its
-froxel.
-
-**Touches.** `scene/`, `renderer/uniforms.go`, `forward.slang`.
-
-**Steps.**
-
-1. Froxel grid, default 16 × 9 × 24, exponential in Z. `ClusterGrid [4]int32` in
-   `FrameUniforms` carries the dimensions and `maxPerCluster`.
-2. CPU build per frame: every light's bounding sphere against every froxel,
-   producing `clusterOffsets` (offset, count per cluster) and `clusterIndices`
-   (flat light indices). Upload both into the storage buffer from Part C and
-   push a fourth pointer for them.
-3. `forward.slang`: derive the cluster from `gl_FragCoord.xy` and view depth,
-   read offset and count, loop only those lights. The Part A early-out stays as
-   the inner guard.
-4. The scene light array outgrows `MaxLights` here — move `Lights[]` out of
-   `FrameUniforms` into the same storage buffer. `MaxLights` stops being the
-   scene cap and `maxPerCluster` (16) takes over as the per-fragment cap;
-   `FrameUniforms` drops to roughly 236 bytes.
-5. Feed the cluster result into Part D's allocator: a light intersecting zero
-   clusters skips tile allocation entirely (§2.2). This is the synergy the
-   ordering was chosen for.
-
-**Follow-up, not required here.** A compute cluster build is a good first user
-of `Dispatch` (`BACKEND_DECISION.md` §9 item 8). Build on the CPU first — it is
-simpler and not obviously the bottleneck.
-
-**Gate.** Standard gate, plus a stress scene with 200+ unshadowed lights holding
-frame rate, and the froxel grid visualised as a debug overlay at least once.
-
-**Risk.** Z-slice distribution interacts with the shadow `farPlane`, still a
-hardcoded `50` in `core/app.go:114`. Fit both to the same scene bounds in this
-part or the two disagree at range.
+**One knob, added early.** `[renderer] depthPrepass`, default true. Part H is
+where knobs are supposed to land, but the gate's own A/B requires this one to
+exist, so it went in with a `settings` test (`TestDepthPrepassTurnsOff`) rather
+than as a constant to be moved later.
 
 ---
 
-## Part H — Quality tiers
+## Part G — Clustered forward _(deferred)_
+
+**Moved out to [`CLUSTERED_FORWARD.md`](CLUSTERED_FORWARD.md)** on 2026-08-22,
+unchanged, so this file could be closed out with Part H. It is the only part of
+the plan not built, and nothing else waits on it — Part F was ordered immediately
+before it and is already in place.
+
+Three things elsewhere are waiting on it and say so where they will bite:
+`lightScore` ranking a light behind the camera as highly as one in front of it,
+Part E's untaken cube-face-vs-camera-frustum cull, and `MaxLights` still being a
+fixed 64.
+
+---
+
+## Part H — Quality tiers _(landed)_
 
 **Goal.** One scene, one code path, from a discrete GPU down to an integrated
 laptop one.
@@ -515,20 +714,81 @@ laptop one.
 
 **Steps.**
 
-1. Move every constant the earlier parts hardcoded into `settings`, then into
-   the TOML schema of §9.
-2. `dynamicAtlas = 0` must disable the dynamic pass entirely — every record
-   falls back to `staticAtlas`, moving objects cast nothing, per-frame shadow
-   cost goes to zero. This is the low-end switch and it is worth an explicit
-   test.
-3. Ship `configs/low.toml` beside `vulkan.toml`: 2048 atlas, no dynamic atlas,
-   8 × 5 × 12 clusters, `maxPerCluster` 16, cheap PCF.
-4. Extend `settings`' existing test coverage to the new keys and their defaults.
+1. ~~Move every constant the earlier parts hardcoded into `settings`, then into
+   the TOML schema of §9.~~ **Done**, as a rewritten `[shadows]` section:
+   `atlasSize`, `slotDivisors` / `slotCounts`, `tierScores`, `dynamicAtlas`,
+   `bakeBudgetMiB`, `pcf`, `nearPlane` / `farPlane`. `nextTierThreshold` and
+   `slotStickiness` deliberately stayed constants — see the deviations.
+2. ~~`dynamicAtlas = 0` must disable the dynamic pass entirely.~~ **Done**, as a
+   bool rather than a size. It gates `al.dynamic` in `UpdateShadows`, so no light
+   takes a dynamic tile, no record sets `Flags` bit 0 and the copy and the second
+   pass never run. `TestDynamicAtlasOffKeepsEverythingStatic` is the explicit test
+   the step asked for, and it checks the records rather than the pass: a record
+   still selecting the second atlas would sample one nothing ever wrote.
+3. ~~Ship `configs/low.toml`.~~ **Done**: 2048 atlas, no dynamic atlas, cheap PCF,
+   no MSAA, no anisotropy, 1280×720. **No cluster keys** — Part G is deferred and
+   there are none to set. `TestLowConfigTurnsThingsDown` asserts it actually turns
+   things down, including that the slot counts are *un*touched.
+4. ~~Extend `settings`' test coverage.~~ **Done**: `TestShadowKeysReachTheirVariables`
+   (every key lands), `TestShippedConfigsLoad` (both files), plus ten new
+   rejection cases in `TestInvalidConfigsAreRejected`.
 
-**Gate.** Standard gate across every config.
+**Four things the plan did not say.**
 
-**Risk.** Knobs that silently do nothing. Confirm each one's visible effect once,
-by hand, at the extremes of its range.
+- **`init()` had to move into `settings`.** `scene/shadowatlas.go` validated the
+  layout in an `init()` panic while it was compile-time. A configured layout is
+  validated in `settings.checkShadowAtlas` instead, which rejects the file — the
+  established behaviour for a bad value, and the right one here: a layout that
+  cannot be carved is not an error anywhere else. Allocation simply refuses,
+  every light ends up with `ShadowIndex = -1`, and the scene renders unshadowed
+  with nothing logged.
+
+- **Tier sizes are derived, not configured.** `shadowTiers` used to name
+  `atlasSize/8, /16, /32` in its own list beside `slotLayout`'s. Two lists that
+  had to agree is exactly the failure a config multiplies, so a tier's size is
+  now `slotLayout[i+1].size` and only the *scores* are a key. A ceiling can no
+  longer name a size no pool holds. `TestTierSizesFollowTheSlotRows` guards it.
+
+- **A smaller atlas needed a shader change, or the knob shipped broken.** This is
+  the `TODO.md` item that said so: `NORMAL_OFFSET_2D` / `NORMAL_OFFSET_CUBE` in
+  `forward.slang` are world-space constants tuned at 4096, and halving the atlas
+  halves every tile, doubling a texel's world footprint and re-introducing the
+  acne they were tuned to hide. `FrameUniforms` grew a `ShadowNormalScale`
+  (4844 → **4848** bytes) carrying `4096 / atlasSize`, and `shadowLookup`
+  multiplies by it. **1.0 at the default**, so the default image is byte-identical
+  to what Part F shipped — which is the only reason this was safe to do without an
+  eyeball. `spirv-dis` confirms the new member at offset 4844.
+
+- **Cheap PCF rides `ShadowRecord.Flags` bit 1** rather than growing a struct.
+  `Flags` had one bit in use and 31 spare, so the quality knob cost zero layout
+  risk — and it is per-tile for free, should a tier ever want to spend fewer taps
+  on a small slot than a large one. Cheap keeps the 4 corner taps and drops the
+  3×3 refinement, so a penumbra quantises to quarters instead of ninths.
+
+**Two constants that deliberately stayed constants.** `nextTierThreshold` and
+`slotStickiness` are hysteresis margins, not quality: they trade re-bakes against
+responsiveness, and a wrong value is a flicker rather than a tier. Exposing them
+would be four more keys nobody tunes and two more ways to make the allocator
+thrash. `lightConstant` and `lightCutoff` in `scene/light.go` stayed for the same
+reason — `lightCutoff` inverts the falloff that `forward.slang` hardcodes, so it
+is only meaningful in lockstep with a shader edit.
+
+**Dead keys removed.** `[shadows] width` / `height` and
+`settings.ShadowAspectRatio()` had **no callers at all** — they predate the atlas
+and drove nothing. `TODO.md` asked whether they were dead; they were.
+
+**Gate.** Standard gate across every config: builds, `go test ./...` green (19
+in `scene`, 7 in `settings`), `spirv-val --scalar-block-layout` clean on all 12
+modules, and `go run .` with `[debug] validation = true` silent on
+`configs/vulkan.toml` and on `configs/low.toml`.
+
+**Risk, as written.** Knobs that silently do nothing, "confirm each one's visible
+effect once, by hand, at the extremes of its range". Done for what a terminal can
+see: `atlasSize` runs clean at 1024 and 8192, `low.toml` runs clean end to end,
+and a bad value (`pcf = "medium"`) rejects the file with a message naming the key.
+**What a terminal cannot see is the visible half** — that a 1024 atlas looks
+coarser rather than acne-ridden, and that cheap PCF looks harder rather than
+broken. Both need RenderDoc or an eyeball; neither is asserted here.
 
 ---
 

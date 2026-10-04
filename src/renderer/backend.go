@@ -1,178 +1,93 @@
-// Package renderer defines the backend abstraction: one Backend interface,
-// opaque resource handles, and one typed Uniforms struct
 package renderer
 
 import "github.com/go-gl/glfw/v3.3/glfw"
 
-// Opaque handles, each backend keeping its own table. TextureHandle 0 is the
-// built-in white pixel, RenderTargetHandle 0 the backbuffer.
-type (
-	TextureHandle      uint32
-	BufferHandle       uint32
-	MeshHandle         uint32
-	RenderTargetHandle uint32
-	ShaderHandle       uint32
-)
-
-// Feature is an optional capability a backend may support. Call
-// Backend.Supports before using the matching optional interface.
-type Feature int
-
-const (
-	FeatureRayTracing Feature = iota
-	FeatureCompute
-)
-
-// TargetFormat is what a render target stores, and therefore how it is attached
-// and later sampled
-type TargetFormat int
-
-const (
-	// Sampled depth: shadow maps
-	TargetDepth TargetFormat = iota
-	// Sampled colour, high dynamic range: offscreen scene targets, post-processing
-	TargetColor
-)
-
-// VertexLayout is how a mesh's vertex buffer is laid out, and therefore which
-// pipeline variant the backend binds it with.
-type VertexLayout int
-
-const (
-	// position(3)|normal(3)|uv(2): scene meshes
-	LayoutMesh VertexLayout = iota
-	// position(3): the skybox cube
-	LayoutPosition
-	// position(3)|uv(2): fullscreen quads, the UI overlay
-	LayoutPositionUV
-)
-
-// Floats returns how many float32s one vertex of this layout occupies
-func (l VertexLayout) Floats() int {
-	switch l {
-	case LayoutPosition:
-		return 3
-	case LayoutPositionUV:
-		return 5
-	default:
-		return 8
-	}
-}
-
-// CullMode is which face the rasteriser discards
-type CullMode int
-
-const (
-	// Back faces discarded, the scene default
-	CullBack CullMode = iota
-	// Front faces discarded, which the sun's shadow pass uses to avoid peter-panning
-	CullFront
-	// Nothing discarded, for two-sided geometry
-	CullNone
-)
-
-// CompareOp is the depth test a draw is subject to
-type CompareOp int
-
-const (
-	// Nearer fragments win, the scene default
-	CompareLess CompareOp = iota
-	// Ties win too, so the skybox can sit exactly on the far plane
-	CompareLessEqual
-	// No depth rejection
-	CompareAlways
-)
-
-// RenderTargetSpec describes an offscreen target by what it is, not by what
-// it is used for
-type RenderTargetSpec struct {
-	Width, Height int
-	Format        TargetFormat
-	// Cube allocates 6 layers, attached as an array (a geometry stage routes
-	// triangles to faces) and sampled as a cubemap
-	Cube bool
-}
-
+// Backend owns the device and every resource on it. Nothing here names a
+// technique: it knows images, buffers, pipelines, passes and dispatches, and
+// what those are used for is decided above this package.
 type Backend interface {
-	// Sets up the context/device/swapchain, once, after window creation
-	Init(window *glfw.Window) error
+	// --- lifetime
+
+	// Sets up the device and swapchain, once, after window creation
+	Init(window *glfw.Window, req Request) error
 	// Destroys everything the backend owns
 	Shutdown()
-
-	// Opens a frame, before any pass is begun
-	BeginFrame()
-	// Closes the frame and presents it
-	EndFrame()
-
-	// Begins a pass on target (0 = backbuffer), sized from the target itself: always clears depth, clears color only when clear is non-nil
-	BeginPass(target RenderTargetHandle, clear *[4]float32)
-	// Ends the pass, after which nothing may be drawn until the next BeginPass
-	EndPass()
-
-	// Narrows the viewport and scissor to a rect of the current pass's target
-	SetViewportScissor(x, y, w, h int)
-
-	// Copies a rect of depth from one target to another, outside any pass
-	CopyDepthRegion(src, dst RenderTargetHandle, srcX, srcY, dstX, dstY, w, h int)
-
-	// Publishes the pass-scoped uniforms, from a snapshot of *f taken at call time
+	// Reports what the device can do and what Request actually got
+	Capacities() Capacities
+	// The size the swapchain currently is, which every image sized to the
+	// window has to match
 	//
-	// Must run after BeginPass and before the pass's first draw.
-	BindFrameUniforms(f *FrameUniforms)
+	// The backend rebuilds the swapchain on its own when the surface goes out
+	// of date, and Frame records nothing on the frame that did. So the caller
+	// compares this against its own window-sized images before Frame, and
+	// rebuilds them when it differs
+	BackbufferSize() (width, height int)
 
-	// Publishes this frame's shadow tile records, from a copy taken at call time
+	// --- resources
+
+	// Creates an image, sampled, stored into, attached, or any mix
+	CreateImage(ImageSpec) ImageHandle
+	// Creates a view of one slice and one aspect of an image
+	CreateView(ImageHandle, ViewSpec) ViewHandle
+	// Uploads CPU pixels into an image, whole or a region
+	UpdateImage(ImageHandle, ImageData)
+	// Creates a buffer and returns its device address
+	CreateBuffer(BufferSpec) (BufferHandle, Address)
+	// Rewrites part of a buffer from a pointer to a value or a slice
+	UpdateBuffer(handle BufferHandle, offset uint64, data any)
+	// Copies a buffer back to the CPU
 	//
-	// Frame-scoped rather than pass-scoped: call once after BeginFrame, before
-	// the first pass. Every draw of the frame then reaches the array by device
-	// address, LightData.ShadowIndex being the index into it.
-	BindShadowRecords(records []ShadowRecord)
+	// Stalls: it waits on the frames in flight before mapping. Right for a
+	// screenshot or an image test, wrong inside a frame loop
+	ReadBuffer(BufferHandle) []byte
+	// Pairs a vertex buffer with one face group's indices
+	CreateMesh(MeshSpec) MeshHandle
+	CreateSampler(SamplerSpec) SamplerHandle
+	// Builds a pipeline object from its whole state, shaders included
+	CreatePipeline(PipelineSpec) (PipelineHandle, error)
 
-	// Selects which face is culled, as pass-scoped state
-	SetCullMode(m CullMode)
-	// Selects the depth compare op, as pass-scoped state
-	SetDepthCompare(op CompareOp)
-
-	// Loads the shader set named e.g. "forward", picking up a geometry stage when the set has one
-	CreateShader(name string) (ShaderHandle, error)
-
-	// Uploads tightly packed RGBA8 pixels as a sampled 2D texture, decoding being the caller's job
-	CreateTexture(pixels []byte, w, h int) TextureHandle
-	// Uploads six same-sized RGBA8 faces as one cubemap texture
-	CreateCubemap(faces [6][]byte, w, h int) TextureHandle
-	// (Re)uploads RGBA8 pixels of a w×h texture, handle 0 allocating one
-	UpdateTexture2D(h TextureHandle, w, hgt int, pixels []byte) TextureHandle
-	// Destroys a texture
-	DestroyTexture(h TextureHandle)
-
-	// Creates a vertex buffer from float data
-	CreateBuffer(data []float32) BufferHandle
-	// Rewrites a buffer's contents in place
-	UpdateBuffer(h BufferHandle, data []float32)
-	// Destroys a buffer
-	DestroyBuffer(h BufferHandle)
-
-	// Pairs a vertex buffer with a vertex layout and an optional index list, one handle per material face group
+	// The shader-visible index of an image, allocated on first call
 	//
-	// A nil index list makes the mesh non-indexed. Several meshes may share one
-	// vertex buffer, which is how a multi-material OBJ loads.
-	CreateMesh(vertexBuf BufferHandle, indices []uint32, layout VertexLayout) MeshHandle
-	// Destroys a mesh, leaving the vertex buffer it borrowed alone
-	DestroyMesh(m MeshHandle)
+	// The caller writes it into its own uniform block; the backend never reads
+	// that block, so this is the only translation there is
+	Slot(Handle) uint32
+	// Destroys a resource once the frames that could reference it have retired
+	Destroy(Handle)
+	// Rebuilds every pipeline from its spec, re-reading the SPIR-V on disk
+	ReloadPipelines() error
 
-	// Creates an offscreen target and its sampled view, returning both handles
-	CreateRenderTarget(spec RenderTargetSpec) (RenderTargetHandle, TextureHandle)
-	// Destroys a render target
-	DestroyRenderTarget(f RenderTargetHandle)
+	// --- frames
 
-	// Selects the shader set every following Draw uses, until the next call
-	BindShader(s ShaderHandle)
+	// Records and submits one frame. Nothing outside the closure may record
+	Frame(record func(Frame))
+}
 
-	// Draws a mesh with the bound shader, from a snapshot of *u taken at call time
-	//
-	// The only draw entry point: layout, count and indexed-ness belong to the
-	// mesh, so a new kind of drawable needs a new way to build one, not to draw one.
-	Draw(m MeshHandle, u *DrawUniforms)
+// Frame is one recorded frame. Its methods are the operations legal between
+// passes; a Frame value cannot exist outside Backend.Frame, so the ordering
+// rules that used to be runtime guards are scope now.
+type Frame interface {
+	// Copies a block into this frame's arena and returns its device address
+	Upload(data any) Address
 
-	// Reports whether an optional capability is available
-	Supports(f Feature) bool
+	// Runs one render pass. Attachments and Reads are transitioned first
+	Pass(PassSpec, func(Pass))
+	// Runs one compute pass, outside any render pass
+	Compute(ComputeSpec, func(Compute))
+
+	// Copies between images and buffers, outside any pass
+	Copy(CopySpec)
+	// Clears a storage image, outside any pass
+	Clear(ClearSpec)
+}
+
+// Pass is one open render pass: the only place a draw is legal
+type Pass interface {
+	// Narrows the viewport and scissor to a rect of the pass's target
+	Viewport(x, y, w, handle int)
+	Draw(DrawCall)
+}
+
+// Compute is one open compute pass: the only place a dispatch is legal
+type Compute interface {
+	Dispatch(DispatchCall)
 }

@@ -1,0 +1,644 @@
+<?xml version="1.0" ?>
+<!-- Allocator stress scene. Not a beauty shot: it exists so the shadow atlas
+     carves itself up the way LIGHTING_PLAN.md 4.1 sketches, which the showcase
+     cannot show.
+
+     The showcase's lights all sit within ~15 units of the camera with radii over
+     100, so every score (radius / distance) lands in the hundreds against a
+     top-tier threshold of 0.50 — the tiering saturates and every light gets the
+     largest tile it can have. Variable resolution goes untested.
+
+     Here every light's intensity is *derived* from the score it is meant to
+     have. scene.lightRadius inverts the shader falloff 1/(kConstant + d^2), so
+     radius = sqrt(peak*255 - 1) with peak = max(colour) * diffuse * intensity;
+     solving it the other way gives the intensity that puts a light at a chosen
+     distance into a chosen tier. Rings at scores 0.75 / 0.30 / 0.13 therefore
+     land in the 1024 / 512 / 256 tiers, and the point-light rings halve one step
+     from there, which is how a 128 tile appears at all.
+
+     64 lights, all of them casting: 41 coloured key lights in rings, then 23
+     dim white fill lights, which is MaxLights exactly. Run it with:
+         go run . -scene stress.xml
+     and dump the partition with [debug] dumpAtlas = 5. -->
+<scene>
+	<camera name="Camera">
+		<type>persp</type>
+		<position>0.0,-14.0,6.0</position>
+		<yaw>0.0</yaw>
+		<pitch>19.0</pitch>
+		<fov>45.0</fov>
+	</camera>
+
+	<!-- The ground receives every shadow and casts none. With the whole scene
+	     above it, a single-sided plane in the shadow map can only ever occlude
+	     itself, and at the grazing angles a high light gives it that is acne
+	     across the entire surface -->
+	<mesh name="Ground">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoGround.obj</obj>
+		<castsShadow>false</castsShadow>
+	</mesh>
+	<mesh name="Suzanne">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoSuzanne.obj</obj>
+	</mesh>
+	<mesh name="SphereChrome">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoSphereChrome.obj</obj>
+	</mesh>
+	<mesh name="SphereBrick">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoSphereBrick.obj</obj>
+	</mesh>
+	<mesh name="Cube">
+		<position>0.0,0.0,0.0</position>
+		<obj>DemoCube.obj</obj>
+	</mesh>
+
+	<!-- The sun takes its fixed 2048 tile, the top-left quadrant of 4.1's drawing -->
+	<light name="Sun">
+		<type>sun</type>
+		<position>6.0,-5.0,12.0</position>
+		<direction>-0.35,0.45,-1.0</direction>
+		<color>1.0,0.98,0.92</color>
+		<diffuse>1.0</diffuse>
+		<intensity>1.2</intensity>
+	</light>
+
+	<light name="SpotNear0">
+		<type>spot</type>
+		<position>5.07,-1.14,5.00</position>
+		<direction>-4.05,1.91,-4.20</direction>
+		<color>1.00,0.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>427.4</intensity>
+	</light>
+	<light name="SpotNear1">
+		<type>spot</type>
+		<position>-2.14,-4.07,5.00</position>
+		<direction>1.71,4.25,-4.20</direction>
+		<color>0.50,1.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>233.9</intensity>
+	</light>
+	<light name="SpotNear2">
+		<type>spot</type>
+		<position>-5.07,3.14,5.00</position>
+		<direction>4.05,-1.51,-4.20</direction>
+		<color>0.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>710.9</intensity>
+	</light>
+	<light name="SpotNear3">
+		<type>spot</type>
+		<position>2.14,6.07,5.00</position>
+		<direction>-1.71,-3.85,-4.20</direction>
+		<color>0.50,0.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>904.4</intensity>
+	</light>
+	<light name="SpotMid0">
+		<type>spot</type>
+		<position>9.50,1.00,4.00</position>
+		<direction>-6.18,0.35,-3.40</direction>
+		<color>1.00,0.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>116.6</intensity>
+	</light>
+	<light name="SpotMid1">
+		<type>spot</type>
+		<position>6.72,-5.72,4.00</position>
+		<direction>-4.37,4.72,-3.40</direction>
+		<color>1.00,0.75,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>45.5</intensity>
+	</light>
+	<light name="SpotMid2">
+		<type>spot</type>
+		<position>0.00,-8.50,4.00</position>
+		<direction>-0.00,6.53,-3.40</direction>
+		<color>0.50,1.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>16.0</intensity>
+	</light>
+	<light name="SpotMid3">
+		<type>spot</type>
+		<position>-6.72,-5.72,4.00</position>
+		<direction>4.37,4.72,-3.40</direction>
+		<color>0.00,1.00,0.25</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>45.5</intensity>
+	</light>
+	<light name="SpotMid4">
+		<type>spot</type>
+		<position>-9.50,1.00,4.00</position>
+		<direction>6.18,0.35,-3.40</direction>
+		<color>0.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>116.6</intensity>
+	</light>
+	<light name="SpotMid5">
+		<type>spot</type>
+		<position>-6.72,7.72,4.00</position>
+		<direction>4.37,-4.02,-3.40</direction>
+		<color>0.00,0.25,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>187.7</intensity>
+	</light>
+	<light name="SpotMid6">
+		<type>spot</type>
+		<position>-0.00,10.50,4.00</position>
+		<direction>0.00,-5.83,-3.40</direction>
+		<color>0.50,0.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>217.2</intensity>
+	</light>
+	<light name="SpotMid7">
+		<type>spot</type>
+		<position>6.72,7.72,4.00</position>
+		<direction>-4.37,-4.02,-3.40</direction>
+		<color>1.00,0.00,0.75</color>
+		<diffuse>1.0</diffuse>
+		<cone>34.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>187.7</intensity>
+	</light>
+	<light name="SpotFar0">
+		<type>spot</type>
+		<position>11.27,-1.28,2.60</position>
+		<direction>-2.82,1.32,-2.30</direction>
+		<color>1.00,0.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>23.8</intensity>
+	</light>
+	<light name="SpotFar1">
+		<type>spot</type>
+		<position>8.62,-6.61,2.60</position>
+		<direction>-2.15,2.65,-2.30</direction>
+		<color>1.00,0.50,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>13.2</intensity>
+	</light>
+	<light name="SpotFar2">
+		<type>spot</type>
+		<position>3.66,-9.90,2.60</position>
+		<direction>-0.91,3.48,-2.30</direction>
+		<color>1.00,1.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>6.7</intensity>
+	</light>
+	<light name="SpotFar3">
+		<type>spot</type>
+		<position>-2.28,-10.27,2.60</position>
+		<direction>0.57,3.57,-2.30</direction>
+		<color>0.50,1.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>6.0</intensity>
+	</light>
+	<light name="SpotFar4">
+		<type>spot</type>
+		<position>-7.61,-7.62,2.60</position>
+		<direction>1.90,2.90,-2.30</direction>
+		<color>0.00,1.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>11.2</intensity>
+	</light>
+	<light name="SpotFar5">
+		<type>spot</type>
+		<position>-10.90,-2.66,2.60</position>
+		<direction>2.73,1.66,-2.30</direction>
+		<color>0.00,1.00,0.50</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>21.1</intensity>
+	</light>
+	<light name="SpotFar6">
+		<type>spot</type>
+		<position>-11.27,3.28,2.60</position>
+		<direction>2.82,0.18,-2.30</direction>
+		<color>0.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>32.9</intensity>
+	</light>
+	<light name="SpotFar7">
+		<type>spot</type>
+		<position>-8.62,8.61,2.60</position>
+		<direction>2.15,-1.15,-2.30</direction>
+		<color>0.00,0.50,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>43.5</intensity>
+	</light>
+	<light name="SpotFar8">
+		<type>spot</type>
+		<position>-3.66,11.90,2.60</position>
+		<direction>0.91,-1.98,-2.30</direction>
+		<color>0.00,0.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>50.0</intensity>
+	</light>
+	<light name="SpotFar9">
+		<type>spot</type>
+		<position>2.28,12.27,2.60</position>
+		<direction>-0.57,-2.07,-2.30</direction>
+		<color>0.50,0.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>50.8</intensity>
+	</light>
+	<light name="SpotFar10">
+		<type>spot</type>
+		<position>7.61,9.62,2.60</position>
+		<direction>-1.90,-1.40,-2.30</direction>
+		<color>1.00,0.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>45.5</intensity>
+	</light>
+	<light name="SpotFar11">
+		<type>spot</type>
+		<position>10.90,4.66,2.60</position>
+		<direction>-2.73,-0.16,-2.30</direction>
+		<color>1.00,0.00,0.50</color>
+		<diffuse>1.0</diffuse>
+		<cone>40.0</cone>
+		<coneBlend>0.25</coneBlend>
+		<intensity>35.6</intensity>
+	</light>
+	<light name="PointMid0">
+		<type>point</type>
+		<position>4.66,-4.87,3.20</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,0.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>43.7</intensity>
+	</light>
+	<light name="PointMid1">
+		<type>point</type>
+		<position>-2.76,-5.97,3.20</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>32.1</intensity>
+	</light>
+	<light name="PointMid2">
+		<type>point</type>
+		<position>-7.42,-0.10,3.20</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.00,1.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>94.3</intensity>
+	</light>
+	<light name="PointMid3">
+		<type>point</type>
+		<position>-4.66,6.87,3.20</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>168.2</intensity>
+	</light>
+	<light name="PointMid4">
+		<type>point</type>
+		<position>2.76,7.97,3.20</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.00,0.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>179.8</intensity>
+	</light>
+	<light name="PointMid5">
+		<type>point</type>
+		<position>7.42,2.10,3.20</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,0.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>117.6</intensity>
+	</light>
+	<light name="PointFar0">
+		<type>point</type>
+		<position>10.88,-0.64,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,0.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>24.7</intensity>
+	</light>
+	<light name="PointFar1">
+		<type>point</type>
+		<position>7.83,-6.72,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,0.60,0.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>12.6</intensity>
+	</light>
+	<light name="PointFar2">
+		<type>point</type>
+		<position>1.80,-9.85,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.80,1.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>6.4</intensity>
+	</light>
+	<light name="PointFar3">
+		<type>point</type>
+		<position>-4.92,-8.84,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.20,1.00,0.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>8.4</intensity>
+	</light>
+	<light name="PointFar4">
+		<type>point</type>
+		<position>-9.77,-4.06,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.00,1.00,0.40</color>
+		<diffuse>1.0</diffuse>
+		<intensity>17.9</intensity>
+	</light>
+	<light name="PointFar5">
+		<type>point</type>
+		<position>-10.88,2.64,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>31.2</intensity>
+	</light>
+	<light name="PointFar6">
+		<type>point</type>
+		<position>-7.83,8.72,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.00,0.40,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>43.3</intensity>
+	</light>
+	<light name="PointFar7">
+		<type>point</type>
+		<position>-1.80,11.85,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.20,0.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>49.5</intensity>
+	</light>
+	<light name="PointFar8">
+		<type>point</type>
+		<position>4.92,10.84,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>0.80,0.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>47.5</intensity>
+	</light>
+	<light name="PointFar9">
+		<type>point</type>
+		<position>9.77,6.06,1.90</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,0.00,0.60</color>
+		<diffuse>1.0</diffuse>
+		<intensity>38.0</intensity>
+	</light>
+
+	<!-- Dim white fill lights, added to push the atlas and the bake past what the
+	     41 coloured lights above reach. Same derivation as the rest of the file,
+	     with the one extra step a point light needs: solve the score backwards at
+	     each light's own distance, radius = score * distance, then
+	     intensity = 1000 * (radius^2 + 1) / 255 — the 1000 because toLight divides
+	     a point light's intensity by it and the coloured rings above already carry
+	     that factor.
+
+	     They land between 13 and 112, the same band as the coloured far ring
+	     (24-48) rather than the showcase's radii-over-100 key lights, so they read
+	     as fill. The near ring sits close to the camera on purpose: score is
+	     radius / distance, so proximity rather than brightness is what buys a
+	     light a big tile, and that is the only way to fill the 256 pool without
+	     making these bright.
+
+	     Point lights rather than spots on purpose: six faces each, so 23 lights
+	     buy 138 tiles. That is the bake cost this scene exists to measure; spots
+	     would have bought 23.
+
+	     23 is not a round number, it is the whole remaining budget. MaxLights is
+	     64 and the scene above is 41. The atlas has room for more and the uniform
+	     block does not, which is LIGHTING_PLAN.md 4.5's "77 against 64" arriving
+	     in practice. -->
+	<light name="FillNear0">
+		<type>point</type>
+		<position>2.50,-10.00,4.80</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>56.2</intensity>
+	</light>
+	<light name="FillNear1">
+		<type>point</type>
+		<position>1.92,-8.39,4.14</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>89.1</intensity>
+	</light>
+	<light name="FillNear2">
+		<type>point</type>
+		<position>0.43,-7.54,3.25</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>113.1</intensity>
+	</light>
+	<light name="FillNear3">
+		<type>point</type>
+		<position>-1.25,-7.83,3.60</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>104.0</intensity>
+	</light>
+	<light name="FillNear4">
+		<type>point</type>
+		<position>-2.35,-9.14,4.61</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>72.5</intensity>
+	</light>
+	<light name="FillNear5">
+		<type>point</type>
+		<position>-2.35,-10.86,4.61</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>42.1</intensity>
+	</light>
+	<light name="FillNear6">
+		<type>point</type>
+		<position>-1.25,-12.17,3.60</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>27.5</intensity>
+	</light>
+	<light name="FillNear7">
+		<type>point</type>
+		<position>0.43,-12.46,3.25</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>26.2</intensity>
+	</light>
+	<light name="FillNear8">
+		<type>point</type>
+		<position>1.92,-11.61,4.14</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>32.3</intensity>
+	</light>
+	<light name="FillFar0">
+		<type>point</type>
+		<position>12.69,2.84,1.91</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>34.5</intensity>
+	</light>
+	<light name="FillFar1">
+		<type>point</type>
+		<position>10.20,8.06,2.05</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>44.1</intensity>
+	</light>
+	<light name="FillFar2">
+		<type>point</type>
+		<position>5.69,11.69,1.50</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>51.1</intensity>
+	</light>
+	<light name="FillFar3">
+		<type>point</type>
+		<position>0.06,13.00,1.10</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>53.8</intensity>
+	</light>
+	<light name="FillFar4">
+		<type>point</type>
+		<position>-5.59,11.74,1.48</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>51.3</intensity>
+	</light>
+	<light name="FillFar5">
+		<type>point</type>
+		<position>-10.13,8.15,2.05</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>44.3</intensity>
+	</light>
+	<light name="FillFar6">
+		<type>point</type>
+		<position>-12.66,2.95,1.92</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>34.7</intensity>
+	</light>
+	<light name="FillFar7">
+		<type>point</type>
+		<position>-12.69,-2.84,1.29</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>24.3</intensity>
+	</light>
+	<light name="FillFar8">
+		<type>point</type>
+		<position>-10.20,-8.06,1.15</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>14.7</intensity>
+	</light>
+	<light name="FillFar9">
+		<type>point</type>
+		<position>-5.69,-11.69,1.70</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>7.6</intensity>
+	</light>
+	<light name="FillFar10">
+		<type>point</type>
+		<position>-0.06,-13.00,2.10</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>5.0</intensity>
+	</light>
+	<light name="FillFar11">
+		<type>point</type>
+		<position>5.59,-11.74,1.72</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>7.5</intensity>
+	</light>
+	<light name="FillFar12">
+		<type>point</type>
+		<position>10.13,-8.15,1.15</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>14.5</intensity>
+	</light>
+	<light name="FillFar13">
+		<type>point</type>
+		<position>12.66,-2.95,1.28</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.00,1.00,1.00</color>
+		<diffuse>1.0</diffuse>
+		<intensity>24.1</intensity>
+	</light>
+</scene>

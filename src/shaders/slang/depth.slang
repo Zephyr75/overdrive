@@ -2,7 +2,7 @@
 
 [shader("vertex")]
 float4 vsMain(float3 aPos) : SV_Position {
-  float4 pos = mul(FRAME.bakeMatrix, mul(DRAW.model, float4(aPos, 1.0)));
+  float4 pos = mul(BAKE.worldToTile, mul(DRAW.model, float4(aPos, 1.0)));
   TO_VK_DEPTH(pos);
   return pos;
 }

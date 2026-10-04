@@ -5,7 +5,6 @@ go 1.26.3
 require (
 	github.com/Zephyr75/gutter v0.1.2
 	github.com/disintegration/imaging v1.6.2
-	github.com/go-gl/gl v0.0.0-20211210172815-726fda9656d6
 	github.com/go-gl/glfw/v3.3/glfw v0.0.0-20260628091122-0bd588dc30cf
 	github.com/go-gl/mathgl v1.2.0
 )

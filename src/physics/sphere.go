@@ -13,53 +13,53 @@ type Sphere struct {
 // func (Sphere) Collider() string { return "Sphere" }
 
 // Returns the Verlet state the integrator steps
-func (s *Sphere) Body() *Verlet { return &s.Verlet }
+func (sphere *Sphere) Body() *Verlet { return &sphere.Verlet } 
 
 // Creates a sphere collider at a position
-func NewSphere(pos mgl32.Vec3, radius float32, fixed bool) *Sphere {
+func NewSphere(pos mgl32.Vec3, radius float32, fixed bool) *Sphere { 
 	verlet := NewVerlet(pos, fixed)
 	return &Sphere{verlet, radius}
 }
 
 // Fits a sphere collider to a mesh, its radius being the distance to the first vertex
-func NewSphereFromMesh(mesh *scene.Mesh, fixed bool) *Sphere {
+func NewSphereFromMesh(mesh *scene.Mesh, fixed bool) *Sphere { 
 	radius := mesh.Vertices[0].Sub(mesh.Position).Len()
 	return &Sphere{NewVerlet(mesh.Position, fixed), radius}
 }
 
 // Dispatches to the collision routine matching the other collider's shape
-func (s *Sphere) Collide(c Collider) {
-	switch collider := c.(type) {
+func (sphere *Sphere) Collide(collider Collider) { 
+	switch collider := collider.(type) {
 	case *Sphere:
-		s.sphereCollide(*collider)
+		sphere.sphereCollide(*collider)
 	case *Plane:
-		s.planeCollide(*collider)
+		sphere.planeCollide(*collider)
 	}
 
 }
 
 // Pushes this sphere half the overlap out along the axis between the two centres
-func (s *Sphere) sphereCollide(s2 Sphere) {
-	colAxis := s.Pos.Sub(s2.Pos)
+func (sphere *Sphere) sphereCollide(other Sphere) { 
+	colAxis := sphere.Pos.Sub(other.Pos)
 	colDist := colAxis.Len()
-	dist := s.Radius + s2.Radius
+	dist := sphere.Radius + other.Radius
 	if colDist < dist {
-		n := colAxis.Mul(1.0 / colDist)
+		normal := colAxis.Mul(1.0 / colDist)
 		delta := (dist - colDist) * 0.5
-		s.Pos = s.Pos.Add(n.Mul(delta))
+		sphere.Pos = sphere.Pos.Add(normal.Mul(delta))
 	}
 }
 
 // Lifts this sphere out of a plane, but only within the plane's finite extent
-func (s *Sphere) planeCollide(p Plane) {
-	distNormal := s.Pos.Sub(p.Pos).Dot(p.Normal)
-	distMain := s.Pos.Sub(p.Pos).Dot(p.MainAxis)
-	distCross := s.Pos.Sub(p.Pos).Dot(p.CrossAxis)
+func (sphere *Sphere) planeCollide(plane Plane) { 
+	distNormal := sphere.Pos.Sub(plane.Pos).Dot(plane.Normal)
+	distMain := sphere.Pos.Sub(plane.Pos).Dot(plane.MainAxis)
+	distCross := sphere.Pos.Sub(plane.Pos).Dot(plane.CrossAxis)
 
-	if distNormal > -s.Radius && distNormal < s.Radius {
-		if distMain > -p.MainHalf && distMain < p.MainHalf {
-			if distCross > -p.CrossHalf && distCross < p.CrossHalf {
-				s.Pos = s.Pos.Add(p.Normal.Mul(s.Radius - distNormal))
+	if distNormal > -sphere.Radius && distNormal < sphere.Radius {
+		if distMain > -plane.MainHalf && distMain < plane.MainHalf {
+			if distCross > -plane.CrossHalf && distCross < plane.CrossHalf {
+				sphere.Pos = sphere.Pos.Add(plane.Normal.Mul(sphere.Radius - distNormal))
 			}
 		}
 	}

@@ -62,6 +62,10 @@ float pcfTile(Sampler2D atlas, ShadowRecord rec, float2 local, float depth,
     return 0.0; // unanimously lit
   if (early == 4.0)
     return 1.0; // unanimously shadowed
+  // Cheap PCF stops here: the corners already straddle the edge, so their mean
+  // is a penumbra quantised to quarters rather than ninths
+  if ((rec.flags & 2) != 0)
+    return early * 0.25;
 
   float shadow = 0.0;
   for (int x = -1; x <= 1; ++x) {
@@ -102,6 +106,9 @@ float shadowLookup(int recordIndex, float3 fragPos, float3 normal,
     float ndl = clamp(dot(normal, lightDir), 0.0, 1.0);
     offset = NORMAL_OFFSET_2D * (1.0 - ndl);
   }
+  // A smaller atlas means a smaller tile means a wider world footprint per
+  // texel, which is the acne these constants were tuned against. 1.0 at 4096
+  offset *= FRAME.shadowNormalScale;
   float3 offsetPos = fragPos + normal * offset;
 
   float4 clip = mul(rec.lightSpace, float4(offsetPos, 1.0));
@@ -119,21 +126,21 @@ float shadowLookup(int recordIndex, float3 fragPos, float3 normal,
 
   float depth = z;
   float bias = 0.0015; // small residual, the normal offset does the work
-  float scale = 1.0;
   if (rec.face >= 0) {
     // Same comparison the cube path made in world units, normalised by
     // farPlane so both encodings compare in the tile's own [0,1]
     depth = length(offsetPos - lightPos) / rec.farPlane;
     bias = 0.04 / rec.farPlane;
-    // Point-light shadows have always been scaled 5x here. It overshoots
-    // 1.0 on purpose and the caller's (1 - shadow) goes negative, which is
-    // wrong but is what the engine has always drawn; see notes/FEATURES.md
-    scale = 5.0;
   }
 
+  // Every encoding returns an occlusion fraction in [0, 1]. The point-light
+  // path used to multiply by 5 here, which drove the caller's (1 - shadow)
+  // negative and made a shadowed fragment subtract the light other lights had
+  // put there. Harmless while one point light cast; with the Part D allocator
+  // handing tiles to every point light in the scene it is black blotches
   if ((rec.flags & 1) != 0)
-    return pcfTile(shadowAtlasDynamic, rec, local, depth, bias) * scale;
-  return pcfTile(shadowAtlasStatic, rec, local, depth, bias) * scale;
+    return pcfTile(HOT_SHADOW_DYNAMIC, rec, local, depth, bias);
+  return pcfTile(HOT_SHADOW_STATIC, rec, local, depth, bias);
 }
 
 // ---- Cook-Torrance metallic-roughness PBR -----------------------------------

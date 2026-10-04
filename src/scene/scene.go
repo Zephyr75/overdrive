@@ -24,196 +24,221 @@ type Scene struct {
 	Skybox Skybox
 	Cam    Camera
 
-	// Which lights own shadow tiles: one directional, one point. Decided once at
-	// load, not by XML order. -1 means nobody. Part D replaces this with a
-	// per-frame score, which is what turns the atlas's spare tiles into lights
-	shadowDirIndex   int32
-	shadowPointIndex int32
+	// The one depth texture every shadow in the scene is a sub-rect of
+	atlas       shadowAtlas
+	// The records describing the tiles handed out this frame
+	shadowTiles []renderer.ShadowTile
 
-	// The one depth texture every shadow in the scene is a sub-rect of, plus the
-	// tiles handed out this frame and the records that describe them
-	atlas         shadowAtlas
-	tiles         []shadowTile
-	shadowRecords []renderer.ShadowRecord
+	// This frame's bake work, as indices into Lights, and the tiles it drew into
+	//
+	// A light is queued whole: a point light's six faces bake together or not at
+	// all, five of them leaving a lit wedge.
+	staticQueue, dynamicQueue []int32
+	staticBakes, dynamicBakes int
+
+	// Meshes a move touched since the last shadow update, as indices into Meshes
+	//
+	// Filled by UpdateMeshes and consumed by UpdateShadows, rather than a second
+	// mechanism watching the same thing.
+	movedMeshes []int
 
 	backend renderer.Backend
 }
 
-// Selects the first directional and the first point light as the shadow casters
-func (s *Scene) pickShadowCasters() {
-	s.shadowDirIndex = -1
-	s.shadowPointIndex = -1
-	for i := range s.Lights {
-		switch {
-		case s.Lights[i].Type == renderer.LightSun && s.shadowDirIndex < 0:
-			s.shadowDirIndex = int32(i)
-		case s.Lights[i].Type == renderer.LightPoint && s.shadowPointIndex < 0:
-			s.shadowPointIndex = int32(i)
+// Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
+func NewScene(path string, backend renderer.Backend) (Scene, error) { 
+	// Parse the XML first: everything below needs the mesh and light counts
+	scene, err := LoadScene(path)
+	if err != nil {
+		return Scene{}, err
+	}
+	// Stored so later moves and uploads need no backend argument
+	scene.backend = backend
+	// Uploads each mesh's vertices, indices and material textures
+	for i := range scene.Meshes {
+		if err := scene.Meshes[i].setup(backend); err != nil {
+			return Scene{}, fmt.Errorf("mesh %s: %w", scene.Meshes[i].Name, err)
 		}
 	}
-}
-
-// Reports whether the light at index i owns a shadow map
-func (s *Scene) casts(i int32) bool {
-	return i == s.shadowDirIndex || i == s.shadowPointIndex
-}
-
-// Returns the caster indices, so the frame loop bakes only those lights' depth passes
-func (s *Scene) ShadowCasters() (dir, point int32) {
-	return s.shadowDirIndex, s.shadowPointIndex
-}
-
-// Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
-func NewScene(path string, b renderer.Backend) Scene {
-	s := LoadScene(path)
-	s.backend = b
-	for i := range s.Meshes {
-		s.Meshes[i].setup(b)
+	// One atlas for every light, allocated here rather than per casting light.
+	// Who gets a tile of it is a per-frame decision, not a load-time one
+	scene.atlas.setup(backend)
+	// Last because it owns the cubemap the main pass samples, and needs nothing above
+	if err := scene.Skybox.setup(backend); err != nil {
+		return Scene{}, err
 	}
-	s.pickShadowCasters()
-	// One atlas for every light, allocated here rather than per casting light
-	s.atlas.setup(b)
-	s.Skybox.setup(b)
-	return s
+	return scene, nil
 }
 
 // Returns a scene with nothing in it, for running the app with UI only
-func EmptyScene() Scene {
-	var s Scene
-	s.Meshes = make([]Mesh, 0)
-	s.Lights = make([]Light, 0)
-	s.Skybox = Skybox{}
-	s.Cam = Camera{}
-	return s
+func EmptyScene() Scene { 
+	var scene Scene
+	scene.Meshes = make([]Mesh, 0)
+	scene.Lights = make([]Light, 0)
+	scene.Skybox = Skybox{}
+	scene.Cam = Camera{}
+	return scene
 }
 
 // Reuploads the vertices of every mesh a physics step moved this frame
-func (s *Scene) UpdateMeshes() {
-	if s != nil {
-		for i := range s.Meshes {
-			s.Meshes[i].updateVertices()
+func (scene *Scene) UpdateMeshes() { 
+	if scene == nil {
+		return
+	}
+	for i := range scene.Meshes {
+		if scene.Meshes[i].needsUpdate {
+			scene.movedMeshes = append(scene.movedMeshes, i)
 		}
+		scene.Meshes[i].updateVertices()
 	}
 }
 
 // Finds a mesh by name, returning nil when the scene has none
-func (s *Scene) Mesh(name string) *Mesh {
-	for i, mesh := range s.Meshes {
+func (scene *Scene) FindMesh(name string) *Mesh { 
+	for i, mesh := range scene.Meshes {
 		if mesh.Name == name {
-			return &s.Meshes[i]
+			return &scene.Meshes[i]
 		}
 	}
 	return nil
 }
 
 // Finds a light by name, returning nil when the scene has none
-func (s *Scene) Light(name string) *Light {
-	for i, light := range s.Lights {
+func (scene *Scene) Light(name string) *Light { 
+	for i, light := range scene.Lights {
 		if light.Name == name {
-			return &s.Lights[i]
+			return &scene.Lights[i]
 		}
 	}
 	return nil
 }
 
 // Returns the scene's camera
-func (s *Scene) Camera() *Camera {
-	return &s.Cam
+func (scene *Scene) Camera() *Camera { 
+	return &scene.Cam
 }
 
 // Parses a scene XML file into meshes, lights and a camera, with no GPU work
-func LoadScene(path string) Scene {
+func LoadScene(path string) (Scene, error) { 
 	xmlFile, err := os.Open(path)
 	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return Scene{}
+		return Scene{}, fmt.Errorf("open scene: %w", err)
 	}
 	defer xmlFile.Close()
 
 	xmlData, err := io.ReadAll(xmlFile)
 	if err != nil {
-		fmt.Println("Error reading file:", err)
-		return Scene{}
+		return Scene{}, fmt.Errorf("read scene: %w", err)
 	}
 
 	var sceneXml SceneXml
-
 	if err := xml.Unmarshal(xmlData, &sceneXml); err != nil {
-		fmt.Println("Error parsing scene XML:", err)
-		return Scene{}
+		return Scene{}, fmt.Errorf("parse scene XML: %w", err)
 	}
 
-	var s Scene
+	var scene Scene
 
-	s.Meshes = make([]Mesh, len(sceneXml.MeshesXml))
-	s.Lights = make([]Light, len(sceneXml.LightsXml))
+	scene.Meshes = make([]Mesh, len(sceneXml.MeshesXml))
+	scene.Lights = make([]Light, len(sceneXml.LightsXml))
 
-	s.Cam = sceneXml.CamXml.toCamera()
+	scene.Cam = sceneXml.CamXml.toCamera()
 
 	for i, meshXml := range sceneXml.MeshesXml {
-		s.Meshes[i] = meshXml.toMesh()
-	}
-
-	for i, lightXml := range sceneXml.LightsXml {
-		s.Lights[i] = lightXml.toLight()
-	}
-
-	return s
-}
-
-// Writes the per-frame values into u: camera matrices, the light array, and the scene-wide texture handles
-func (s *Scene) FillFrameUniforms(u *renderer.FrameUniforms) {
-	u.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
-	u.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
-		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-	u.ViewPos = s.Cam.Pos
-
-	count := len(s.Lights)
-	if count > renderer.MaxLights {
-		count = renderer.MaxLights
-	}
-	u.LightCount = int32(count)
-	for i := 0; i < count; i++ {
-		l := &s.Lights[i]
-		u.Lights[i] = renderer.LightData{
-			Type:        int32(l.Type),
-			Constant:    lightConstant,
-			Color:       l.Color,
-			Intensity:   l.Intensity,
-			Diffuse:     l.Diffuse,
-			Position:    l.Pos,
-			Direction:   l.Dir,
-			Cutoff:      l.Cutoff,
-			OuterCutoff: l.OuterCutoff,
-			Radius:      l.Radius,
-			// Set by UpdateShadows, which must therefore run first
-			ShadowIndex: l.shadowIndex,
-			ShadowCount: l.shadowCount,
+		scene.Meshes[i], err = meshXml.toMesh()
+		if err != nil {
+			return Scene{}, fmt.Errorf("mesh %s: %w", meshXml.Name, err)
 		}
 	}
 
-	u.TexSkybox = s.Skybox.Texture
+	for i, lightXml := range sceneXml.LightsXml {
+		scene.Lights[i] = lightXml.toLight()
+	}
 
-	// Both bindings point at the one atlas until Part E splits static from
-	// dynamic; no record sets the flag that would select the second
-	u.TexShadowStatic = s.atlas.tex
-	u.TexShadowDynamic = s.atlas.tex
+	return scene, nil
 }
 
-// Draws every mesh of the scene with the forward shader, inside the main pass
-func (s *Scene) RenderScene(shader renderer.ShaderHandle, f *renderer.FrameUniforms) {
-	// Restore the full view matrix, the skybox pass having stripped its
-	// translation in its own copy of the block
-	f.View = mgl32.LookAtV(s.Cam.Pos, s.Cam.Pos.Add(s.Cam.Front), s.Cam.Up)
-	f.Projection = mgl32.Perspective(mgl32.DegToRad(s.Cam.Fov),
+// Writes the per-frame values into u: camera matrices, the light array, and the scene-wide texture handles
+func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) { 
+	uniforms.View = mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
+	uniforms.Projection = mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov),
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
-	s.backend.BindFrameUniforms(f)
+	uniforms.ViewPos = scene.Cam.Pos
+
+	count := len(scene.Lights)
+	if count > renderer.MaxLights {
+		count = renderer.MaxLights
+	}
+	uniforms.LightCount = int32(count)
+	for i := 0; i < count; i++ {
+		light := &scene.Lights[i]
+		uniforms.Lights[i] = renderer.LightData{
+			Type:        int32(light.Type),
+			Constant:    lightConstant,
+			Color:       light.Color,
+			Intensity:   light.Intensity,
+			Diffuse:     light.Diffuse,
+			Position:    light.Pos,
+			Direction:   light.Dir,
+			Cutoff:      light.Cutoff,
+			OuterCutoff: light.OuterCutoff,
+			Radius:      light.Radius,
+			// Set by UpdateShadows, which must therefore run first
+			ShadowIndex: light.shadowIndex,
+			ShadowCount: light.shadowCount,
+		}
+		// Read here rather than cached at init: settings.Load runs after this
+		// package's variables are initialised, so a snapshot would be the default
+		if settings.NoShadows {
+			uniforms.Lights[i].ShadowIndex, uniforms.Lights[i].ShadowCount = -1, 0
+		}
+	}
+
+	uniforms.TexSkybox = scene.Skybox.Slot
+
+	// The two atlases are dedicated descriptors the shader reaches by a literal
+	// index, so nothing about them travels in this block: which of the two a
+	// record samples is its Flags bit 0
+	uniforms.ShadowNormalScale = settings.ShadowNormalScale()
+}
+
+// Opens the depth prepass, draws every mesh depth-only and closes it
+func (scene *Scene) RunDepthPrepass(frame renderer.Frame, pipes Pipelines, frameAddr renderer.Address,
+	depthView renderer.ViewHandle) { 
+
+	clear := [4]float32{1, 0, 0, 0}
+	frame.Pass(renderer.PassSpec{
+		Name:  "depthPrepass",
+		Depth: &renderer.Attachment{View: depthView, Clear: &clear, Store: true},
+		FlipY: true,
+	}, func(pass renderer.Pass) {
+		ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Prepass}
+		ctx.push[PushFrame] = frameAddr
+
+		uniforms := renderer.DrawUniforms{Model: mgl32.Ident4()}
+		for i := range scene.Meshes {
+			scene.Meshes[i].draw(ctx, &uniforms)
+		}
+	})
+}
+
+// Draws every mesh of the scene with the forward pipeline, inside the main pass
+func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
+	frameAddr, recordAddr renderer.Address) { 
+
+	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Forward}
+	ctx.push[PushFrame] = frameAddr
+	ctx.push[PushRecords] = recordAddr
 
 	// Static mesh geometry is baked into the OBJ vertices, so the model matrix
 	// is identity and only the material fields vary between draws
-	u := renderer.DrawUniforms{Model: mgl32.Ident4()}
-	s.backend.BindShader(shader)
-	for i := range s.Meshes {
-		s.Meshes[i].draw(&u)
+	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4()}
+	for i := range scene.Meshes {
+		scene.Meshes[i].draw(ctx, &uniforms)
 	}
+}
+
+// The images the main pass samples, which it must declare so they are
+// transitioned out of the layout the bake left them in
+func (scene *Scene) ShadowImages() []renderer.Handle { 
+	return []renderer.Handle{scene.atlas.staticImage, scene.atlas.dynamicImage}
 }

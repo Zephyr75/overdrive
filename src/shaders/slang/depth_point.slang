@@ -20,12 +20,12 @@ VSOut vsMain(float3 aPos) {
   VSOut o;
   float3 world = mul(DRAW.model, float4(aPos, 1.0)).xyz;
   o.worldPos = world;
-  o.position = mul(FRAME.bakeMatrix, float4(world, 1.0));
+  o.position = mul(BAKE.worldToTile, float4(world, 1.0));
   TO_VK_DEPTH(o.position);
   return o;
 }
 
 [shader("fragment")]
 float fsMain(VSOut i) : SV_Depth {
-  return length(i.worldPos - FRAME.bakeLightPos) / FRAME.bakeFarPlane;
+  return length(i.worldPos - BAKE.lightPos) / BAKE.farPlane;
 }
