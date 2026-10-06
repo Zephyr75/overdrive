@@ -1,99 +1,63 @@
-# TODO.md — the working list
+# TODO — the working list
 
-Small, concrete items. Anything that needs a paragraph of reasoning lives in
-`FEATURES.md` Part 2 instead.
+> **Scope** small, concrete open items. Anything needing a paragraph of reasoning lives in `FEATURES.md` §9.
+>
+> `[ ]` open · `[~]` started · `[-]` dropped on purpose
+
+---
 
 ## Engine
 
-- [x] Overlay Gutter on Overdrive
-- [ ] Fix Gutter on Overdrive — `main.go` still calls `App.Run` with a nil widget
-- [x] Support multiple shadows (one 2D map + one cube) — superseded by the atlas
-- [x] Retire the cube-shadow slots — every shadow is a tile of one atlas now, `tmp/LIGHTING_IMPL.md` Part C
-- [x] Per-frame atlas allocation — a buddy quadtree scored by `radius / distance`, `tmp/LIGHTING_IMPL.md` Part D
-- [x] Replace the per-frame quadtree with a fixed slot layout — rank picks the slot, the tier caps it; rects never move, so Part E can cache a baked tile. The layout is `tmp/LIGHTING_PLAN.md` §4.1's partition exactly: 1x2048 + 16x512 + 64x256 + 256x128, 337 slots, 100% of the atlas
-- [x] Make `atlasSize` a `[shadows]` quality knob — `tmp/LIGHTING_IMPL.md` Part H. The bias problem was real: `FrameUniforms.ShadowNormalScale` carries `4096 / atlasSize` and `shadowLookup` multiplies the world-space offsets by it, 1.0 at the default so the shipped image did not move
-- [x] Check whether `[shadows] width`/`height` in the TOML still drive anything — they did not, nor did `settings.ShadowAspectRatio()`. All three deleted in Part H
-- [x] Split the per-tile bake state out of `FrameUniforms` — `renderer.BakeUniforms` is its own 80-byte block now, uploaded per tile. A full 337-slot atlas costs ~40 KiB a frame where it cost ~1.6 MiB, `arenaSize` is back to 2 MiB, and an overflow panics instead of wrapping to offset 0
-- [x] Delete the ×5 point-shadow scale in `forward.slang` — it made a shadowed fragment subtract light, invisible with one caster and blotchy with six
-- [x] Clean up the fragment shader
-- [x] Integrate the skybox reflection into the colour computation (PBR ambient term)
-- [x] Usable from a simple ECS script
-- [x] Read collider position, size and rotation from the Blender scene
-- [x] Quality tiers — the whole `[shadows]` section is config now (`atlasSize`, `slotDivisors`/`slotCounts`, `tierScores`, `dynamicAtlas`, `bakeBudgetMiB`, `pcf`, `nearPlane`/`farPlane`), plus `configs/low.toml`. `tmp/LIGHTING_IMPL.md` Part H
-- [ ] Clustered forward — the last unbuilt part of the lighting plan, lifted out to `tmp/CLUSTERED_FORWARD.md`. Also what fixes `lightScore` ranking a light behind the camera as highly as one in front of it, and what removes the fixed `MaxLights = 64`
-- [~] Debug mode — a `[debug]` TOML section so far: `lockCamera`, `noShadows`, `validation`, plus the `-screenshot` flag. GPU timestamps were deleted on 2026-09-05 (RenderDoc profiles per pass, nothing drew the numbers); pass labels were deleted and then restored the same day, since they are what makes a capture readable
-- [x] Multiple lights of the same type (up to `MAX_LIGHTS` = 64)
-- [ ] Proper box colliders — `physics/box.go` is empty, `box_old.go` is commented out
-- [ ] Verlet distance constraints — `physics/link.go` is commented out
+- [ ] Fix Gutter on Overdrive: `main.go` still calls `App.Run` with a nil widget
+- [ ] Clustered forward: removes the fixed `MaxLights = 64` and stops a light behind the camera scoring like one in front
+- [ ] Proper box colliders (only sphere and plane exist)
+- [ ] Verlet distance constraints
 - [ ] Audio support
 
 ## Backend
 
-The ordered plan is `tmp/INTERFACE_PLAN.md` §6, which expands `tmp/BACKEND_DECISION.md`
-§9 items 6-10. These are its first items.
-
-- [x] Delete the OpenGL backend — 2026-08-05
-- [x] Drop the dead 16-byte cell rule from `renderer/uniforms.go` and `common.slang` — `tmp/BACKEND_DECISION.md` §5.3
-- [x] Drop the GL-shaped interface members: `CreateBuffer`'s `dynamic`, `WhiteTexture`, `CreateShader`'s `hasGeometry` — §5.4
-- [x] Replace the GL-shaped semantics: cull/depth enums, `CreateTexture` taking pixels, `BindShader` + `Draw`, `BeginPass` without w/h — §5.6
-- [ ] **Vulkan-native clip space** — build projections y-flipped with `[0,1]` depth, then delete `TO_VK_DEPTH`, the negative-height viewport and the shadow-pass `FrontFace = Clockwise` case — §5.5
-- [ ] Reverse-Z, once the above and `CompareOpGreater` land — §9 item 9
-- [x] Shader hot-reload — `Backend.ReloadPipelines` drops the module cache and rebuilds every live pipeline from its stored spec. Nothing calls it yet; it wants a key binding or a file watcher
-- [x] `go-vulkan`: formats, barrier rework, compute, storage images, blit, blend enums, timestamps, debug labels, indirect — `BINDINGS_GAP.md` §7 batches 1-9. Only batch 10 (ray-query acceleration structures) is left
-- [x] `PipelineSpec`, replacing `CreateShader` + `SetCullMode` / `SetDepthCompare`
-- [x] `Frame`/`Pass`/`Compute` closures, replacing `BeginFrame`/`EndFrame`/`BeginPass`/`EndPass`/`BeginDepthPrepass` and the hardcoded frame in `core/app.go`
-- [x] Compute in the interface — `CreatePipeline(Kind: PipelineCompute)`, `Frame.Compute`, `Compute.Dispatch`, storage images through `Slot`, storage buffers by device address
-- [x] Opaque uniforms — `Frame.Upload(any) Address` and `DrawCall.Push [4]Address`, replacing `BindFrameUniforms` and `BindShadowRecords`
-- [x] Automatic barriers — one `use` per resource, one table in `vulkan/barrier.go`, declared by `PassSpec.Reads` and `ComputeSpec.Reads`/`Writes`
-- [x] Reclaimable bindless slots, fed from the retire queue rather than from `Destroy`
-- [ ] Ray queries — needs `BINDINGS_GAP.md` batch 10, plus the `CreateAccel`/`BuildAccel` methods and the `Accel*` specs back (deleted on 2026-09-05, where they only printed "not built yet")
-- [ ] **Prove the stack**: build HDR + tonemap + bloom entirely in `scene/` or a new `effects/` package, touching no file under `vulkan/` — `INTERFACE_PLAN.md` §6
+- [ ] **Vulkan-native clip space**: build projections y-flipped with `[0, 1]` depth, then delete `TO_VK_DEPTH`, the negative-height viewport and the atlas passes' `WindingClockwise`
+- [ ] Reverse-Z, once the above lands
+- [ ] Bind `ReloadPipelines` (shader hot reload) to a key or a file watcher
+- [ ] Ray queries: `go-vulkan` acceleration-structure bindings, then `CreateAccel`/`BuildAccel` and their specs
+- [ ] **Prove the stack**: HDR + tonemap + bloom built entirely in `scene/` or a new `effects/` package, touching nothing under `vulkan/`
+- [ ] Score physical devices instead of taking `devices[0]`
+- [ ] Split `BufferCopyDst`'s second meaning ("the CPU reads this back", which picks cached memory in `vulkan/buffer.go`) into a `Readback` flag
 
 ## Rendering
 
-- [x] Anti-aliasing — MSAA on the backbuffer, `[antialiasing]` in the config file choosing the mode and count
-- [ ] Post-process AA (FXAA/TAA) — needs the scene rendered offscreen, which `PassSpec.Color []Attachment` plus `Depth` now expresses; nothing structural is left
-- [x] Framebuffers — generalised into `CreateImage`/`CreateView` plus `PassSpec` attachments
-- [x] Normal mapping (tangent-space, per-fragment TBN)
-- [ ] HDR + tone mapping + bloom — no longer blocked: `renderer.FormatRGBA16F` exists, `Capacities().Formats` probes it, and a mip chain of `CreateView`s plus `BlendAdd` is all bloom needs. This is `INTERFACE_PLAN.md` §6's proof case. See `FEATURES.md` §2
-- [ ] Ambient occlusion (SSAO)
-- [x] Depth prepass — `[renderer] depthPrepass`, `BeginDepthPrepass` + `prepass.slang`, main pass shading with `CompareEqual`. `tmp/LIGHTING_IMPL.md` Part F
-- [ ] Blending / transparency — no longer blocked: `PipelineSpec.Blend`, `DepthCompare` and `DepthWrite` are per-pipeline fields, so the transparent batch is a second pipeline. **Transparent geometry must be excluded from the depth prepass**, in three parts: skip it in `Scene.RenderDepth`, draw it after the opaque `CompareEqual` batch with `CompareLess` and depth write off, and sort it back-to-front. Still needs `Material.Alpha` to actually reach `DrawUniforms` (it is parsed and dropped today, and the struct is size-guarded at 100 bytes)
-- [ ] Alpha cutout, if it lands before the above — a `discard`ing material stays opaque and stays in the prepass, but `prepass.slang` must then run the identical `discard`, or the depth it writes disagrees with `forward.slang` and `EQUAL` rejects the wrong fragments. Silent, and it looks like speckled geometry
+- [ ] Post-process AA (FXAA/TAA): needs the scene rendered offscreen, which `PassSpec` already expresses
+- [ ] HDR + tonemapping + bloom: `FormatRGBA16F` exists and `Capacities().Formats` probes it; a mip chain of views plus `BlendAdd` is all bloom needs
+- [ ] Ambient occlusion (SSAO), reading the prepass depth
+- [ ] Blending / transparency: a second pipeline drawn after the opaque `EQUAL` batch, skipped in `Scene.RenderDepth`, `CompareLess`, no depth write, sorted back to front. `Material.Alpha` is parsed but never reaches `DrawUniforms`
+- [ ] Alpha cutout: stays in the prepass, but `prepass.slang` must `discard` exactly like `forward.slang` or `EQUAL` speckles
 - [ ] Instancing
-- [x] Anisotropic filtering — `[textures] anisotropy` in the config file (1/2/4/8/16), clamped to the device limit in `createSamplers`. **Does almost nothing until mipmaps land** — see the next item
-- [~] **Mipmaps**, which is what makes anisotropy and `SamplerMipmapModeLinear` pay off. The backend side is done; the scene side is not:
-  - [x] `CmdBlitImage` + `ImageBlit` bindings in `go-vulkan` — `BINDINGS_GAP.md` §5.2
-  - [x] `FormatFeatureSampledImageFilterLinear` binding, to probe the format before blitting
-  - [ ] `scene.uploadTexture`: `Mips = floor(log2(max(w,h))) + 1`, `UsageCopySrc`, then `Frame.GenerateMips` on the first frame. Must handle the 6-layer cubemap path too. Needs the mip fields, `GenerateMips` and `barrierRange`'s mip range back — deleted on 2026-09-05, when nothing set `Mips`
-  - [ ] The material sampler's `MaxLod` follows the chain length; it is 16 on the default sampler and 1 on the skybox's
-- [ ] Shadow cascades — currently fixed at 1024², no CSM
+- [~] **Mipmaps**, which is what makes anisotropy pay off. `go-vulkan` has `CmdBlitImage` and the linear-filter format probe; still needed:
+  - [ ] Mip count on texture upload (`floor(log2(max(w, h))) + 1`), the 6-layer cubemap path included, plus `GenerateMips` and the mip-range barrier back
+  - [ ] The material sampler's `MaxLod` following the chain length
+- [ ] Shadow cascades for the sun (one 2048 tile today)
+- [ ] Slope-scaled depth bias, for a flat surface that must cast
+- [ ] Ray-traced shadows (`FEATURES.md` §9)
+- [ ] Ray marching for basic shapes and clouds
 - [ ] Geometry shader for fur
-- [ ] Ray-traced shadows — `FEATURES.md` §3, `tmp/BACKEND_DECISION.md` §8
-- [ ] Ray marching for basic shapes and clouds — existed in the pre-Slang GLSL tree, not ported; `shaders/slang/` has only `forward`, `depth`, `depth_point`, `skybox`, `ui`
 
-## Tooling and cleanup
+## Tooling and tests
 
-- [-] GPU timestamp queries — built, then deleted on 2026-09-05 with `go-vulkan/vk/query.go`: nothing displayed them and RenderDoc profiles per pass already
-- [x] Pass labels — `PassSpec.Name`/`ComputeSpec.Name` reach `VK_EXT_debug_utils` through `go-vulkan/vk/label.go`, so a capture groups by pass. Deleted with the rest of `debug.go` on 2026-09-05 and restored the same day, minus the object names and the messenger
-- [-] Debug object names and the validation messenger — deleted on 2026-09-05 and not restored. Images and buffers show as raw handles, which their size and format already identify; validation output comes from a `VK_LAYER_SETTINGS_PATH` file instead of engine code (recipe in `CLAUDE.md`)
-- [ ] **Any test at all.** `go test ./...` reports `[no test files]` for every package — there is not one `_test.go` in the tree. `CLAUDE.md` claims a uniform-layout check and `TestShowcaseLoads`; neither exists, and that claim should be fixed or made true. The `init()` size guards in `renderer/uniforms.go` fire when the engine *runs*, not when it builds or tests
-- [ ] Start with `shadowAtlas.allocate` — pure CPU logic over `[]Light`, no GPU needed. `scene/shadowatlas.go` names `TestTileSizeTracksCameraDistance` in a comment as though it once existed
-- [~] A rendered-image regression test — `go run . -screenshot out.png` writes a PNG of frame 90 through `Frame.Copy` + `Backend.ReadBuffer`, so two builds can be diffed by hand. Nothing automates the comparison yet
-- [ ] Score physical devices instead of taking `devices[0]`
-- [ ] Delete or implement the dead files listed in `ARCHITECTURE.md` §8 — `physics/box_old.go` (119 lines, 1 live), `ecs/ecs.go` (142/1, and the only file `gofmt -l` reports), `physics/link.go` (24/1), `physics/box.go` (empty). `ecs/entity.go` is the live ECS. Then delete §8 itself, which exists only to list them
-- [ ] `overdrive.sh` and `overdrive_build.sh` at the repo root are still cmake wrappers for the deleted C++ tree
+- [ ] **Any test at all**: there is not one `_test.go`. Start with `shadowAtlas.allocate`, pure CPU logic over `[]Light`
+- [~] Image regression test: `go run . -screenshot out.png` writes frame 90, nothing compares two runs yet
+- [ ] Rename `[shadows] bakeBudgetMiB`: it counts texels in units of 2^20, not memory
+- [ ] Remove the shadow sampler's white border (`scene/shadowatlas.go`): `shadowLookup` returns before sampling outside a tile, so it is never reached
+- [-] GPU timestamp queries: built, then deleted unused; RenderDoc profiles per pass
+- [-] Debug object names and the validation messenger: validation output comes from a `VK_LAYER_SETTINGS_PATH` file instead (`CLAUDE.md`)
 
 ## Shading experiments
 
-Parked here from a scratch file that was otherwise empty checkboxes.
-
-- [ ] Glass shader — experiment, then write up. Needs `PipelineSpec.Blend` and transparency, `INTERFACE_PLAN.md` §4 rows 1 and 29
-- [ ] Watercolor shader — [reference](https://x.com/TheMirzaBeig/status/2016702324576579644), [Blender version](https://www.reddit.com/r/blender/comments/1hcfb8x/realtime_watercolor_shader_in_blender/). Break into steps, list the features each needs, then implement
+- [ ] Glass shader (needs transparency)
+- [ ] Watercolor shader: [reference](https://x.com/TheMirzaBeig/status/2016702324576579644), [Blender version](https://www.reddit.com/r/blender/comments/1hcfb8x/realtime_watercolor_shader_in_blender/)
 
 ## Procedural / world
 
-- [ ] Wave Function Collapse — `algorithms/wfc.go` is an empty placeholder
+- [ ] Wave Function Collapse
 - [ ] Noise terrain
 - [ ] Grass, bushes
 - [ ] Isotropic remeshing
@@ -103,6 +67,5 @@ Parked here from a scratch file that was otherwise empty checkboxes.
 ## Reference
 
 - [Cubemap from HDRI](https://matheowis.github.io/HDRI-to-CubeMap/)
-- Coordinate conversion, Blender → engine (OBJ convention, Y up):
-  `pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}`
+- Blender → engine coordinates: `pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}`
 - `GOPROXY=proxy.golang.org go list -m github.com/Zephyr75/gutter@v0.1.2`

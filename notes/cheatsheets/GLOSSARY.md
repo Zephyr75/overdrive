@@ -1,108 +1,94 @@
-# GLOSSARY.md — the vocabulary, one line each
+# Glossary — the vocabulary, one line each
 
-Terms that come up constantly in `notes/` and in `src/`, defined once. Where a
-term has an engine-specific meaning as well as a general one, both are given.
-
-For the reasoning behind any of these, follow the pointer: `ENGINE_FLOW.md` for
-the backend contract, `cheatsheets/VULKAN.md` for the general object model,
-`FEATURES.md` for why a choice was made.
+> **Scope** terms that come up constantly in `notes/` and `src/`. Where a term has an engine-specific meaning as well as a general one, both are given.
+>
+> **Not here** the reasoning behind any of them → `../RENDERER.md`, `../SYNCHRONIZATION.md`, `VULKAN.md`.
 
 ---
 
-## Devices and queues
+## 1. Devices and queues
 
-| term | meaning |
-|---|---|
-| `instance` | the loader's handle on Vulkan itself — extensions and layers are chosen here, before any GPU is picked |
-| `physical device` | a GPU as reported by the driver. Read-only: you query its limits and features, you do not use it to draw |
-| `logical device` | your open connection to one physical device. Everything else is created from it |
-| `queue` | where commands are submitted to run. This engine uses exactly one, graphics + present |
-| `surface` | the window, as Vulkan sees it. Platform glue between GLFW and the swapchain |
+| Term | Meaning |
+| --- | --- |
+| `instance` | the loader's handle on Vulkan; extensions and layers are chosen here, before any GPU |
+| `physical device` | a GPU as the driver reports it. Read-only: query limits and features |
+| `logical device` | your open connection to one physical device; everything else is created from it |
+| `queue` | where commands are submitted. This engine uses one, graphics + present |
+| `surface` | the window as Vulkan sees it |
 
-## The screen
+## 2. The screen
 
-| term | meaning |
-|---|---|
-| `swapchain` | the rotating set of 2-3 images the compositor displays. You draw into whichever one is free |
-| `backbuffer` | not a Vulkan object — this engine's name for *whichever swapchain image this frame acquired*, resolved per frame from `imageIndex` |
-| `acquire` | asking the presentation engine which swapchain image is free. Returns an index, and the index rotates |
+| Term | Meaning |
+| --- | --- |
+| `swapchain` | the rotating 2–3 images the compositor displays; you draw into whichever is free |
+| `backbuffer` | not a Vulkan object: this engine's name for *the swapchain image this frame acquired* (`renderer.Backbuffer`) |
+| `acquire` | asking which swapchain image is free. Returns an index that rotates |
 | `present` | handing a finished image back to be displayed |
-| `frames in flight` | how many frames the CPU may run ahead. Each owns a command buffer, a fence and an upload arena, so frame N+1 records while N is still on the GPU |
+| `frames in flight` | how far the CPU may run ahead (2 here). Each owns a command buffer, fence and arena. A separate rotation from the swapchain's, never indexed by its index |
 
-> Frames in flight and swapchain images are **two separate rotations** of possibly different lengths. Indexing one by the other's index is a real bug — see `ENGINE_FLOW.md` §7
+## 3. Resources and memory
 
-## Resources
+| Term | Meaning |
+| --- | --- |
+| `buffer` | linear bytes whose meaning is yours: vertices, indices, uniforms, indirect args |
+| `image` | a typed grid the hardware understands: format, opaque tiling, layouts, attachable |
+| `image view` | one mip, slice and aspect of an image. You bind views, never images |
+| `image layout` | how an image is physically arranged right now; changes per use |
+| `sampler` | the filtering rulebook: filter, mips, anisotropy, address mode, border, compare |
+| `usage flags` | a promise made at creation so the driver can place the memory, not a runtime check |
+| `attachment` | an image a pass renders into |
+| `host-visible` / `device-local` | memory the CPU can map / VRAM with no CPU pointer (`LocationHost` / `LocationDevice`) |
+| `staging buffer` | a host-visible buffer used only as the bridge to device-local memory |
+| `transfer command` | a GPU copy. Both ends are Vulkan resources, never the CPU |
+| `BDA` | buffer device address: a buffer's 64-bit GPU pointer, how every uniform reaches a shader here |
+| `arena` | the per-frame buffer `Frame.Upload` memcpys into. Reset each frame, panics on overflow |
+| `scalar layout` | the layout rule that makes Go and shader struct packing identical |
 
-| term | meaning |
-|---|---|
-| `buffer` | linear bytes, meaning is yours. Vertices, indices, uniforms, indirect args |
-| `image` | a typed grid the hardware understands: format, opaque tiling, layouts, samplers, attachable |
-| `image view` | a window onto an image — one mip, one slice, one aspect. You bind views, never images |
-| `image layout` | how an image is *physically arranged right now*. Changes per use, because the GPU reshuffles texels for each one |
-| `sampler` | the filtering rulebook: filter, mip mode, anisotropy, address mode, border colour, depth compare |
-| `usage flags` | a promise made at creation so the driver can place the memory. Not a runtime permission check |
-| `attachment` | an image a pass renders into. Only images can be attachments |
+## 4. Shaders and pipelines
 
-## Memory
+| Term | Meaning |
+| --- | --- |
+| `SPIR-V` | the compiled shader bytecode Vulkan consumes; authored here in Slang |
+| `pipeline` | shaders plus all fixed-function state in one immutable object |
+| `push constant` | a few bytes recorded with a draw. 32 here, holding four BDAs |
+| `descriptor` | a resource as the shader sees it: a pointer plus the metadata to read it |
+| `descriptor set` | a bound group of descriptors. This engine has one, bound once per frame |
+| `bindless` | descriptors as an array the shader indexes at runtime, instead of rebinding per draw |
+| `slot` | the index a resource holds in a bindless array; `Slot(Handle)` hands it out |
+| `hot slot` | one of 4 dedicated descriptors indexed by a literal, for the shadow atlases |
 
-| term | meaning |
-|---|---|
-| `host-visible` | GPU memory the CPU can map and memcpy into. `LocationHost` here |
-| `device-local` | VRAM. Fastest for the GPU, no CPU pointer at all, so data moves in and out by copy. `LocationDevice` here |
-| `staging buffer` | a host-visible buffer used purely as the bridge to device-local memory. Memcpy in, then copy across |
-| `transfer command` | a GPU copy — `vkCmdCopyBuffer`, `vkCmdCopyImage`, and the two image↔buffer forms. **Both ends are always Vulkan resources; neither is ever the CPU** |
-| `BDA` | buffer device address. A buffer's 64-bit GPU pointer, dereferenced in the shader like C. How every uniform reaches a shader here |
-| `arena` | the per-frame scratch buffer `Frame.Upload` memcpys into, returning a BDA. Reset each frame, panics on overflow |
-| `scalar layout` | the SPIR-V layout rule that makes Go struct packing and shader struct packing identical. Load-bearing — see `ENGINE_FLOW.md` §4.3 |
+## 5. Commands and sync
 
-## Shaders and pipelines
+| Term | Meaning |
+| --- | --- |
+| `command buffer` | a recorded list of GPU commands. Recording is not executing |
+| `submit` | handing a command buffer to a queue; when the GPU starts |
+| `render pass` | a scoped block of drawing with fixed attachments. `Frame.Pass` here |
+| `draw call` / `dispatch` | one geometry draw / one compute launch (`Groups` counts workgroups, not threads) |
+| `indirect` | draw or dispatch arguments read by the GPU from a buffer |
+| `barrier` | an ordering and visibility rule between two uses of a resource. Automatic here (`vulkan/barrier.go`) |
+| `fence` / `semaphore` | GPU signals CPU / GPU signals GPU |
+| `retire queue` | why `Destroy` does not free at once: a frame in flight may still use the resource |
 
-| term | meaning |
-|---|---|
-| `SPIR-V` | the compiled shader bytecode Vulkan consumes. Authored here in Slang, built by `build_shaders.sh` |
-| `pipeline` | shaders plus all fixed-function state baked into one immutable object: cull, winding, depth, blend, formats |
-| `push constant` | a tiny block of bytes sent straight with a draw, no buffer needed. 32 bytes here, holding four BDAs |
-| `descriptor` | a handle to a resource, as the shader sees it. A pointer plus the metadata to interpret it |
-| `descriptor set` | a bound group of descriptors. This engine has exactly one, built at startup and rebound once per frame |
-| `bindless` | descriptors as an array the shader indexes at runtime (`textures2D[pc.draw.texDiffuse]`), instead of rebinding per draw |
-| `hot slot` | this engine's opt-out from bindless: 4 dedicated descriptors indexed by a **literal**, because some drivers re-fetch a dynamically indexed descriptor on every tap |
-| `slot` | the index a resource occupies in a bindless array. `Slot(Handle)` is the whole handle→shader translation |
+## 6. Rendering
 
-## Passes and commands
-
-| term | meaning |
-|---|---|
-| `command buffer` | a recorded list of GPU commands. Recording is not executing — nothing runs until submit |
-| `submit` | handing a command buffer to a queue. This is when the GPU actually starts |
-| `render pass` | a scoped block of drawing with fixed attachments. `Frame.Pass` here; a copy or dispatch inside one is a compile error |
-| `draw call` | one command to render geometry through a pipeline |
-| `dispatch` | the compute equivalent of a draw. `Groups` is **workgroups, not threads** — the local size lives in the shader |
-| `indirect` | draw or dispatch arguments read by the GPU from a buffer, so the CPU never learns the count |
-| `barrier` | an ordering and visibility rule between two uses of a resource. Tracked automatically here, in `vulkan/barrier.go` |
-| `fence` | GPU signals CPU. Used to know a frame finished |
-| `semaphore` | GPU signals GPU. Used to order acquire → render → present |
-
-## Rendering
-
-| term | meaning |
-|---|---|
-| `clip space` | where the vertex stage outputs. OpenGL convention here (`z` in `[-w, w]`), so every vertex stage calls `TO_VK_DEPTH` |
-| `winding` | which triangle vertex order counts as front-facing. A negative-height viewport flips it, which is why screen and atlas pipelines disagree |
-| `depth prepass` | draw depth only first, so the forward pass shades each visible fragment once. Compared with `EQUAL`, which is exact — the two passes must build their matrices identically |
+| Term | Meaning |
+| --- | --- |
+| `clip space` | vertex-stage output. OpenGL convention here (`z` in `[-w, w]`), hence `TO_VK_DEPTH` |
+| `winding` | which vertex order is front-facing. A negative-height viewport flips it |
 | `forward rendering` | shade each fragment against every light as it is drawn. What this engine does |
-| `MSAA resolve` | collapsing a multisampled image down to a single-sample one. Why `Backbuffer` is a *view*: the pass may render into the MSAA image and resolve into the swapchain |
-| `PCF` | percentage-closer filtering — several shadow taps averaged to soften the edge |
-| `shadow atlas` | one big depth texture carved into fixed rects, so every light's shadow shares one image and the pass count does not grow with the light count |
-| `tile` | one light's rect within the atlas. A sun or spot takes one, a point light six |
-| `resolve` | The Vulkan operation that collapses a multisampled image into a single‑sample image by averaging its samples. In a render pass this is expressed via `ResolveImageView`, `ResolveImageLayout`, and `ResolveMode = Average`. It is used when rendering into a multisampled attachment and writing the result to the swapchain or another non‑multisampled image. |
+| `depth prepass` | depth first, so the forward pass shades each visible pixel once, compared with `EQUAL` |
+| `MSAA` | N coverage/depth samples per pixel, shaded once per triangle; smooths geometric edges |
+| `resolve` | averaging a multisampled image into a single-sample one (`ResolveModeAverage`) |
+| `PCF` | percentage-closer filtering: several shadow comparisons averaged to soften the edge |
+| `shadow atlas` | one depth texture carved into fixed rects shared by every light |
+| `tile` | one light's rect in the atlas: one for a sun or spot, six for a point light |
+| `movable` | a mesh marked `<movable>` or moved by code; decides static vs dynamic atlas |
 
-## Engine-specific
+## 7. Engine-specific
 
-| term | meaning |
-|---|---|
-| `handle` | an opaque integer the packages above `renderer/` hold instead of a GPU object. The backend interprets it in its own table |
-| `backend` | the one package allowed to import `vk.*`. Everything above it is buildable without a GPU |
-| `record` vs `submit` | the whole mental model: `Frame.Pass`, `Draw`, `Copy` only *write commands down*. The GPU runs them when the frame closes |
-| `retire queue` | why a destroyed resource is not freed immediately — a frame still in flight may reference it. Freed after `framesInFlight` more frames |
-| `movable` | a mesh the scene marked `<movable>` or moved by code. Decides static vs dynamic shadow atlas |
-| `gutter` | the UI library the overlay is drawn with. A CPU-rendered image uploaded as a texture |
+| Term | Meaning |
+| --- | --- |
+| `handle` | an opaque integer held above `renderer/` instead of a GPU object |
+| `backend` | the one package allowed to import `vk.*` |
+| `gutter` | the UI library the overlay is drawn with, CPU-rendered into a texture |

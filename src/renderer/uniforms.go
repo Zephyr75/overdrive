@@ -40,7 +40,7 @@ type LightData struct {
 
 // INVARIANT: the blocks below mirror common.slang field for field, in
 // float32/int32/arrays/mgl32 matrices only, so scalar layout matches Go's
-// packing and both sides memcpy (notes/ENGINE_FLOW.md §5). Every Tex* member is
+// packing and both sides memcpy (notes/RENDERER.md §2). Every Tex* member is
 // a shader-visible slot from Backend.Slot, not a handle.
 
 // One shadow tile: where it lives in the atlas and how to project into it,

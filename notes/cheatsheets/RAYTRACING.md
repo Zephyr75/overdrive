@@ -1,19 +1,8 @@
 # Ray tracing — terminology, acceleration, hardware
 
-> **Scope** what "ray tracing" actually means, how it differs from path tracing, the acceleration structures underneath, and how it is exposed on Vulkan. The vocabulary distinction in §1-§3 is the one interviewers check.
+> **Scope** what "ray tracing" means, how it differs from path tracing, acceleration structures, and how Vulkan exposes it.
 >
 > **Not here** the BRDF being sampled and the Monte Carlo estimator → `PBR.md` §3, §10. Rasterisation-era techniques (shadow maps, AO, deferred) → `GRAPHICS.md` §1. Vulkan's object model → `VULKAN.md`.
-
----
-
-## Contents
-
-1. [Ray tracing — the general term](#1-ray-tracing--the-general-term)
-2. [Path tracing — one form of ray tracing](#2-path-tracing--one-form-of-ray-tracing)
-3. [Summary and the trap](#3-summary-and-the-trap)
-4. [Acceleration structures](#4-acceleration-structures)
-5. [Hardware ray tracing on Vulkan](#5-hardware-ray-tracing-on-vulkan)
-6. [Denoising](#6-denoising)
 
 ---
 
@@ -68,8 +57,6 @@ flowchart LR
 
 Path tracing **is** ray tracing; not all ray tracing is path tracing.
 
----
-
 ## 4. Acceleration structures
 
 Testing every ray against every triangle is $O(\text{rays} \times \text{triangles})$ and hopeless. Every ray tracer is really a spatial data structure plus a traversal loop.
@@ -99,7 +86,7 @@ Two entry points, and picking between them is a design decision:
 | Best for | replacing one effect (shadows, AO) in a raster pipeline | full path tracers, recursive rays, many material types |
 | Cost to adopt | small | a second pipeline and a whole binding table |
 
-> **The engine's plan** — Overdrive's roadmap takes the ray-query route: drop a ray query into `forward.slang`'s shadow test, replacing the shadow-map passes, reusing the existing forward pass and light loop. Hardware ray tracing is not universal, so a compute BVH is the baseline and `Backend.Supports(FeatureRayTracing)` is the fork between them. See `../FEATURES.md` and `../tmp/BACKEND_DECISION.md` §8.
+> **The engine's plan** — Overdrive takes the ray-query route: a ray query in `forward.slang`'s shadow test replaces the shadow-map passes and reuses the forward pass and light loop. Hardware RT is not universal, so it would be an optional `renderer.Feature` checked through `Capacities()` (`../FEATURES.md` §9).
 
 The natural adoption order, cheapest and most convincing first: **shadows → ambient occlusion → reflections → one-bounce GI**. Each removes a screen-space approximation (`GRAPHICS.md` §1) and its artefacts.
 

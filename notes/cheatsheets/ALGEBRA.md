@@ -2,32 +2,13 @@
 
 > **Scope** vectors, transformations, determinants, rank, dot and cross products, change of basis, eigenvectors, SVD, quaternions. The geometric intuition first, computation second.
 >
-> **Not here** where these matrices are actually used — the MVP chain and the normal matrix live in `OPENGL.md`. Radiometric integrals over the hemisphere → `PBR.md` §1.
+> **Not here** the MVP chain and the normal matrix → `OPENGL.md` §6, §11. Hemisphere integrals → `PBR.md` §1.
 >
 > **Source** 3Blue1Brown, *Essence of Linear Algebra*.
 
 ---
 
-## Contents
-
-1. [Vectors](#vectors)
-2. [Span, basis, linear independence](#span-basis-linear-independence)
-3. [Linear transformations](#linear-transformations)
-4. [Matrix multiplication](#matrix-multiplication)
-5. [Determinant](#determinant)
-6. [Linear systems, inverse matrix](#linear-systems-inverse-matrix)
-7. [Rank, column space, kernel](#rank-column-space-kernel)
-8. [Dot product](#dot-product)
-9. [Cross product](#cross-product)
-10. [Change of basis](#change-of-basis)
-11. [Eigenvectors and eigenvalues](#eigenvectors-and-eigenvalues)
-12. [SVD](#svd)
-13. [Quaternions and rotations](#quaternions-and-rotations)
-14. [Misc](#misc)
-
----
-
-## Vectors
+## 1. Vectors
 
 A vector is an arrow rooted at the origin, fully described by its coordinates. The coordinates are *instructions*: how far to walk along each axis to get from the origin to the tip
 
@@ -41,7 +22,7 @@ In 3D, add a $z$-axis perpendicular to both and a third unit vector $\hat{k}$: e
 
 > "Scalar" and "scaling" are the same idea: numbers exist to stretch arrows
 
-## Span, basis, linear independence
+## 2. Span, basis, linear independence
 
 `Linear combination` $a\vec{v} + b\vec{w}$ with $a, b$ scalars — scale each vector, then add
 
@@ -55,7 +36,7 @@ A set of vectors is linearly `dependent` if there is a nontrivial linear combina
 
 > Two vectors in 2D span the whole plane unless they are aligned (dependent), then they span a line. In 3D: two independent vectors span a plane through the origin; a third adds the full space only if it leaves that plane
 
-## Linear transformations
+## 3. Linear transformations
 
 A transformation is a function on vectors: input arrow in, output arrow out. It is `linear` if all lines remain lines (nothing curves), grid lines stay parallel and evenly spaced, and the origin stays fixed
 
@@ -81,7 +62,7 @@ $`\begin{bmatrix} 1 & 1 \\ 0 & 1 \end{bmatrix}`$ shear ($\hat{j}$ tilts right, $
 
 $`\begin{bmatrix} s & 0 \\ 0 & s \end{bmatrix}`$ uniform scale by $s$
 
-## Matrix multiplication
+## 4. Matrix multiplication
 
 `Matrix product` = composition of transformations, **applied right to left** (like function notation: $f(g(x))$)
 
@@ -93,7 +74,7 @@ Composition is associative: $(AB)C = A(BC)$ — both sides apply the same three 
 
 Computation: column $i$ of $M_2 M_1$ = $M_2$ applied to column $i$ of $M_1$ — i.e. track where each basis vector lands after the first transformation, then feed that landing spot through the second
 
-## Determinant
+## 5. Determinant
 
 `Determinant` factor by which the transformation scales areas (2D) or volumes (3D)
 
@@ -124,7 +105,7 @@ n×n: expand along a row, alternate signs, recurse on minors:
 det\begin{bmatrix} a & b & c \\ d & e & f \\ g & h & i \end{bmatrix} = a\,det\begin{bmatrix} e & f \\ h & i \end{bmatrix} - b\,det\begin{bmatrix} d & f \\ g & i \end{bmatrix} + c\,det\begin{bmatrix} d & e \\ g & h \end{bmatrix}
 ```
 
-## Linear systems, inverse matrix
+## 6. Linear systems, inverse matrix
 
 A system of linear equations — variables on the left, constants on the right — is one matrix equation:
 
@@ -158,7 +139,7 @@ Start with the augmented matrix $[A \mid I]$, reduce the left part to $I$ with G
 - each row's leading nonzero entry (`pivot`) is strictly to the right of the pivot above
 - everything below a pivot is zero
 
-## Rank, column space, kernel
+## 7. Rank, column space, kernel
 
 `Column space` span of the columns = set of all possible outputs $A\vec{v}$
 
@@ -186,7 +167,7 @@ A 2×3 matrix maps 3D → 2D (projection-like, necessarily has a nontrivial kern
 
 A 1×2 matrix $[a\ \ b]$ maps 2D → the number line: $\hat{i} \rightarrow a$, $\hat{j} \rightarrow b$. This is the bridge to the dot product
 
-## Dot product
+## 8. Dot product
 
 ```math
 \vec{v} \cdot \vec{w} = v_x w_x + v_y w_y + \dots = |\vec{v}|\,|\vec{w}|\cos\theta
@@ -202,7 +183,7 @@ Properties: symmetric ($\vec{v} \cdot \vec{w} = \vec{w} \cdot \vec{v}$ — not o
 
 > `Duality`: dotting with $\vec{v}$ is the same as applying the 1×n matrix $[v_x\ v_y]$ — a linear map to the number line. Every linear transformation to the number line secretly *is* some vector $\vec{v}$ lying down as a matrix row, and conversely every vector defines one. Vector ⟷ "measure along me"
 
-## Cross product
+## 9. Cross product
 
 $\vec{v} \times \vec{w}$ vector perpendicular to both, length = area of the parallelogram they span
 
@@ -220,7 +201,7 @@ Mnemonic: $`det\begin{bmatrix} \hat{i} & v_1 & w_1 \\ \hat{j} & v_2 & w_2 \\ \ha
 
 > The determinant connection is no accident: the cross product's component along any $\vec{p}$ measures the volume of the parallelepiped spanned by $\vec{p}, \vec{v}, \vec{w}$ — duality again: "volume with these two vectors" is a linear map to the number line, so it must *be* some vector. That vector is the cross product
 
-## Change of basis
+## 10. Change of basis
 
 A basis is a choice of language for describing vectors; the same vector has different coordinates in different bases
 
@@ -238,7 +219,7 @@ $B^{-1} A B$
 
 > Read right to left: translate to our language, transform, translate back. An expression like $B^{-1}AB$ is "the same transformation, seen from another basis"
 
-## Eigenvectors and eigenvalues
+## 11. Eigenvectors and eigenvalues
 
 `Eigenvectors` vectors that stay on their own span (same line through origin) through a transformation
 
@@ -268,7 +249,7 @@ If the eigenvectors span the space, change basis to them: $E^{-1} A E$ is **diag
 
 > Diagonal matrices are trivial to work with: $D^n$ = raise each diagonal entry to the $n$. To compute $A^{100}$: $A^{100} = E D^{100} E^{-1}$
 
-## SVD
+## 12. SVD
 
 Singular Value Decomposition: any matrix $A = U \Sigma V^T$
 
@@ -286,7 +267,7 @@ A = \sum_i \sigma_i\, \vec{u_i} \vec{v_i}^T
 
 > Truncating the sum after $k$ terms gives the best rank-$k$ approximation of $A$ = lossy compression. "Data-driven generalization of the Fourier transform"
 
-## Quaternions and rotations
+## 13. Quaternions and rotations
 
 A quaternion $q = w + xi + yj + zk$ encodes a 3D rotation as **an axis plus an angle**. It is an extended complex number: just as multiplying by $e^{i\theta}$ rotates in the 2D plane, multiplying by a quaternion rotates in 3D space
 
@@ -308,7 +289,7 @@ The **half angle** is there because a vector is rotated by the **sandwich** $v' 
 
 > **Slerp** — spherical linear interpolation gives a constant-angular-velocity path between two orientations, for animation and cameras. There is no clean equivalent with matrices or Euler angles
 
-## Misc
+## 14. Misc
 
 `Permutation matrix` square binary matrix with exactly one 1 in each row and each column; multiplying with it permutes rows
 

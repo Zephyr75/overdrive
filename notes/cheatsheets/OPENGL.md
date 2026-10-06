@@ -1,34 +1,16 @@
 # OpenGL — the API, call by call
 
-> **Scope** GLFW/GLAD/GLM setup, buffer objects, the coordinate pipeline, textures, per-fragment tests, framebuffers, GLSL. Go call signatures throughout (`go-gl`).
+> **Scope** GLFW setup, buffer objects, the coordinate pipeline, textures, per-fragment tests, framebuffers, GLSL. Go signatures throughout (`go-gl`). API reference only: Overdrive's OpenGL backend was deleted on 2026-08-05.
 >
-> This is API reference, kept deliberately. Overdrive's OpenGL backend was deleted on 2026-08-05 (`../tmp/BACKEND_DECISION.md`); nothing here describes the engine.
->
-> **Not here** the Vulkan equivalent of each concept → `VULKAN.md`. The physics behind the lighting formulas → `PBR.md`. Techniques built on top of the API (shadow maps, deferred, AO, TAA) → `GRAPHICS.md` §1.
+> **Not here** the Vulkan equivalent → `VULKAN.md`. The physics behind lighting → `PBR.md`. Techniques built on the API (shadow maps, deferred, AO) → `GRAPHICS.md` §1.
 >
 > **Source** [learnopengl.com](https://learnopengl.com).
 
 ---
 
-## Contents
+## 1. GLFW: window and input
 
-1. [Libraries](#libraries) — GLFW, GLAD, GLM
-2. [OpenGL](#opengl) — VBO/EBO/VAO, shaders, drawing, transformations, coordinate systems, camera, textures, depth, stencil, blending, culling, framebuffers, cubemaps, instancing, MSAA
-3. [Lighting](#lighting) — Phong, materials, light casters
-4. [Model loading](#model-loading)
-5. [GLSL](#glsl) — vertex, fragment, advanced, geometry
-6. [Rendering pipeline summary](#rendering-pipeline-summary)
-
----
-
-## Libraries
-
-### GLFW : window manager and input handler
-
-`glfw.Init()` initialize GLFW  
-
-`glfw.WindowHint(glfw.Resizable, glfw.False)` set GLFW parameter
-> All parameters available in [GLFW's documentation](https://www.glfw.org/docs/latest/window.html#window_hints)
+`glfw.Init()` / `glfw.Terminate()` start and stop GLFW; `glfw.WindowHint(name, value)` sets a parameter ([all hints](https://www.glfw.org/docs/latest/window.html#window_hints)).
 
 ```go
 // FULL SETUP
@@ -39,14 +21,6 @@ glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
 ```
 
-#### Window
-
-`glfw.CreateWindow(800, 600, "LearnOpenGL", nil [monitor], nil [window])` create window
-
-`glfw.Terminate()` terminate GLFW
-
-`window.MakeContextCurrent()` activate window context
-
 ```go
 // FULL WINDOW DEFINITION
 window, err := glfw.CreateWindow(windowWidth, windowHeight, "WindowName", nil, nil)
@@ -56,29 +30,10 @@ if err != nil {
 window.MakeContextCurrent()
 ```
 
-`window.SwapBuffers()` swap current and next color buffers
-
-`window.ShouldClose()` detects close request
-
-`window.SetShouldClose(true)` send close request
-
-#### Inputs
-
-**Callbacks**
-
-`window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)` attach function to window size change
-
-`window.SetCursorPosCallback(input.MouseCallback)` attach function to mouse move
-
-`window.SetScrollCallback(input.ScrollCallback)` attach function to mouse scroll
-
-`window.SetInputMode(glfw.CursorMode, glfw.CursorDisabled)` set input modes
-
-`glfw.PollEvents()` checks input events and calls the attached functions
-
-**Keys**
-
-`window.GetKey(glfw.KeyEscape)` get state of given key
+- `window.SwapBuffers()` swap the current and next colour buffers
+- `window.ShouldClose()` / `SetShouldClose(true)` detect / request close
+- Callbacks: `SetFramebufferSizeCallback`, `SetCursorPosCallback`, `SetScrollCallback`; `SetInputMode(glfw.CursorMode, glfw.CursorDisabled)`
+- `glfw.PollEvents()` processes input and calls the callbacks; `window.GetKey(glfw.KeyEscape)` reads a key
 
 ```go
 // FULL WINDOW LIFECYCLE
@@ -92,125 +47,27 @@ for !window.ShouldClose() {
 }
 ```
 
-### GLAD
+Maths: GLM in C++, `mgl32` in Go.
 
-OpenGL only defines a specification, the implementation is different for each driver. GLAD makes the driver functions accessible to our code.
+## 2. Basics
 
-> Not used in Go bindings.
+- `gl.Init()` start OpenGL
+- `gl.Viewport(0, 0, 800, 600)` viewport resolution
+- `gl.ClearColor(r, g, b, a)` then `gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)`
+- `gl.Enable(cap)` depth test, blending, culling…; `gl.GetError()` poll the error flag
 
-```c++
-if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress))
-{
-    std::cout << "Failed to initialize GLAD" << std::endl;
-    return -1;
-}    
-```
+## 3. Buffers: VBO, EBO, VAO
 
-### GLM
+- **VBO** stores vertices: `gl.GenBuffers(1, &VBO)`, `gl.BindBuffer(gl.ARRAY_BUFFER, VBO)`, `gl.BufferData(gl.ARRAY_BUFFER, len(v)*4, gl.Ptr(v), gl.STATIC_DRAW)`. `DYNAMIC_DRAW` for data that changes often, `STREAM_DRAW` for set-once-use-few.
+- **EBO** stores indices: the same calls with `gl.ELEMENT_ARRAY_BUFFER`.
+- **Attributes**: `gl.VertexAttribPointer(location, size, type, normalized, stride, offset)` then `gl.EnableVertexAttribArray(location)`.
+- **VAO** records the attribute calls and the VBO/EBO bindings: `gl.GenVertexArrays(1, &VAO)`, `gl.BindVertexArray(VAO)`.
 
-OpenGL Mathematics library. Go equivalent: `mgl32` (github.com/go-gl/mathgl/mgl32).
+## 4. Shaders and programs
 
-## OpenGL
-
-### Generic
-
-`gl.Init()` start OpenGL
-
-`gl.Viewport(0, 0, 800, 600)` set viewport resolution
-
-`gl.ClearColor(0.2, 0.3, 0.3, 1.0)` set color to clear buffer with
-
-`gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)` clear buffer using defined color
-
-`gl.Enable(gl.DEPTH_TEST)` enable a capability (depth test, blending, culling...)
-
-`gl.GetError()` poll error flag
-
-> Check extension support before using non-core features:
-```c
-if (GLAD_GL_ARB_extension_name) { /* modern path */ } else { /* fallback */ }
-```
-
-### Storing vertices : VBO
-
-**Vertex Buffer Object** stores vertices
-
-`var VBO uint32` declare ID
-
-`gl.GenBuffers(1, &VBO)` create buffer associated to ID
-
-`gl.BindBuffer(gl.ARRAY_BUFFER, VBO)` bind buffer to OpenGL target buffer
-
-`gl.BufferData(gl.ARRAY_BUFFER, len(vertices)*4, gl.Ptr(vertices), gl.STATIC_DRAW)` use target binding to set buffer structure and data 
-
-> Use gl.DYNAMIC_DRAW for vertex data that changes frequently, gl.STREAM_DRAW for data set once and used a few times
-
-### Storing triangles : EBO
-
-**Element Buffer Object** stores indices
-
-`var EBO uint32` declare ID
-
-`gl.GenBuffers(1, &EBO)` create buffer and store its ID
-
-`gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, EBO)` bind buffer to OpenGL target buffer
-
-`gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(indices)*4, gl.Ptr(indices), gl.STATIC_DRAW)` set buffer structure and data
-
-### Interpret buffer data
-
-`gl.VertexAttribPointer(0, 3, gl.FLOAT, false, 3*4, gl.PtrOffset(0))` specify how to interpret the data
-
-Parameters :
-- 1st : location of the vertex attribute in the shader
-- 2nd : size of the vertex attribute
-- 3rd : type of the data
-- 4th : whether the data should be normalized
-- 5th : stride (space between consecutive vertex attributes)
-- 6th : offset of the position where the data starts
-
-`gl.EnableVertexAttribArray(0)` enable the vertex attribute with given location
-
-### Store buffer config : VAO
-
-Vertex Array Object stores calls to:
-- `glEnableVertexAttribArray`
-- `glDisableVertexAttribArray`
-- `glVertexAttribPointer`
-
-Vertex Array Object stores bindings to:
-- VBO
-- EBO
-
-`var VAO uint32` declare ID
-
-`gl.GenVertexArrays(1, &VAO)` create buffer and store its ID
-
-`gl.BindVertexArray(VAO)` bind buffer to OpenGL buffer
-
-### Shader
-
-`var shader uint32` declare ID
-
-`shader = gl.CreateShader(shaderType)` create shader associated to ID
-
-`gl.ShaderSource(shader, 1, csources, nil)` set shader source code
-
-`gl.CompileShader(shader)` compile shader
-
-`gl.GetShaderiv(shader, gl.COMPILE_STATUS, &status)` get shader information and errors
-
-`gl.GetShaderInfoLog(shader, logLength, nil, gl.Str(log))` get compilation error log
-
-#### Uniforms
-
-Global variables set from the program, constant for a whole draw call
-
-`gl.GetUniformLocation(program, gl.Str("ourColor\x00"))` get uniform location in program
-
-`gl.Uniform4f(location, 0.0, greenValue, 0.0, 1.0)` set vec4 uniform (program must be in use)
-
-`gl.UniformMatrix4fv(location, 1, false, &matrix[0])` set mat4 uniform
+- **Shader**: `gl.CreateShader(type)`, `gl.ShaderSource`, `gl.CompileShader`, check `gl.GetShaderiv(s, gl.COMPILE_STATUS, &ok)` and `gl.GetShaderInfoLog`.
+- **Program**: `gl.CreateProgram`, `gl.AttachShader`, `gl.LinkProgram`, `gl.UseProgram`, then `gl.DeleteShader`; check `gl.LINK_STATUS`.
+- **Uniforms** are constant for one draw: `gl.GetUniformLocation(program, gl.Str("name\x00"))`, then `gl.Uniform4f` / `gl.UniformMatrix4fv` with the program in use.
 
 ```c
 // FULL UNIFORM UPDATE (C style)
@@ -221,27 +78,9 @@ glUseProgram(shaderProgram);
 glUniform4f(vertexColorLocation, 0.0f, greenValue, 0.0f, 1.0f);
 ```
 
-### Program
+## 5. Drawing
 
-`var program uint32` declare ID
-
-`program = gl.CreateProgram()` create program associated to ID
-
-`gl.AttachShader(program, shader)` assign shader to program
-
-`gl.LinkProgram(program)` link program shaders together
-
-`gl.UseProgram()` use program
-
-`gl.DeleteShader(shader)` remove linked shader
-
-`gl.GetProgramiv(program, gl.LINK_STATUS, &status)` get program information and errors
-
-### Drawing
-
-`glDrawArrays(GL_TRIANGLES, 0, 3)` draw triangles
-
-`glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0)` draw elements from EBO
+`glDrawArrays(GL_TRIANGLES, 0, 3)` from the VBO; `glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0)` through the EBO.
 
 ```go
 // INITIALIZATION CODE
@@ -266,15 +105,9 @@ glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0)
 glBindVertexArray(0)
 ```
 
-### Transformations
+## 6. Transformations and coordinate systems
 
-Combine scale, rotate, translate into one `model` matrix. **Read right to left**: the matrix written last is applied first.
-
-`mgl32.Translate3D(0.5, -0.5, 0)` translation matrix
-
-`mgl32.HomogRotate3D(angle, mgl32.Vec3{0, 0, 1})` rotation matrix around axis
-
-`mgl32.Scale3D(0.5, 0.5, 0.5)` scale matrix
+Combine into one model matrix, **read right to left**: scale, then rotate, then translate (`M = T · R · S`), or the translation gets scaled and rotated too. `mgl32.Translate3D`, `HomogRotate3D(angle, axis)`, `Scale3D`.
 
 ```go
 // FULL TRANSFORM (translate THEN rotate would be Rotate.Mul4(Translate))
@@ -283,19 +116,11 @@ trans := mgl32.Translate3D(0.5, -0.5, 0).Mul4(
 gl.UniformMatrix4fv(transformLoc, 1, false, &trans[0])
 ```
 
-> Recommended order: scale first, then rotate, then translate ($M = T \cdot R \cdot S$), otherwise translation gets scaled/rotated too
-
-### Coordinate systems
-
-Vertex journey: **local space** → (model matrix) → **world space** → (view matrix) → **view space** → (projection matrix) → **clip space** → (perspective divide + viewport) → **screen space**
+Vertex journey: local → (model) → world → (view) → view → (projection) → clip → (divide + viewport) → screen. Outside NDC `[-1, 1]` is clipped.
 
 $V_{clip} = M_{projection} \cdot M_{view} \cdot M_{model} \cdot V_{local}$
 
-Everything outside Normalized Device Coordinates ($-1.0$ to $1.0$ after perspective divide) is clipped
-
-`mgl32.Perspective(mgl32.DegToRad(45), width/height, 0.1, 100.0)` perspective projection (fov, aspect ratio, near plane, far plane)
-
-`mgl32.Ortho(0, 800, 0, 600, 0.1, 100)` orthographic projection (no perspective, for 2D/UI)
+`mgl32.Perspective(fov, aspect, near, far)` and `mgl32.Ortho(left, right, bottom, top, near, far)` (no perspective, for 2D/UI).
 
 ```go
 // FULL MVP SETUP
@@ -305,11 +130,7 @@ projection := mgl32.Perspective(mgl32.DegToRad(45), 800.0/600.0, 0.1, 100.0)
 // in vertex shader: gl_Position = projection * view * model * vec4(aPos, 1.0)
 ```
 
-### Camera
-
-OpenGL has no camera: moving the camera = moving the whole world the opposite way (the view matrix)
-
-`mgl32.LookAtV(position, target, up)` build view matrix from camera position, look target, world up vector
+**There is no camera**: the view matrix moves the world the other way. `mgl32.LookAtV(position, target, up)` builds it.
 
 ```go
 // FLY CAMERA STATE
@@ -331,30 +152,15 @@ front := mgl32.Vec3{
 }.Normalize()
 ```
 
-> Scroll wheel typically drives the fov passed to `Perspective` (zoom)
+The scroll wheel usually drives the FOV.
 
-### Load texture
+## 7. Textures
 
-`var texture uint32` declare ID
+`gl.GenTextures`, `gl.ActiveTexture(gl.TEXTURE0)` (16 units guaranteed), `gl.BindTexture(gl.TEXTURE_2D, t)`, `gl.TexParameteri`, `gl.TexImage2D(target, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(pixels))`, `gl.GenerateMipmap`.
 
-`gl.GenTextures(1, &texture)` create texture and store its ID
-
-`gl.ActiveTexture(gl.TEXTURE0)` select texture unit (16 minimum guaranteed)
-
-`gl.BindTexture(gl.TEXTURE_2D, texture)` bind texture to active texture unit
-
-`gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)` set option
-
-`gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(pixels))` load image data to texture
-
-`gl.GenerateMipmap(gl.TEXTURE_2D)` generate mipmaps
-
-**Wrapping** (per axis S/T): `gl.REPEAT`, `gl.MIRRORED_REPEAT`, `gl.CLAMP_TO_EDGE`, `gl.CLAMP_TO_BORDER`
-
-**Filtering**: `gl.NEAREST` (blocky, no interpolation) or `gl.LINEAR` (interpolate neighboring texels)
-
-**Mipmaps**: the texture is also stored at /2, /4, /8... resolution; OpenGL picks the level matching the on-screen size (avoids artifacts + cache misses on far objects)
-> Mipmap filtering only applies to MIN_FILTER: `gl.LINEAR_MIPMAP_LINEAR` interpolates both within and between mip levels (trilinear). Setting a mipmap option on MAG_FILTER is an error.
+- **Wrapping** per axis: `REPEAT`, `MIRRORED_REPEAT`, `CLAMP_TO_EDGE`, `CLAMP_TO_BORDER`
+- **Filtering**: `NEAREST` (blocky) or `LINEAR` (interpolated)
+- **Mipmaps**: the texture at /2, /4, /8…, picked by on-screen size. Mip filtering applies to `MIN_FILTER` only (`LINEAR_MIPMAP_LINEAR` is trilinear); on `MAG_FILTER` it is an error
 
 ```go
 // MULTIPLE TEXTURES IN ONE SHADER
@@ -400,31 +206,11 @@ void main()
 }
 ```
 
-### Depth testing
+## 8. Per-fragment tests
 
-Depth buffer stores per-pixel depth; fragments behind already-drawn fragments are discarded
+**Depth**: `gl.Enable(gl.DEPTH_TEST)`, clear `DEPTH_BUFFER_BIT` each frame, `gl.DepthFunc(gl.LESS)`, `gl.DepthMask(false)` to test without writing. Precision is non-linear (high near the near plane); z-fighting is fixed by offsetting surfaces or tightening near/far.
 
-`gl.Enable(gl.DEPTH_TEST)` enable depth testing
-
-`gl.Clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT)` also clear depth each frame
-
-`gl.DepthFunc(gl.LESS)` comparison function (LESS default; ALWAYS disables testing effect)
-
-`gl.DepthMask(false)` read-only depth buffer (test but don't write)
-
-> Depth precision is non-linear: very high near the near plane, low far away. `Z-fighting` = two surfaces too close for depth precision to order them; fix by offsetting surfaces or tightening near/far planes
-
-### Stencil testing
-
-Stencil buffer = 8-bit per-pixel mask defining which pixels to render; runs before depth test. Classic use: object outlines, mirrors, portals
-
-`gl.Enable(gl.STENCIL_TEST)` enable
-
-`gl.StencilFunc(gl.EQUAL, 1, 0xFF)` pass test if stencil value == 1
-
-`gl.StencilOp(gl.KEEP, gl.KEEP, gl.REPLACE)` what to do on stencil fail / depth fail / both pass
-
-`gl.StencilMask(0xFF)` enable writing to stencil buffer (0x00 = read-only)
+**Stencil**: an 8-bit per-pixel mask, tested before depth (outlines, mirrors, portals). `gl.StencilFunc(gl.EQUAL, 1, 0xFF)`, `gl.StencilOp(sfail, dpfail, pass)`, `gl.StencilMask(0xFF)`.
 
 ```go
 // OBJECT OUTLINE PATTERN
@@ -439,50 +225,17 @@ gl.Disable(gl.DEPTH_TEST)
 drawScaledObject()
 ```
 
-### Blending
+**Blending**: `gl.Enable(gl.BLEND)`, `gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)`: $C = \alpha_{src} C_{src} + (1 - \alpha_{src}) C_{dst}$. Draw opaque first, then transparent **sorted far to near**. For fully transparent texels, `discard` instead:
 
-Renders transparency by combining the fragment color with the color already in the buffer
-
-`gl.Enable(gl.BLEND)` enable
-
-`gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)` standard alpha blending: $C_{result} = \alpha_{src} \cdot C_{src} + (1 - \alpha_{src}) \cdot C_{dst}$
-
-> For fully transparent texels (grass sprites), skip blending and `discard` in the fragment shader instead:
 ```glsl
 if (texture(tex, TexCoords).a < 0.1) discard;
 ```
 
-> Blending order matters: draw opaque objects first, then transparent objects **sorted far to near** (depth buffer doesn't know about transparency)
+**Face culling**: `gl.Enable(gl.CULL_FACE)`, `gl.CullFace(gl.BACK)`, `gl.FrontFace(gl.CCW)`. Needs consistent winding and closed shapes; ~50% fewer fragments.
 
-### Face culling
+## 9. Framebuffers and cubemaps
 
-Skip rendering triangles facing away from the camera (back of closed objects), ~50% fewer fragment shader runs
-
-`gl.Enable(gl.CULL_FACE)` enable
-
-`gl.CullFace(gl.BACK)` which faces to cull (BACK default)
-
-`gl.FrontFace(gl.CCW)` winding order that defines a front face (counter-clockwise default)
-
-> Requires consistent winding order in vertex data. Only works for closed shapes (culling a grass quad's back makes it invisible from behind)
-
-### Framebuffer
-
-Framebuffer Object = render target holding color + depth + stencil attachments. Render to texture → post-processing, mirrors, shadow maps
-
-`var FBO uint32` declare ID
-
-`gl.GenFramebuffers(1, &FBO)` create framebuffer and store its ID
-
-`gl.BindFramebuffer(gl.FRAMEBUFFER, FBO)` bind (0 = default window framebuffer)
-
-`gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texColorBuffer, 0)` attach texture as color buffer
-
-`gl.RenderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, width, height)` renderbuffer = write-only attachment, faster than texture when you never sample it
-
-`gl.FramebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, RBO)` attach renderbuffer
-
-`gl.CheckFramebufferStatus(gl.FRAMEBUFFER) == gl.FRAMEBUFFER_COMPLETE` verify completeness before use
+A framebuffer holds colour, depth and stencil attachments: render to texture for post-processing, mirrors, shadow maps. `gl.GenFramebuffers`, `gl.BindFramebuffer(gl.FRAMEBUFFER, FBO)` (0 = the window), `gl.FramebufferTexture2D(..., gl.COLOR_ATTACHMENT0, ...)`, a renderbuffer (`gl.RenderbufferStorage`) for attachments never sampled, and `gl.CheckFramebufferStatus` before use.
 
 ```go
 // POST-PROCESSING PATTERN
@@ -497,13 +250,7 @@ gl.BindTexture(gl.TEXTURE_2D, texColorBuffer)
 drawFullscreenQuad() // kernel effects: blur, sharpen, edge detection, grayscale...
 ```
 
-### Cubemaps
-
-Texture made of 6 faces, sampled with a 3D direction vector. Main uses: skybox, environment reflection/refraction
-
-`gl.BindTexture(gl.TEXTURE_CUBE_MAP, texture)` bind
-
-`gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, ...)` load each of the 6 faces (i = 0..5: +X -X +Y -Y +Z -Z)
+A **cubemap** is 6 faces sampled by a direction: skyboxes, environment reflections. Load each face with `gl.TexImage2D(gl.TEXTURE_CUBE_MAP_POSITIVE_X + i, ...)`, i = 0..5 for +X −X +Y −Y +Z −Z.
 
 ```glsl
 // SKYBOX SHADERS
@@ -516,7 +263,7 @@ uniform samplerCube skybox;
 FragColor = texture(skybox, TexCoords); // TexCoords = local cube position
 ```
 
-> Draw skybox last with `gl.DepthFunc(gl.LEQUAL)`: depth buffer fills first, skybox fragments behind geometry are discarded (early depth test saves fragment runs)
+Draw the skybox last with `gl.DepthFunc(gl.LEQUAL)` so hidden sky fragments are rejected early.
 
 ```glsl
 // ENVIRONMENT REFLECTION
@@ -525,41 +272,17 @@ vec3 R = reflect(I, normalize(Normal));   // or refract(I, N, 1.0/1.52) for glas
 FragColor = texture(skybox, R);
 ```
 
-### Instancing
+## 10. Instancing and MSAA
 
-Draw the same mesh many times in one call: removes per-draw CPU→GPU overhead (the actual bottleneck with thousands of objects)
+**Instancing** draws one mesh many times in one call: `gl.DrawArraysInstanced` / `DrawElementsInstanced`, `gl_InstanceID` in the shader, `gl.VertexAttribDivisor(location, 1)` for per-instance attributes (a mat4 takes 4 locations).
 
-`gl.DrawArraysInstanced(gl.TRIANGLES, 0, count, instanceCount)` instanced draw
+**MSAA**: coverage and depth at N samples per pixel, the fragment shader once. `glfw.WindowHint(glfw.Samples, 4)`, `gl.Enable(gl.MULTISAMPLE)`. Offscreen: `gl.TexImage2DMultisample`, then `gl.BlitFramebuffer` to resolve before sampling.
 
-`gl.DrawElementsInstanced(...)` instanced indexed draw
+## 11. Lighting (Phong)
 
-`gl_InstanceID` built-in shader variable: current instance index
+`ambient` constant base light · `diffuse` from the normal–light angle · `specular` a highlight depending on the view and the reflection.
 
-`gl.VertexAttribDivisor(location, 1)` make attribute advance per **instance** instead of per vertex (`instanced array`, for per-instance model matrices)
-
-> A mat4 attribute occupies 4 consecutive attribute locations: set pointer + divisor on each
-
-### Anti-aliasing (MSAA)
-
-Multisampling: depth/stencil tested at N sample points per pixel, fragment shader runs once, color contribution = fraction of covered samples → smooth edges
-
-`glfw.WindowHint(glfw.Samples, 4)` request multisampled default framebuffer
-
-`gl.Enable(gl.MULTISAMPLE)` enable (often default)
-
-> Offscreen MSAA: create textures with `gl.TexImage2DMultisample`, then `gl.BlitFramebuffer` to resolve into a normal framebuffer before sampling
-
-## Lighting
-
-### Phong model
-
-`ambient` constant base light (fake global illumination)
-`diffuse` proportional to angle between normal and light direction
-`specular` shiny highlight, depends on view direction and reflection
-
-> `Normal matrix` = `mat3(transpose(inverse(model)))`: transforms normals correctly under non-uniform scaling (plain model matrix would skew them)
-
-### Materials
+> **Normal matrix** = `mat3(transpose(inverse(model)))`: keeps normals perpendicular under non-uniform scale
 
 ```glsl
 struct Material {
@@ -569,8 +292,6 @@ struct Material {
 };
 uniform Material material;
 ```
-
-### Light casters
 
 ```glsl
 // DIRECTIONAL (sun): no position, only direction; no attenuation
@@ -592,7 +313,8 @@ struct SpotLight {
 // intensity = clamp((theta - outerCutOff) / (cutOff - outerCutOff), 0.0, 1.0)
 ```
 
-> Multiple lights = one function per light type, sum the results:
+Several lights: one function per type, summed.
+
 ```glsl
 vec3 result = CalcDirLight(dirLight, norm, viewDir);
 for (int i = 0; i < NR_POINT_LIGHTS; i++)
@@ -600,21 +322,9 @@ for (int i = 0; i < NR_POINT_LIGHTS; i++)
 result += CalcSpotLight(spotLight, norm, FragPos, viewDir);
 ```
 
-## Model loading
+**Model loading**: Assimp reads 40+ formats into a scene graph. A `Mesh` is vertices + indices + textures (one VAO, one draw); a `Model` is the meshes of one file. Cache textures by path.
 
-`Assimp` library loading 40+ model formats into a uniform scene graph; learnopengl wraps it in Mesh/Model classes
-
-`Mesh` = vertices (position, normal, texcoords) + indices + textures → one VAO/VBO/EBO + one draw call
-
-`Model` = collection of meshes from one file; recursively walks Assimp's node tree
-
-> Cache loaded textures by path: models reuse the same texture across meshes
-
-## GLSL
-
-Vertex shader takes inputs from program and feeds outputs to fragment shader
-
-### Vertex shader
+## 12. GLSL
 
 ```glsl
 #version 330 core
@@ -639,8 +349,6 @@ void main()
     gl_Position = projection * view * vec4(FragPos, 1.0);
 }
 ```
-
-### Fragment shader
 
 ```glsl
 #version 330 core
@@ -681,17 +389,9 @@ void main()
 } 
 ```
 
-### Advanced GLSL
+Built-ins: `gl_FragCoord` (window position, depth in z), `gl_FrontFacing`, `gl_PointSize`, `gl_VertexID`.
 
-`gl_FragCoord` fragment's window-space position (x, y, depth in z)
-
-`gl_FrontFacing` bool, true when fragment belongs to a front face (two-sided materials)
-
-`gl_PointSize` point size output from vertex shader (enable `gl.PROGRAM_POINT_SIZE`)
-
-`gl_VertexID` current vertex index
-
-**Uniform Buffer Objects** share uniforms (e.g. projection + view) across all shader programs:
+**Uniform buffer objects** share uniforms across programs:
 
 ```glsl
 layout (std140) uniform Matrices {  // std140 = fixed, predictable memory layout
@@ -700,13 +400,9 @@ layout (std140) uniform Matrices {  // std140 = fixed, predictable memory layout
 };
 ```
 
-`gl.BindBufferBase(gl.UNIFORM_BUFFER, 0, UBO)` bind buffer to binding point 0; link shader's block to the same point with `gl.UniformBlockBinding`
+`gl.BindBufferBase(gl.UNIFORM_BUFFER, 0, UBO)` plus `gl.UniformBlockBinding`. std140: scalars align to 4, vec3 and vec4 to 16, mat4 = 4 × vec4; pad CPU structs to match.
 
-> std140 layout rules: scalars align to 4 bytes, vec3 and vec4 both align to 16, mat4 = 4 × vec4. Pad CPU-side structs accordingly
-
-### Geometry shader
-
-Optional stage between vertex and fragment: takes one primitive, emits zero or more primitives
+**Geometry shader**: one primitive in, zero or more out (normals as lines, exploding meshes, one-pass cubemaps).
 
 ```glsl
 layout (triangles) in;
@@ -714,9 +410,7 @@ layout (triangle_strip, max_vertices = 3) out;
 // EmitVertex() after setting gl_Position; EndPrimitive() to close the strip
 ```
 
-Uses: visualize normals as lines, explode meshes, render to cubemap faces in one pass
-
-## Rendering pipeline summary
+## 13. Pipeline summary
 
 ```
 Vertex data → Vertex shader (per vertex: position transform)

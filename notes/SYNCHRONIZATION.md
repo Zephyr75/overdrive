@@ -1,59 +1,53 @@
-# Synchronization in Overdrive
+# Synchronization — CPU, GPU and the screen in step
 
-## Overview
+> **Scope** recording vs executing, frames in flight, fences and semaphores, pipeline barriers, and when a resource may be destroyed.
+>
+> **Not here** the frame's pass order → `OVERVIEW.md` §4. General Vulkan sync → `cheatsheets/VULKAN.md`.
 
-In a Vulkan application the engine must keep two different kinds of objects in sync:
+---
 
-| Object | Purpose | Where it lives | How it is used |
-|--------|---------|---------------|----------------|
-| **Frame** (`frameInfo`) | A frame the CPU builds and the GPU executes; `framesInFlight` of them exist and are reused in turn. | `backend.frames[i]` | Holds a command buffer, a **fence**, an **acquire semaphore** and a per‑frame upload arena. |
-| **Swapchain image** | The GPU surface that will be presented on screen. | `backend.swapchainImages[i]` | Holds pixel data. Each image owns a **render‑complete semaphore** (`renderSems[i]`). |
+## 1. Recording is not executing
 
+```mermaid
+graph LR
+    subgraph CPU["CPU — during the frame"]
+        R1["vkCmd… calls"] --> R2["command buffer<br/><i>inert bytes</i>"]
+    end
+    R2 --> SUB["QueueSubmit2<br/><i>when the frame closure returns</i>"]
+    subgraph GPU["GPU — after the submit"]
+        SUB --> EX["atlas passes, draws,<br/>barriers all execute"]
+    end
+```
 
-## The sync primitives
+Every `vkCmd*` call only records. The queue is touched in three places:
 
-Four are in play, and each guards a different pair of actors:
+| Where | What |
+| --- | --- |
+| frame close | `QueueSubmit2`: **one submit carries the whole frame** |
+| frame close | `QueuePresentKHR` |
+| `immediateSubmit` | load-time uploads and `ReadBuffer`, which block the CPU until done |
 
-| Primitive | Who it syncs | Owner | What it means |
-|-----------|--------------|-------|---------------|
-| **Fence** (`frameInfo.fence`) | GPU → CPU | frame | The GPU is done with this frame, so its command buffer and arena can be overwritten. The only thing the CPU ever blocks on. |
-| **Acquire semaphore** (`frameInfo.acquireSemaphore`) | GPU → GPU | frame | The image just acquired is actually free to render into. The CPU only touches it by passing it to `vkAcquireNextImageKHR`. |
-| **Render semaphore** (`swapchainImage.renderSemaphore`) | GPU → GPU | swapchain image | Rendering into this image is finished, so present may scan it out. |
-| **Pipeline barrier** | GPU → GPU | nobody, it is a command | One resource's writes are visible to what reads it next. Orders work *inside* one command buffer rather than between submissions, so it is the only one that never appears in the frame diagram below. |
+Host-side work is immediate, not recorded: a memcpy into mapped memory, `vkUpdateDescriptorSets`, pipeline creation. That is why the fence exists: it protects the **memory the commands point at**, not the commands.
 
-Barriers are never hand-written here: `vulkan/barrier.go` emits every one of them
-from the resource-use table, driven by what each pass and dispatch declares it
-reads and writes.
+## 2. Frames in flight and swapchain images
 
-The one Vulkan primitive the engine never creates is the **event**
-(`VkEvent`): a barrier split in two, set at one point in a command buffer
-with `vkCmdSetEvent2` and waited on later with `vkCmdWaitEvents2`, so the GPU
-can keep working on the instructions in between. It pays off only when there
-is real work to fill that gap; every transition here is immediate, so a plain
-barrier is both simpler and no slower.
+Two rotations of possibly different lengths, never indexed by each other:
 
+| Rotation | Count | Index | Owns |
+| --- | --- | --- | --- |
+| **Frame** (`backend.frames[i]`) | `framesInFlight` = 2 | `frameIndex` | command buffer, **fence**, **acquire semaphore**, upload arena |
+| **Swapchain image** (`backend.swapchainImages[i]`) | 2–3, the driver's choice | `imageIndex`, from acquire | pixels, **render semaphore** |
 
-## Why a separate acquire semaphore per frame?
+While the GPU renders frame N, the CPU records N+1.
 
-1. **Concurrent acquisition** – Two frames in flight can call `vkAcquireNextImageKHR` at the same time.  With a single semaphore these calls would serialize, creating a hard stall.
-2. **Re‑use** – Each frame has its own semaphore that is reset after it finishes, avoiding extra bookkeeping.
-3. **GPU‑GPU only** – The acquire semaphore is a GPU‑GPU primitive; the CPU only interacts with it via `vkAcquireNextImageKHR`.
+| Primitive | Syncs | Owner | Meaning |
+| --- | --- | --- | --- |
+| **Fence** | GPU → CPU | frame | the GPU is done with this frame, so its command buffer and arena can be reused. The only thing the CPU blocks on |
+| **Acquire semaphore** | GPU → GPU | frame | the acquired image is free to render into. Per frame, because acquire does not know the image index yet |
+| **Render semaphore** | GPU → GPU | image | rendering into this image is done, present may show it. Per image, because present must wait on exactly that image |
+| **Pipeline barrier** | GPU → GPU | nobody, a command | one resource's writes are visible to its next reader, inside one command buffer (§3) |
 
-
-## Why render‑complete semaphores per image?
-
-The presentation queue needs to know *exactly* which image has finished rendering.  A semaphore attached to the image guarantees that the presentation queue waits on the right image and never presents one that is still being written.
-
-
-## Frame vs. Swapchain image
-
-| Concept | What it represents | How they interact |
-|---------|--------------------|--------------------|
-| **Frame** | Work unit (command buffer + resources). | It **acquires** a swapchain image, renders into it, then signals that image’s render‑complete semaphore. |
-| **Swapchain image** | GPU surface that holds pixel data. | It owns a render‑complete semaphore and is handed to the presentation queue. |
-
-
-## Complete workflow
+The engine never creates a `VkEvent` (a split barrier): every transition here is immediate, so a plain barrier is as fast and simpler.
 
 ```
 1. Wait on the frame's fence           the GPU is done with this frame
@@ -64,9 +58,6 @@ The presentation queue needs to know *exactly* which image has finished renderin
 6. Present                             waits on the render semaphore
 7. Move to the next frame              no blocking
 ```
-
-
-## Mermaid diagram
 
 ```mermaid
 sequenceDiagram
@@ -101,81 +92,47 @@ sequenceDiagram
     Note over CPU,PresentQ: 6. Next frame takes the next frameInfo
 ```
 
-One pass of the loop for one `frameInfo`. `framesInFlight` of them run
-staggered: while one records, another is on the GPU and another is presenting.
-The fence in step 1 is the only CPU block, and it is per frame, not per image.
+The submit's wait on the acquire semaphore is scoped to `ColorAttachmentOutput`, so the shadow passes start at once and only the swapchain colour writes wait for the image.
 
-Note the owners: it is `frameInfo.acquireSemaphore` and
-`swapchainImage.renderSemaphore`. The submit waits on the first and signals the
-second, and the two indices are not interchangeable.
+## 3. Pipeline barriers
 
----
+### Three jobs in one call
 
-## Pipeline barriers, intuitively
+The GPU is a workshop of stations (vertex, fragment, transfer) that run at once and do not wait for each other, each with its own bench. One pass bakes the shadow atlas (the depth station writes), the next samples it (the fragment station reads). Without a barrier, three things go wrong:
 
-The three primitives above order work *between* submissions. The barrier is the
-one that orders work *inside* a single command buffer, and it is the only one
-the engine emits automatically — `vulkan/barrier.go` derives every one of them
-from `useTable`, driven by what each pass and dispatch declared it reads and
-writes.
+| Problem | The barrier says | Fields |
+| --- | --- | --- |
+| **Too early**: the reader starts while the writer is still writing | writer finishes, reader waits | `SrcStageMask` / `DstStageMask` |
+| **Wrong bench**: the result sits in the writer's cache | push it out (*available*), pull it in (*visible*) | `SrcAccessMask` / `DstAccessMask` |
+| **Wrong packaging**: depth is stored compressed for depth testing, a sampler cannot read that | repack it | `OldLayout` → `NewLayout` |
 
-### The workshop
+"The write finished" and "the reader can see it" are different claims; right layouts with sloppy stage masks still render garbage.
 
-The GPU is a big workshop. Many stations run at once — a vertex station, a
-fragment station, a transfer station. Orders arrive in order. The stations do
-**not** wait for each other.
+### The use table
 
-Each station has its own private workbench. Work finished there sits on that
-bench, not in the shared warehouse.
+No barrier is hand-written. `vulkan/barrier.go` tracks one `use` per image and buffer, every operation declares its next use, and a change emits the barrier from this table:
 
-The engine's real case: one pass bakes the shadow atlas (the depth station
-writes it), the next pass samples it (the fragment station reads it). Without a
-barrier, three separate things go wrong.
+| Use | Layout | Stage | Access |
+| --- | --- | --- | --- |
+| `useNone` | UNDEFINED | NONE | 0 |
+| `useSampled` | SHADER_READ_ONLY | FRAGMENT\|COMPUTE | SHADER_SAMPLED_READ |
+| `useShaderRead` | — | VERTEX\|FRAGMENT\|COMPUTE | SHADER_READ\|STORAGE_READ |
+| `useColorAttach` | COLOR_ATTACHMENT | COLOR_ATTACHMENT_OUTPUT | COLOR_ATTACHMENT_WRITE |
+| `useDepthAttach` | DEPTH_ATTACHMENT | EARLY\|LATE_FRAGMENT_TESTS | DEPTH_STENCIL_ATTACHMENT_WRITE |
+| `useCopySrc` / `useCopyDst` | TRANSFER_SRC/DST | ALL_TRANSFER | TRANSFER_READ/WRITE |
+| `useStorage` | GENERAL | COMPUTE | SHADER_STORAGE_READ\|WRITE |
+| `useIndirect` | — | DRAW_INDIRECT | INDIRECT_COMMAND_READ |
+| `usePresent` | PRESENT_SRC | NONE | 0 |
 
-**1. Too early.** The fragment station starts reading while the depth station is
-still writing. Half-baked shadows.
-→ The barrier says: *depth station, finish. Fragment station, wait.*
-That is `SrcStageMask` / `DstStageMask`.
+- **Layouts apply to images only**; a buffer barrier carries stage and access masks alone.
+- **Two reads in a row need nothing; two writes do.** Same layout, but the first write must land first. That puts a barrier between the depth prepass and the main pass, which both leave the depth in `useDepthAttach`.
+- **`UNDEFINED` means "discard, do not repack".** `Frame` sets the acquired swapchain image to `useNone` directly, so its first real transition starts from `UNDEFINED` for free.
+- **Conservative by design:** one barrier per transition, no batching, roughly ten a frame.
 
-**2. Wrong bench.** The depth station is done, but the result is still on its own
-bench. The fragment station looks in the warehouse and finds yesterday's copy.
-→ The barrier says: *depth station, carry your work to the warehouse. Fragment
-station, throw out your old copy and fetch a fresh one.*
-That is `SrcAccessMask` (push out — "availability") and `DstAccessMask` (pull in
-— "visibility").
+### The other two fields
 
-**3. Wrong packaging.** The depth station stores things in depth-crates:
-compressed, with hierarchical-Z metadata, shaped for depth testing. The fragment
-station's sampler cannot open a depth-crate.
-→ The barrier says: *repack into texture-crates.*
-That is `OldLayout` → `NewLayout`. Real data movement, not a label change.
-
-One `vkCmdPipelineBarrier2` call does all three.
-
-### The remaining two parameters
-
-**`SrcQueueFamilyIndex` / `DstQueueFamilyIndex` — which building.**
-
-Queue families are separate buildings with separate warehouses: a graphics
-family, sometimes a dedicated transfer or async-compute family. Moving a
-resource between them is a handover that has to be written down twice — a
-release barrier recorded on the source queue and a matching acquire barrier on
-the destination — or the receiving building never learns the crate is theirs.
-
-Both are `vk.QueueFamilyIgnored` here, which means "no handover, it stays in the
-same building". That is honest rather than lazy: `createSurfaceAndDevice` takes
-the first family with `QueueGraphics` and never looks for a second
-(`vulkan/backend.go`), so the engine has exactly one queue and the case cannot
-arise. It becomes real the day an upload moves to a transfer queue.
-
-**`SubresourceRange` — which shelves.**
-
-An image is not one object. It is a grid of mip levels × array layers, each with
-one or more aspects (colour, or depth, or stencil). A barrier applies to a
-rectangle of that grid, not to the whole thing, so half a cubemap can be in one
-layout while the other half is in another.
-
-`useImage` always names the whole image:
+- **Queue families** are separate buildings; moving a resource between them needs a release and an acquire barrier. Both are `vk.QueueFamilyIgnored` here because the engine uses one graphics queue. It becomes real the day uploads move to a transfer queue.
+- **`SubresourceRange`** picks which mips, layers and aspect a barrier covers. `useImage` always names the whole image:
 
 ```go
 SubresourceRange: vk.ImageSubresourceRange{
@@ -184,52 +141,16 @@ SubresourceRange: vk.ImageSubresourceRange{
 },
 ```
 
-- `AspectMask` is the image's own, decided once at creation — `ImageAspectColor`
-  unless the format is a depth one, in which case `ImageAspectDepth`.
-- `BaseArrayLayer: 0` with the full `layerCount` transitions a cubemap's six
-  faces together. Correct here, since a point light's six faces are baked in one
-  pass and never in isolation.
-- `LevelCount: 1` covers mip 0 only. Nothing in the tree creates mips — the view
-  built in `makeView` hardcodes the same — so it is consistent today. Generating
-  mips is the change that would break it, and the default sampler's `MaxLod: 16`
-  is the misleading part: it promises mips nothing currently produces.
+`LevelCount: 1` is correct while no image has mips; generating mips is the change that would break it. Whole-image barriers also mean a barrier on an atlas covers all its tiles, not just the one a pass touched.
 
-The granularity is also why a barrier on `staticAtlas` orders against all 337
-slots rather than the one tile a pass touched. Correct, and conservative.
+### Cost, and why synchronization2
 
-### Two consequences that fall out
+A barrier briefly drains the stations it names. Naming exact stages instead of `AllCommands` keeps the others running: with `Src: Early|LateFragmentTests` and `Dst: FragmentShader`, later vertex work crosses the barrier freely.
 
-**`Undefined` as the old layout means "bin it, do not repack".** If the contents
-are worthless the driver can skip the unpacking work entirely. That is what
-`Frame` does by assigning `use = useNone` to the acquired swapchain image
-directly instead of calling `useImage`: no barrier is recorded there, it just
-arranges for the frame's *first* real transition to start from `Undefined`, so
-the repacking is free.
+`Synchronization2` (enabled in `createSurfaceAndDevice`) pairs stage and access masks **per barrier** instead of one pair per call, and adds `PipelineStage2None`. Without it `useTable` could not be a table.
 
-**Two reads in a row need nothing.** Nobody's bench holds unpublished work and
-the packaging is already right. Only a write on one side creates a problem,
-which is the whole reason `useInfo` carries a `write` column — the layout
-comparison alone would wrongly skip a write-after-write, where two
-`useCopyDst` in a row share a layout but still need the first copy's bytes
-flushed before the second runs.
+## 4. When a resource may be destroyed
 
-### The cost
-
-A barrier is a traffic stop. "Nobody shades until all depth writing lands" means
-the workshop briefly empties out and refills. That is unavoidable when the
-dependency is real; naming stages rather than reaching for `AllCommands` is what
-keeps it from stopping every station instead of the two that matter — with
-`Src: EarlyFragmentTests | LateFragmentTests` and `Dst: FragmentShader`, later
-draws' vertex work continues across the barrier.
-
-### Why `Synchronization2`
-
-The feature is enabled in `createSurfaceAndDevice` for this. Version 2 pairs a
-stage mask with an access mask *per barrier* instead of one global src/dst pair
-for the whole call, adds `PipelineStage2None`, and splits the old `AllCommands`
-sledgehammer into usable pieces. Without it `useTable` could not be a table: the
-masks would have to be merged by hand across every barrier in one call.
-
----
-
-*File updated by the Zed agent.*
+1. **Nothing is destroyed while the GPU might read it.** `Shutdown` starts with `DeviceWaitIdle`. `Destroy` never waits, it retires. `UpdateBuffer` on a mapped buffer and `ReadBuffer` call `waitAllFrames`, which skips the frame being recorded (its fence can only signal at its end).
+2. **`Destroy` defers, and the descriptor slot goes back with it.** Retired objects are tagged with `frameCounter`; `drainRetired` frees them and returns the bindless slot once no frame in flight can reference them. Returning the slot earlier is silent wrong pixels, not a validation error.
+3. **Resize is a partial teardown.** `ErrOutOfDateKHR` from acquire or present triggers `recreateSwapchain`: block while minimised, wait idle, rebuild only the swapchain-sized objects (`RENDERER.md` §5). `core/targets.go` rebuilds its own screen images when `BackbufferSize` changes.

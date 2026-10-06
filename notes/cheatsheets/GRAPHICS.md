@@ -1,26 +1,10 @@
 # Graphics — real-time techniques, simulation, GPGPU
 
-> **Scope** the breadth layer: rendering techniques a modern engine ships, procedural generation, physics simulation, agent AI, compression, high-performance optimisation, GPGPU, emulation. Each entry is the idea plus the one detail that shows you understand _why_, not a full derivation.
+> **Scope** the breadth layer: real-time rendering techniques, procedural generation, physics, agent AI, compression, optimisation, GPGPU, emulation, plus a heat-equation exercise and a C++ refresher. Each entry is the idea plus the one detail that shows _why_.
 >
-> **Not here** the deep dives live in their own files — BRDF and material theory in `PBR.md`, ray vs path tracing in `RAYTRACING.md`, the OpenGL API in `OPENGL.md`, the Vulkan object model in `VULKAN.md`, matrices and quaternions in `ALGEBRA.md`. §11 is the one-screen recall index into them.
+> **Not here** BRDF theory → `PBR.md`. Ray vs path tracing → `RAYTRACING.md`. APIs → `OPENGL.md`, `VULKAN.md`. Matrices and quaternions → `ALGEBRA.md`.
 >
-> **Source** merged from the two revision passes (`REV.md`, `REV2.md`), plus the Shadertoy heat-equation exercise in §9.
-
----
-
-## Contents
-
-1. [Real-time rendering techniques](#1-real-time-rendering-techniques)
-2. [Procedural generation](#2-procedural-generation)
-3. [Physics simulation](#3-physics-simulation)
-4. [Agent AI](#4-agent-ai)
-5. [Compression](#5-compression)
-6. [High-performance optimisation](#6-high-performance-optimisation)
-7. [GPGPU and CUDA](#7-gpgpu-and-cuda)
-8. [How an emulator works](#8-how-an-emulator-works)
-9. [Exercise — heat equation on a surface](#9-exercise--heat-equation-on-a-surface)
-10. [C++ refresher](#10-c-refresher)
-11. [Recall index](#11-recall-index)
+> **Source** two revision passes, plus a Shadertoy exercise (§9).
 
 ---
 
@@ -34,13 +18,13 @@ Render depth from the light's point of view, then in the main pass a fragment is
 
 `Peter-panning` too much bias detaches the shadow from the object's base
 
-`PCF` percentage-closer filtering, average several taps → soft edges. The kernel is the expensive part: 9 taps for a 2D map, 20 for a cube
+`PCF` percentage-closer filtering: average several depth comparisons → soft edges. The kernel is the expensive part, so bail early when the first few taps agree
 
 `CSM` cascaded shadow maps, one map per view-distance slice → large outdoor scenes
 
 `Omnidirectional` a point light needs all six directions: render into a cubemap, store linear distance / farPlane
 
-> Overdrive uses exactly this, unified: every light's shadow — sun, spot, or one of a point light's six faces — is a tile of one 4096² atlas, sampled by the same 9-tap PCF with an early-bail on the first 4 taps, and normal-offset bias. No separate cubemap path any more. See `../FEATURES.md`
+> Overdrive puts every shadow (sun, spot, each point-light face) in a tile of one atlas, with normal-offset bias and a 4-then-3×3 PCF. See `../FEATURES.md` §3
 
 ### Forward vs deferred — the classic question
 
@@ -54,9 +38,9 @@ Render depth from the light's point of view, then in the main pass a fragment is
 | Material variety | free                                                    | one lighting model for the whole scene |
 | Memory           | low                                                     | a fat G-buffer                         |
 
-**Forward.** A pixel covered five times is shaded five times, four of which the depth test throws away. That is the overdraw term, and it is why forward collapses with many lights.
+**Forward.** A pixel covered five times is shaded five times, four of them thrown away by the depth test: the overdraw term. A depth prepass removes it.
 
-**Deferred.** Pass 1 (_geometry_) writes surface _properties_ of the visible fragment into the **G-buffer** — several render targets: albedo, normal, depth, roughness/metallic. Pass 2 (_lighting_) shades in screen space, one fragment per pixel because the depth test already sorted it, accumulating lights. The cost is decoupled from object count and from overdraw → hundreds of lights.
+**Deferred.** Pass 1 writes surface _properties_ of the visible fragment into the **G-buffer** (albedo, normal, depth, roughness/metallic). Pass 2 shades once per pixel in screen space, so the cost is decoupled from objects and overdraw → hundreds of lights.
 
 ```mermaid
 flowchart LR
@@ -69,13 +53,13 @@ flowchart LR
     end
 ```
 
-**Deferred's real problem is bandwidth.** The G-buffer is written once and read once per pixel per frame; on consoles and handhelds that is usually _the_ wall. Mitigations: octahedral normal encoding, packing channels, fewer targets.
+**Deferred's real problem is bandwidth**: the G-buffer is written and read every frame. Mitigations: octahedral normals, packed channels, fewer targets.
 
-`Forward+ / clustered` the modern compromise. Split the screen into tiles (or the frustum into 3D clusters), run a compute pass listing which lights touch each tile, then a forward pass shades only those lights. Keeps MSAA, transparency and material variety with deferred's light scaling. This is where the industry sits today
+`Forward+ / clustered` the modern compromise: a compute pass lists which lights touch each screen tile (or 3D cluster), then a forward pass shades only those. Deferred's light scaling with forward's MSAA, transparency and material variety
 
 ### Ambient occlusion
 
-Approximates how much a point is _hidden_ from ambient light by nearby geometry → darkens crevices, corners and contacts. Without it, ambient is flat.
+How much a point is _hidden_ from ambient light by nearby geometry → darker crevices, corners and contacts.
 
 `SSAO` (Crytek) sample N random points in a hemisphere around the pixel, compare their depth against the G-buffer → the fraction "buried" is the occlusion. Cheap, noisy (needs a blur), limited to what is on screen
 
@@ -89,7 +73,7 @@ Approximates how much a point is _hidden_ from ambient light by nearby geometry 
 
 ### Anti-aliasing
 
-`MSAA` depth/stencil tested at N points per pixel, fragment shader runs once → smooth edges only. Expensive, and awkward in deferred
+`MSAA` coverage and depth tested at N points inside each pixel, the fragment shader once per triangle, samples averaged at resolve → smooth geometric edges at ~1× shading. Awkward in deferred
 
 `FXAA` pure post-process edge detection. Cheap, blurry
 
@@ -110,9 +94,7 @@ Do not draw the invisible.
 
 Move the _what to draw_ decision from CPU to GPU.
 
-**Problem.** The classic loop is "for each object: cull, bind, draw" on the CPU → thousands of draw calls, driver overhead, CPU becomes the bottleneck.
-
-**Idea.** The whole scene (matrices, bounding boxes, material indices) lives in GPU buffers. A compute shader does the culling and _writes the draw list itself_ into a buffer. The CPU issues one `vkCmdDrawIndirectCount` that reads it.
+The CPU loop "for each object: cull, bind, draw" becomes the bottleneck at thousands of objects. Instead the whole scene lives in GPU buffers, a compute shader culls and _writes the draw list_, and the CPU issues one `vkCmdDrawIndirectCount`.
 
 ```mermaid
 flowchart LR
@@ -127,9 +109,7 @@ flowchart LR
 
 ### HDR pipeline
 
-Render into a float linear target (`RGBA16F`) → **tone map** (ACES, Reinhard) down to [0,1] → gamma / sRGB encode. `Bloom` blurs the bright-pass of that HDR target back over the image. Without an HDR target, light intensities above 1 are clipped at write time and bloom has nothing to work with.
-
----
+Render into a float target (`RGBA16F`) → **tone map** (ACES, Reinhard) to [0,1] → gamma. `Bloom` blurs the bright pass back over the image. Without a float target, intensities above 1 clip at write time and bloom has nothing to work with.
 
 ## 2. Procedural generation
 
@@ -157,9 +137,7 @@ Render into a float linear target (`RGBA16F`) → **tone map** (ACES, Reinhard) 
 
 `BSP` recursive binary partition into rooms → structured dungeons
 `Cellular automata` iterate a birth/death rule over a random grid → organic caves
-`WFC` Wave Function Collapse: assemble tiles under neighbour constraints, collapsing the lowest-entropy cell first and propagating. Currently fashionable, and the algorithm `src/algorithms/wfc.go` is a stub for
-
----
+`WFC` Wave Function Collapse: assemble tiles under neighbour constraints, collapsing the lowest-entropy cell first and propagating
 
 ## 3. Physics simulation
 
@@ -171,11 +149,11 @@ Render into a float linear target (`RGBA16F`) → **tone map** (ACES, Reinhard) 
 | **Verlet** | store current + previous position, `pos += (pos - prevPos) + a·dt²` | stable, no explicit velocity, trivially constrainable |
 | **RK4**    | four weighted derivative samples per step                           | accurate, four times the cost                         |
 
-> Overdrive's `src/physics/verlet.go` is the middle row: unconditional stability, no built-in damping.
+> Overdrive's `src/physics/verlet.go` is the middle row.
 
 ### Particles
 
-Each point is position + velocity + lifetime; update, spawn, kill. The base of fire, sparks, smoke. Naturally SoA and SIMD-friendly (see §6).
+Position + velocity + lifetime per point; update, spawn, kill. Fire, sparks, smoke. Naturally SoA and SIMD-friendly (§6).
 
 ### Cloth and soft bodies
 
@@ -209,8 +187,6 @@ flowchart LR
 `Gerstner / sine waves` a handful of analytic waves added together, points tracing circles → sharp crests. Cheap
 `Stable Fluids (Stam)` grid-based Navier-Stokes, unconditionally stable → smoke and fire
 
----
-
 ## 4. Agent AI
 
 `FSM` states (patrol, chase, attack) plus event-driven transitions. Simple, readable, the historical default; transition count explodes with state count
@@ -223,8 +199,6 @@ flowchart LR
 `Utility AI` score every action against needs (hunger, danger…) and pick the best → nuanced, tunable
 `Influence maps` a grid accumulating threat and control → tactical decisions about where to attack or flee
 `Turn-based` **minimax with alpha-beta pruning** (chess), **MCTS** — Monte Carlo tree search, simulate random playouts (Go, AlphaGo)
-
----
 
 ## 5. Compression
 
@@ -252,8 +226,6 @@ flowchart LR
 
 **Limit.** Optimal only for whole-bit code lengths. Arithmetic/range coding does better (fractional bits) and is what modern codecs use. Huffman survives everywhere (DEFLATE/zlib, JPEG) because it is simple and fast.
 
----
-
 ## 6. High-performance optimisation
 
 > **The wall is memory, not arithmetic.** A RAM access costs ~200-300 cycles, an L1 hit ~4. The CPU spends its time _waiting_. Every modern optimisation is about feeding the machine without starving it.
@@ -272,9 +244,7 @@ flowchart LR
 
 `Algorithm first` O(n²) → O(n log n) beats any micro-tuning. Good algorithm + good layout > clever assembly
 
-> Measuring frame rate by subtraction is not profiling. Under vsync, a frame that crosses 16.6 ms drops cleanly to the next interval, so FPS deltas hide the real cost. Use GPU timestamp queries.
-
----
+> FPS subtraction is not profiling: under vsync a frame crossing 16.6 ms drops to the next interval, hiding the real cost. Use GPU timestamps or RenderDoc
 
 ## 7. GPGPU and CUDA
 
@@ -357,8 +327,6 @@ __global__ void reduce(const float* in, float* out, int n) {
 
 `log2(blockDim)` levels. The `__syncthreads()` between levels is mandatory — without it a thread reads a slot another has not written. This is the building block of reductions, histograms and dot products.
 
----
-
 ## 8. How an emulator works
 
 An emulator makes a console program believe it runs on its original machine while it executes on a PC.
@@ -377,8 +345,6 @@ An emulator makes a console program believe it runs on its original machine whil
 **The rest of the system.** Emulate or reimplement the console's syscalls and BIOS/OS: `HLE` (high-level emulation — replace an OS function with a native implementation, fast) vs `LLE` (low-level — emulate the real firmware, exact but slow). Plus audio, timers, I/O.
 
 **Synchronisation.** CPU, GPU and audio must advance at the right relative rate or everything glitches — all of it at ≥ real speed, which is the whole performance challenge.
-
----
 
 ## 9. Exercise — heat equation on a surface
 
@@ -433,8 +399,6 @@ Sphere tracing advances by `SDF(P)` each step (it cannot overshoot). Bounding sp
 - **Why it was dropped here** too slow to converge for real time (16 samples × 64 steps was still very noisy, and temporal accumulation was not enough). Good for the value at _one_ point; to visualise the _whole_ surface, grid Jacobi is sharper and does not flicker
 
 `Multigrid` would accelerate convergence by solving coarse-to-fine, skipped for complexity
-
----
 
 ## 10. C++ refresher
 
@@ -508,39 +472,4 @@ std::unique_ptr<Backend> b = std::make_unique<VKBackend>();
 b->beginFrame();                          // resolved at runtime through the vtable
 ```
 
-Exactly the engine's pattern — `scene/` talks to an abstract `Backend` and `vulkan/` implements it. Go spells the same thing as an interface value with no vtable syntax; see `../ENGINE_FLOW.md` §4.
-
----
-
-## 11. Recall index
-
-The one-screen version of each deep-dive file — enough to start an answer, then the file for the rest.
-
-### BRDF and PBR → `PBR.md`
-
-$$L_o(\omega_o) = \int_{\mathcal{H}^2} f(\omega_o, \omega_i)\, L_i(\omega_i)\, |\cos\theta_i|\, d\omega_i$$
-
-All rendering — raster, ray tracing, path tracing — is a way of approximating that integral. `Radiance` W/(m²·sr), constant along a ray in vacuum, which is what makes ray tracing possible.
-
-- **BRDF must be** positive, Helmholtz-reciprocal, energy conserving
-- **Diffuse** `f = ρ/π`; the π comes from conservation
-- **Cook-Torrance** `f = DFG / (4 (n·ωo)(n·ωi))` — **D** (GGX) is the highlight's shape, **F** (Fresnel-Schlick) its colour and strength, **G** (Smith) the energy lost to masking/shadowing
-- **Fresnel-Schlick** `F = F0 + (1-F0)(1-cosθ)⁵`, evaluated on the **micronormal**, not `n`
-- **Metallic-roughness** `F0 = lerp(0.04, baseColor, metallic)`, `albedo = baseColor·(1-metallic)` — metals have no diffuse
-- **Traps** Fresnel on the micronormal; the π that appears and disappears with conventions; perceptual roughness vs `α = roughness²`
-
-### Ray vs path tracing → `RAYTRACING.md`
-
-Whitted (1980) bounces deterministically (mirror, refraction) → clean but no global illumination. Path tracing (1986) bounces randomly according to the BRDF → full GI, noise falling as `1/√N`. Path tracing _is_ ray tracing; the reverse is not true. "Ray tracing" in games means partial path tracing plus aggressive denoising.
-
-### OpenGL → `OPENGL.md`
-
-A giant state machine with a driver hiding memory, sync and state. `VBO` vertices, `EBO` indices, `VAO` the attribute configuration. MVP: `clip = P · V · M · local`, matrices read right to left, and there is no camera — the view matrix moves the world the other way. Normals need `mat3(transpose(inverse(model)))`.
-
-### Vulkan → `VULKAN.md`
-
-Everywhere Vulkan is verbose it is exposing what OpenGL did in secret. 1.3 baseline: `dynamicRendering`, `bufferDeviceAddress`, `descriptorIndexing`, `synchronization2`. Hierarchy: Instance → PhysicalDevice → Device → Queue, Swapchain, CommandPool, Pipeline, sync objects. Three sync primitives: **fence** (GPU→CPU), **semaphore** (GPU→GPU), **barrier** (ordering and layout transitions inside a command buffer). `vkCmd*` records, it does not execute.
-
-### Linear algebra → `ALGEBRA.md`
-
-A matrix is a transformation, its **columns are where the basis vectors land**. Product = composition, applied right to left. Determinant = area/volume scale factor; 0 means collapsed and non-invertible. Eigenvector stays on its own line. Quaternions encode axis + angle as `(cos(θ/2), â sin(θ/2))`, rotate by the sandwich `q v q⁻¹`, and avoid gimbal lock.
+The engine's pattern: `scene/` talks to an abstract `Backend`, `vulkan/` implements it. Go spells it as an interface value (`../RENDERER.md` §1).
