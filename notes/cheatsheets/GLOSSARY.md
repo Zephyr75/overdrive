@@ -64,7 +64,7 @@ the backend contract, `cheatsheets/VULKAN.md` for the general object model,
 | `push constant` | a tiny block of bytes sent straight with a draw, no buffer needed. 32 bytes here, holding four BDAs |
 | `descriptor` | a handle to a resource, as the shader sees it. A pointer plus the metadata to interpret it |
 | `descriptor set` | a bound group of descriptors. This engine has exactly one, built at startup and rebound once per frame |
-| `bindless` | descriptors as an array the shader indexes at runtime (`textures2D[DRAW.tex]`), instead of rebinding per draw |
+| `bindless` | descriptors as an array the shader indexes at runtime (`textures2D[pc.draw.texDiffuse]`), instead of rebinding per draw |
 | `hot slot` | this engine's opt-out from bindless: 4 dedicated descriptors indexed by a **literal**, because some drivers re-fetch a dynamically indexed descriptor on every tap |
 | `slot` | the index a resource occupies in a bindless array. `Slot(Handle)` is the whole handle→shader translation |
 

@@ -67,8 +67,8 @@ BRDF:
 
 ### Shadows — one atlas, one lookup, with PCF (Percentage-Closer Filtering)
 
-Driven by `Scene.BakeShadows` (`scene/shadowatlas.go`), in one depth pass before
-the main pass. **Every shadow in the scene is a sub-rect of one 4096² depth
+Baked by `RenderStaticBakes` / `RenderDynamicBakes` (`scene/shadowatlas.go`), in the
+two atlas passes `core/app.go` opens before the main pass. **Every shadow in the scene is a sub-rect of one 4096² depth
 texture**, and the tile is selected by viewport rather than by binding a
 different image:
 
@@ -133,6 +133,25 @@ the scene scale changes. Alternatives if this needs revisiting:
   one that would cover a flat surface which legitimately must cast. It scales the
   bias by the depth gradient, which is exactly the quantity that blows up at
   grazing incidence. Not bound in `go-vulkan` yet
+
+#### How PCF works
+
+A shadow map answers lit or shadowed per texel, so a raw lookup gives a hard,
+blocky edge. PCF compares the fragment's depth against several neighbouring
+texels and averages the yes/no answers, so a fragment near an edge comes out
+partly shadowed. It filters the *comparisons*, not the depths, which is why the
+atlas sampler is `FilterNearest`: the shader does the blending itself.
+
+The chain, from config to pixel:
+
+- `[shadows] pcf` (`"full"` / `"cheap"`) → `settings.ShadowPCF`
+- `Light.shadowTile` writes `Flags` bit 1 for cheap, and `PCFStep = 1 / tileSize`,
+  one texel in tile uv (`texelSize` in the shader)
+- `shadowLookup` projects the fragment into its tile and picks the atlas from
+  `flags & 1`; `pcfTile` takes the taps; `tileSample` clamps each tap one texel
+  inside the tile, so the kernel never reads a neighbouring light's tile
+- The bake widens every cube face and spot cone by two texels, so the clamped
+  edge texels still hold real depth
 
 #### Early-bail PCF
 
@@ -296,7 +315,7 @@ rather than by brightness, which is why the six spots are near-primaries.
 
 #### `Mesh.CastsShadow` — the acne fix that is not a bias
 
-A mesh with `<castsShadow>false</castsShadow>` is skipped by `BakeShadows`.
+A mesh with `<castsShadow>false</castsShadow>` is skipped by `bakeLight`.
 Default true; the exporter writes it only when Blender's own "Shadow" ray
 visibility is off.
 
@@ -307,7 +326,7 @@ chance to shade against itself — and at the grazing angles a high light gives 
 large plane, the depth gradient across one texel dwarfs any constant or
 normal-offset bias. That is acne over the entire surface.
 
-This was found the expensive way. `BakeShadows` originally set `CullFront` for
+This was found the expensive way. The bake originally set `CullFront` for
 the 2D tiles only, so cube faces baked `CullBack` and the ground went into every
 point light's map. With one point light casting it was a slight darkening nobody
 noticed; with every light casting, the showcase rendered **almost black** — which
@@ -344,7 +363,7 @@ Two things about the image that are not obvious when reading it:
   against 1. A range that shows the sun renders every spot tile white.
 - **A tile's depth looks plausible whatever rect the record claims**, so a rect
   bug shows up only by holding the tile positions in the image against the
-  `AtlasCoords` in the `ShadowRecord` array.
+  `AtlasCoords` in the `ShadowTile` array.
 
 ### Two scenes, and why the showcase is not enough
 
@@ -472,9 +491,9 @@ stall. `main.go` currently passes a nil widget, so only the debug crosshair draw
 
 ### Depth prepass — shade each visible pixel once
 
-`[renderer] depthPrepass`, on by default. `Scene.RunDepthPrepass` opens a pass of
-its own — a depth attachment and no colour — and draws every mesh through
-`prepass.slang` (position in, empty fragment stage), filling the backbuffer's
+`[renderer] depthPrepass`, on by default. `core/app.go` opens a pass of its own
+— a depth attachment and no colour — and `Scene.RenderDepth` draws every mesh
+through `prepass.slang` (position in, empty fragment stage), filling the backbuffer's
 depth with the nearest surface per pixel. The main pass then keeps that depth (its
 depth `Attachment.Clear` is nil, so it loads) and the forward pipeline is built
 with `CompareEqual`, so only the frontmost fragment survives to run `fsMain`.
@@ -504,7 +523,7 @@ ambient-occlusion work also wants this depth buffer.
 
 **`EQUAL` is unforgiving, and that shaped the code.** `prepass.slang` cannot
 reuse `depth.slang`: that one projects through a single premultiplied
-`BAKE.worldToTile`, while `forward.slang:20` does
+`pc.bake.worldToTile`, while `forward.slang:18` does
 `mul(projection, mul(view, float4(fragPos, 1.0)))` with `fragPos` already
 through `model`. Same value mathematically, different associativity, different
 rounding — and `EQUAL` compares bits, so the difference shows as speckle along
@@ -541,6 +560,20 @@ end of the main pass. The request is clamped to
 `framebufferColor/DepthSampleCounts`, so an unsupported 8× steps down to 4×
 rather than failing device-side; 1 and 4 are guaranteed by the spec.
 
+**How it works.** Each pixel stores N samples (4 at 4×): N colours and N depths,
+at fixed points *inside* the pixel, not neighbours. The rasteriser tests coverage
+and depth at every sample, but the fragment shader runs **once per pixel per
+triangle** and its colour fills the samples that triangle covers. Inside a
+surface all N samples match and compress; on an edge they split between the two
+triangles, and the resolve averages them into a blended pixel. That is the
+difference from rendering at 4× resolution (supersampling), which runs the full
+shader 4 times per pixel everywhere.
+
+The sample count is fixed at image creation because it is a storage property:
+an MSAA image holds N values per pixel. Only the two screen images in
+`core/targets.go` are multisampled; everything a shader samples is created at 1,
+since a multisampled texture cannot be filtered.
+
 MSAA rather than a post-process filter because it needs no new pass and no new
 render target: FXAA or TAA would mean rendering the scene offscreen, which
 `PassSpec.Color []Attachment` plus `Depth` now expresses — nothing structural is
@@ -569,7 +602,7 @@ bake pass never run. Per-frame shadow cost goes to zero and movers cast nothing.
 
 `pcf = "cheap"` keeps the four corner taps and drops the 3×3 refinement, so a
 penumbra quantises to quarters rather than ninths. It reaches the shader on
-`ShadowRecord.Flags` **bit 1** rather than through a struct field — `Flags` had
+`ShadowTile.Flags` **bit 1** rather than through a struct field — `Flags` had
 31 spare bits, so the knob cost no layout risk, and it is per-tile for free
 should a tier ever want to spend fewer taps on a small slot than a large one.
 
@@ -615,7 +648,7 @@ a single skybox sample.
 - Render the main pass into a colour image instead of the swapchain.
   `CreateImage(ImageSpec{Format: FormatRGBA16F, Usage: UsageSampled |
   UsageColorAttachment})` is all it takes now — the half-float binding landed
-  with `go-vulkan` batch 1, and `Caps().Formats(FormatRGBA16F)` probes the device
+  with `go-vulkan` batch 1, and `Capacities().Formats(FormatRGBA16F)` probes the device
   rather than assuming. **Nothing under `vulkan/` has to change**, which is the
   point: `INTERFACE_PLAN.md` §6 nominates this as the proof of that
 - Add a fullscreen post pass: bright-pass plus separable Gaussian blur for bloom,
@@ -641,7 +674,7 @@ Smaller items, all of them deliberate for now:
 
 | Gap                                                                          | Where                                                                        |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| No cascades: the sun is one 2048 ortho tile over a hardcoded [-10, 10] box  | `Light.shadowRecord` in `scene/shadowatlas.go`                                |
+| No cascades: the sun is one 2048 ortho tile over a hardcoded [-10, 10] box  | `Light.shadowTile` in `scene/shadowatlas.go`                                  |
 | A static re-bake redraws every allocated tile, not the slots that changed   | `Scene.UpdateShadows` — a tile with no caster in frustum writes nothing      |
 | The score ignores whether a light is on screen at all                       | `lightScore` — the cluster gate is Part G                                    |
 | `MaxLights` is a fixed 64, and the score ignores what is off screen         | both are `tmp/CLUSTERED_FORWARD.md`, the one deferred part                   |
@@ -683,7 +716,7 @@ same reads rode the constant cache for free, which is how the cliff was spotted 
 it dropped Vulkan a whole vsync interval.) The fix was to hoist them into a local
 `MatParams` struct once at the top of `fsMain` and pass it into the light
 functions. This is structural, not light-count dependent, and it is why the
-per-light loop never reads material data through `FRAME` / `DRAW` directly.
+per-light loop never reads material data through `pc.frame` / `pc.draw` directly.
 
 **A deliberate non-fix, now moot.** Making the cube sampler a descriptor _array_
 (`shadowCubeMap[slot]`) reintroduced the dynamic-index cost on Intel's ANV

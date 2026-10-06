@@ -144,7 +144,6 @@ func (ovl *overlay) draw(frame renderer.Frame, pass renderer.Pass, app App, widg
 	// The overlay is an ordinary mesh with an ordinary material, so it needs no
 	// special draw path — only a texture slot and an identity transform
 	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4(), TexDiffuse: ovl.slot}
-	var push [4]renderer.Address
-	push[scene.PushDraw] = frame.Upload(&uniforms)
+	push := scene.DrawOnlyAddressArray(frame.Upload(&uniforms))
 	pass.Draw(renderer.DrawCall{Pipeline: ovl.pipeline, Mesh: ovl.mesh, Push: push})
 }

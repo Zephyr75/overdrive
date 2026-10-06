@@ -7,19 +7,29 @@ import (
 	"github.com/Zephyr75/overdrive/settings"
 )
 
-// Where each block's address sits in a draw's push constant, matching the
-// PushConstants struct in shaders/slang/common.slang. The backend pushes four
-// opaque words; these names are the only thing that gives them meaning
-const (
+// The blocks a draw's shaders can reach. The backend pushes four opaque words;
+// this struct and words() are the only thing that gives them meaning
+type pushBlocks struct {
 	// Camera and lights, shared by the whole pass
-	PushFrame = iota
+	frame renderer.Address
 	// This object's position and material
-	PushDraw
+	draw renderer.Address
 	// The list of shadow tiles the lights sample
-	PushRecords
+	records renderer.Address
 	// The one shadow tile being baked right now
-	PushBake
-)
+	bake renderer.Address
+}
+
+// The four addresses the backend pushes, in the order of PushConstants in
+// shaders/slang/common.slang
+func (blocks pushBlocks) toAddressArray() [4]renderer.Address {
+	return [4]renderer.Address{blocks.frame, blocks.draw, blocks.records, blocks.bake}
+}
+
+// The push addresses of a draw that reads only its draw block, for the UI overlay
+func DrawOnlyAddressArray(draw renderer.Address) [4]renderer.Address {
+	return pushBlocks{draw: draw}.toAddressArray()
+}
 
 // Bytes per vertex of each stream the engine draws
 const (
@@ -165,13 +175,13 @@ type drawContext struct {
 	pass renderer.Pass
 	// The shader setup every draw uses
 	pipeline renderer.PipelineHandle
-	// The template note: shared slots filled once, the draw slot per draw
-	push [4]renderer.Address
+	// The template note: shared blocks filled once, the draw block per draw
+	push pushBlocks
 }
 
 // Uploads this draw's block and records the draw
 func (ctx *drawContext) draw(mesh renderer.MeshHandle, uniforms *renderer.DrawUniforms) {
 	push := ctx.push
-	push[PushDraw] = ctx.frame.Upload(uniforms)
-	ctx.pass.Draw(renderer.DrawCall{Pipeline: ctx.pipeline, Mesh: mesh, Push: push})
+	push.draw = ctx.frame.Upload(uniforms)
+	ctx.pass.Draw(renderer.DrawCall{Pipeline: ctx.pipeline, Mesh: mesh, Push: push.toAddressArray()})
 }

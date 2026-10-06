@@ -147,7 +147,7 @@ Two completely separate paths, and the split is forced rather than chosen.
 ```mermaid
 graph LR
     subgraph BDA["buffer device address"]
-        U["FrameUniforms 4760 B<br/>BakeUniforms 80 B<br/>DrawUniforms 128 B<br/>ShadowTile[] 96 B each"] --> RG["per-frame arena<br/>2 MiB, mapped"]
+        U["FrameUniforms 4760 B<br/>BakeUniforms 80 B<br/>DrawUniforms 100 B<br/>ShadowTile[] 96 B each"] --> RG["per-frame arena<br/>2 MiB, mapped"]
         RG --> PC["push constant<br/>4 × 64-bit address"]
     end
     subgraph DESC["descriptors"]
@@ -172,11 +172,12 @@ without containing the word.
 
 They are split by **update frequency**, which is the whole reason it is cheap:
 
-- `FrameUniforms` — camera, lights, atlas handles — published **once per pass**
+- `FrameUniforms` — camera, lights, skybox slot — uploaded **once per frame**
 - `DrawUniforms` — model matrix, material — sent **once per draw**
-- `ShadowRecord[]` — one per shadow tile — published **once per frame**
+- `ShadowTile[]` — one per shadow tile — uploaded **once per frame**
+- `BakeUniforms` — the tile a depth pass is baking — uploaded **once per tile**
 
-So a draw costs one 128-byte memcpy plus a 24-byte push. Before the split, all
+So a draw costs one 100-byte memcpy plus a 32-byte push. Before the split, all
 1.3 KB went out on every draw.
 
 The records are a pointer rather than a member of `FrameUniforms` for one
@@ -206,7 +207,7 @@ One set, four bindings, bound **once per frame**:
 | 2       | storage images — bindless                | 64       |
 | 3       | "hot" sampled 2D — dedicated             | 4        |
 
-"Bindless" means the shader indexes an array: `textures2D[DRAW.texOurTexture]`.
+"Bindless" means the shader indexes an array: `textures2D[pc.draw.texDiffuse]`.
 `Backend.Slot(handle)` translates a handle into a slot index on the CPU and the
 caller writes that integer into its own uniform block. **The shader never
 receives a descriptor — it receives an int.** Slots are reclaimed when a resource

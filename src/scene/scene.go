@@ -206,7 +206,7 @@ func (scene *Scene) RenderDepth(frame renderer.Frame, pass renderer.Pass, pipes 
 	frameAddr renderer.Address) { 
 
 	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Prepass}
-	ctx.push[PushFrame] = frameAddr
+	ctx.push.frame = frameAddr
 
 	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4()}
 	for i := range scene.Meshes {
@@ -219,8 +219,8 @@ func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes 
 	frameAddr, recordAddr renderer.Address) { 
 
 	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Forward}
-	ctx.push[PushFrame] = frameAddr
-	ctx.push[PushRecords] = recordAddr
+	ctx.push.frame = frameAddr
+	ctx.push.records = recordAddr
 
 	// Static mesh geometry is baked into the OBJ vertices, so the model matrix
 	// is identity and only the material fields vary between draws

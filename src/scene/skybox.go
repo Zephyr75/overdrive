@@ -116,7 +116,7 @@ func (scene *Scene) RenderSkybox(frame renderer.Frame, pass renderer.Pass, pipes
 		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
 
 	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Skybox}
-	ctx.push[PushFrame] = frame.Upload(&sky)
+	ctx.push.frame = frame.Upload(&sky)
 
 	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4()}
 	ctx.draw(scene.Skybox.mesh, &uniforms)

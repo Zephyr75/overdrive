@@ -78,11 +78,8 @@ type BakeUniforms struct {
 // Transform and material of one face group: uploaded once per draw
 type DrawUniforms struct {
 	Model        mgl32.Mat4
-	MatAmbient   [3]float32
-	MatShininess float32
 	MatDiffuse   [3]float32
 	MatMetallic  float32
-	MatSpecular  [3]float32
 	MatRoughness float32
 	MatAo        float32
 	TexDiffuse   int32 // 2D slot : 0 is the backend's white pixel
@@ -104,7 +101,7 @@ func init() {
 	if unsafe.Sizeof(ShadowTile{}) != 96 {
 		panic("renderer.ShadowTile no longer matches common.slang")
 	}
-	if unsafe.Sizeof(DrawUniforms{}) != 128 {
+	if unsafe.Sizeof(DrawUniforms{}) != 100 {
 		panic("renderer.DrawUniforms no longer matches common.slang")
 	}
 }

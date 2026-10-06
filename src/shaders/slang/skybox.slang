@@ -1,22 +1,21 @@
 #include "common.slang"
 
 struct VSOut {
-    float4 position : SV_Position;
-    float3 texCoords : TEXCOORD0;
+  float4 position : SV_Position;
+  float3 texCoords : TEXCOORD0;
 };
 
 [shader("vertex")]
 VSOut vsMain(float3 aPos) {
-    VSOut o;
-    o.texCoords = aPos;
-    float4 pos = mul(FRAME.projection, mul(FRAME.view, float4(aPos, 1.0)));
-    // z = w puts the skybox at max depth in both GL and Vulkan ranges
-    // So no TO_VK_DEPTH remap is needed here
-    o.position = pos.xyww;
-    return o;
+  VSOut o;
+  o.texCoords = aPos;
+  float4 pos = mul(pushConstants.frame.projection, mul(pushConstants.frame.view, float4(aPos, 1.0)));
+  // z = w puts the sky on the far plane, so no TO_VK_DEPTH
+  o.position = pos.xyww;
+  return o;
 }
 
 [shader("fragment")]
 float4 fsMain(VSOut i) : SV_Target {
-    return TEX_SKYBOX.Sample(i.texCoords);
+  return TEX_SKYBOX.Sample(i.texCoords);
 }

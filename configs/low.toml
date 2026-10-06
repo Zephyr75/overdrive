@@ -1,16 +1,5 @@
-# go run . -config configs/low.toml
-#
-# The low tier: one code path, one scene, an integrated GPU. Everything here is
-# a value the default file also has — there is no separate low-end code, which is
-# the whole point of the quality tiers.
-#
-# What it gives up, in order of what it buys back:
-#   - the dynamic shadow atlas, so a moving object casts no shadow at all
-#   - three quarters of the shadow texels, so every tile is half as sharp
-#   - the 3x3 PCF refinement, so a penumbra quantises to quarters
-#   - MSAA and anisotropy
-# The light budget is untouched: the same 337 slots, so the same number of
-# lights still cast.
+# Low tier for integrated GPUs: go run . -config configs/low.toml
+# Same code and light budget as the default, only cheaper values
 
 [window]
 width = 1920
@@ -18,20 +7,17 @@ height = 1080
 
 [renderer]
 backend = "vulkan"
-# Kept on: the prepass costs one cheap geometry pass and saves the light loop on
-# every overdrawn fragment, which is the trade an integrated GPU wants most
+# Kept on: it saves more shading than it costs
 depthPrepass = true
 
 [shadows]
-# A quarter of the texels of the default. The slot rows below are unchanged, so
-# the layout rescales rather than losing slots: same light budget, half the
-# resolution each. forward.slang's normal-offset bias scales with this
+# Half the side of the default: every shadow half as sharp, same slot count
 atlasSize = 2048
 slotDivisors = [2, 8, 16, 32]
 slotCounts = [1, 16, 64, 256]
 tierScores = [0.50, 0.20, 0.08]
 
-# The low-end switch. No second atlas, no per-frame copy, no per-frame bake
+# No moving shadows, so no per-frame shadow work
 dynamicAtlas = false
 bakeBudgetMiB = 0
 

@@ -7,11 +7,8 @@ import (
 )
 
 type Material struct {
-	Alpha     float32
-	Ambient   mgl32.Vec3
-	Diffuse   mgl32.Vec3
-	Specular  mgl32.Vec3
-	Shininess float32
+	Alpha   float32
+	Diffuse mgl32.Vec3
 
 	// Metallic-roughness PBR scalars consumed by forward.slang's Cook-Torrance
 	// BRDF. Diffuse doubles as the base colour / albedo.

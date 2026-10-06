@@ -175,14 +175,14 @@ func (vkFrame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass))
 	width, height := 0, 0
 	color := make([]vk.RenderingAttachmentInfo, 0, len(spec.Color))
 	for _, attachment := range spec.Color {
-		att, attachWidth, attachHeight := backend.buildColorAttachment(commandBuffer, attachment)
-		if att.ImageView == 0 {
+		attachment, attachmentWidth, attachmentHeight := backend.buildColorAttachment(commandBuffer, attachment)
+		if attachment.ImageView == 0 {
 			continue
 		} // ignore unused attachment
 		if width == 0 {
-			width, height = attachWidth, attachHeight
+			width, height = attachmentWidth, attachmentHeight
 		} // use first attachment’s size
-		color = append(color, att)
+		color = append(color, attachment)
 	}
 
 	// Prepare the optional depth attachment
@@ -190,7 +190,7 @@ func (vkFrame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass))
 	if spec.Depth != nil {
 		view, img, attachWidth, attachHeight, _ := backend.view(spec.Depth.View)
 		if view != 0 {
-			backend.recordUseImage(commandBuffer, img, useDepthAttach)
+			backend.recordUseImage(commandBuffer, img, useDepthAttachment)
 			att := vk.RenderingAttachmentInfo{
 				ImageView:   view,
 				ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
@@ -297,7 +297,7 @@ func (backend *VKBackend) buildColorAttachment(commandBuffer vk.CommandBuffer, a
 	if view == 0 {
 		return vk.RenderingAttachmentInfo{}, 0, 0
 	}
-	backend.recordUseImage(commandBuffer, img, useColorAttach)
+	backend.recordUseImage(commandBuffer, img, useColorAttachment)
 
 	vkAttachmentInfo := vk.RenderingAttachmentInfo{
 		ImageView:   view,
@@ -324,7 +324,7 @@ func (backend *VKBackend) buildColorAttachment(commandBuffer vk.CommandBuffer, a
 			resolveView, resolvedImage, _, _, _ = backend.view(resolve)
 		}
 		if resolveView != 0 {
-			backend.recordUseImage(commandBuffer, resolvedImage, useColorAttach)
+			backend.recordUseImage(commandBuffer, resolvedImage, useColorAttachment)
 			vkAttachmentInfo.ResolveImageView = resolveView
 			vkAttachmentInfo.ResolveImageLayout = vk.ImageLayoutColorAttachmentOptimal
 			vkAttachmentInfo.ResolveMode = vk.ResolveModeAverage

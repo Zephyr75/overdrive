@@ -14,8 +14,8 @@ const (
 	useSampled
 	// A buffer read through a device address: no layout, every shader stage
 	useShaderRead
-	useColorAttach
-	useDepthAttach
+	useColorAttachment
+	useDepthAttachment
 	useCopySrc
 	useCopyDst
 	useStorage
@@ -24,9 +24,6 @@ const (
 )
 
 // The layout, stage and access one use implies
-//
-// The layout column applies to images only: a buffer has no layout, so a buffer
-// barrier reads the other two columns and ignores it.
 type useInfo struct {
 	layout vk.ImageLayout
 	stage  vk.PipelineStageFlags2
@@ -40,8 +37,8 @@ var useTable = [...]useInfo{
 	useNone:        {vk.ImageLayoutUndefined, vk.PipelineStage2None, vk.Access2None, false},
 	useSampled:     {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderSampledRead, false},
 	useShaderRead:  {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2VertexShader | vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderRead | vk.Access2ShaderStorageRead, false},
-	useColorAttach: {vk.ImageLayoutColorAttachmentOptimal, vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite, true},
-	useDepthAttach: {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite, true},
+	useColorAttachment: {vk.ImageLayoutColorAttachmentOptimal, vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite, true},
+	useDepthAttachment: {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite, true},
 	useCopySrc:     {vk.ImageLayoutTransferSrcOptimal, vk.PipelineStage2Transfer, vk.Access2TransferRead, false},
 	useCopyDst:     {vk.ImageLayoutTransferDstOptimal, vk.PipelineStage2Transfer, vk.Access2TransferWrite, true},
 	useStorage:     {vk.ImageLayoutGeneral, vk.PipelineStage2ComputeShader, vk.Access2ShaderStorageRead | vk.Access2ShaderStorageWrite, true},

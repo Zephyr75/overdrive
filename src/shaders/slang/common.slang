@@ -1,14 +1,7 @@
 // Shared declarations for every Overdrive shader
-//
-// build_shaders.sh compiles this to SPIR-V: BDA push constant + bindless arrays
-//
-// The uniform data is split by update frequency: FrameUniforms once per pass,
-// DrawUniforms once per draw. The backend memcpys both into a host-visible arena
-// and pushes their device addresses, with no marshalling — Slang's scalar
-// layout and Go's struct packing agree field for field
+// Every struct mirrors renderer/uniforms.go field for field: keep the order identical
 
-// Slang has no matrix inverse intrinsic, so here is the adjugate/det one
-// Used to build the normal matrix transpose(inverse(mat3(model)))
+// Slang has no 3x3 inverse, needed for the normal matrix
 float3x3 inverse3(float3x3 m) {
   float a00 = m[0][0], a01 = m[0][1], a02 = m[0][2];
   float a10 = m[1][0], a11 = m[1][1], a12 = m[1][2];
@@ -29,123 +22,76 @@ float3x3 inverse3(float3x3 m) {
   return r;
 }
 
-// 72 bytes, mirrored field for field by renderer.LightData
-//
-// The last four members are read by nothing yet; they are the layout the
-// lighting plan needs, grouped so the struct is disturbed once
+// 72 bytes, renderer.LightData
 struct LightData {
   float3 color;
   float intensity;
-  // position is read by point and spot lights, direction by sun and spot
   float3 position;
   float diffuse;
-  // Falloff is a fixed inverse square, so kConstant only keeps the
-  // denominator off zero at distance zero
   float3 direction;
+  // Keeps the inverse-square falloff off zero at distance zero
   float kConstant;
   // Spot cone cosines, inner then outer
   float cutoff;
   float outerCutoff;
-  // shadowIndex points into the record array, shadowCount says how many
-  // consecutive records this light owns; -1 when it casts nothing
   float radius;
+  // First record in the record array and how many follow, -1 when unshadowed
   int shadowIndex;
   int shadowCount;
-  int type; // 0 = directional, 1 = point, 2 = spot
+  int type;
 };
 
-// Keep in sync with LightSun/LightPoint/LightSpot in renderer/uniforms.go
+// Keep in sync with renderer/uniforms.go
 #define LIGHT_SUN 0
-#define LIGHT_POINT 1
 #define LIGHT_SPOT 2
-
-// Keep in sync with MaxLights in renderer/uniforms.go
 #define MAX_LIGHTS 64
 
-// 96 bytes, mirrored field for field by renderer.ShadowRecord
-//
-// One record per shadow tile: a sun or spot owns one, a point light six
-// consecutive ones starting at its shadowIndex. lightSpace both bakes the tile
-// and samples it, so the two cannot disagree
+// 96 bytes, renderer.ShadowRecord: one per tile, six in a row for a point light
 struct ShadowRecord {
+  // Bakes the tile and samples it, so the two cannot disagree
   float4x4 lightSpace;
-  // uv offset.xy, uv scale.xy: tile-local uv maps to atlas uv through it
+  // xy offset, zw scale: tile uv to atlas uv
   float4 atlasRect;
-  // 1 / tile pixels, so the PCF step is taken in tile-local uv
   float texelSize;
-  // Divides a cube face's radial depth, unused by a 2D tile
   float farPlane;
-  // 0..5 for a cube face, -1 for a 2D tile: also the depth encoding selector
+  // 0..5 for a cube face, -1 for a 2D tile
   int face;
-  // bit 0: sample the dynamic atlas rather than the static one
-  // bit 1: cheap PCF, the 4 corner taps without the 3x3 refinement
+  // bit 0: dynamic atlas, bit 1: cheap PCF
   int flags;
 };
 
-// The uniform data is split by how often it changes, not by what it describes
-//
-// FrameUniforms is written once per pass (three times a frame: two shadow bakes
-// and the main pass), DrawUniforms once per draw (~15 times a frame). Before
-// the split every draw re-sent all of it, ~1200 bytes of which never varied
-// between draws.
-//
-// LAYOUT: keep each struct's field order identical to renderer/uniforms.go, and
-// use only float/int scalars, vectors and matrices. Slang compiles with
-// -fvk-use-scalar-layout, and scalar layout packs exactly as Go packs a struct
-// of float32/int32 — so the two agree with no padding and no marshalling code,
-// as long as the order matches. Nothing else is required: no 16-byte cells, no
-// vec3-plus-scalar pairing, no vectors standing in for scalar arrays.
-
-// Camera and lights: uploaded once per pass
+// renderer.FrameUniforms: camera and lights, once per pass
 struct FrameUniforms {
   float4x4 view;
   float4x4 projection;
   float3 viewPos;
-  // Active lights in lights[], 0 to MAX_LIGHTS
   int lightCount;
   LightData lights[MAX_LIGHTS];
-  // Bindless texture-array slot, an index into texturesCube
   int texSkybox;
-  // Grows the shadow normal-offset bias when the atlas is smaller than the 4096
-  // its world-space constants were tuned at
+  // 4096 / atlasSize, widens the normal-offset bias on a smaller atlas
   float shadowNormalScale;
 };
 
-// 80 bytes, mirrored field for field by renderer.BakeUniforms
-//
-// The one tile a depth pass is baking. Its own block rather than three fields of
-// FrameUniforms: a bake uploads this per tile, and republishing the whole frame
-// block instead cost 4848 bytes a tile where this costs 80
+// 80 bytes, renderer.BakeUniforms: the tile a depth pass is baking
 struct BakeUniforms {
   float4x4 worldToTile;
   float3 lightPos;
   float farPlane;
 };
 
-// Transform and material of one face group: Update once per draw
+// 100 bytes, renderer.DrawUniforms: transform and material, once per draw
 struct DrawUniforms {
   float4x4 model;
-  // Metallic-roughness PBR scalars, matDiffuse is the base-colour tint
-  float3 matAmbient;
-  float matShininess;
   float3 matDiffuse;
   float matMetallic;
-  float3 matSpecular;
   float matRoughness;
   float matAo;
-  // Bindless texture-array slots, indices into textures2D
-  int texOurTexture;
+  int texDiffuse;
   int texNormalMap;
-  // 1 when the bound material has a normal map, 0 uses the geometric normal
   int useNormalMap;
 };
 
-// Four device addresses in a 32-byte push constant
-//
-// The backend pushes four opaque words and never looks inside them: which block
-// each slot points at is this declaration, and the caller fills the slots
-// positionally. A shader dereferences only the ones it needs — the main pass
-// leaves bake unset, a depth pass leaves frame and records unset
+// Four addresses in one push constant, in the order scene/pipelines.go fills them
 struct PushConstants {
   FrameUniforms *frame;
   DrawUniforms *draw;
@@ -153,38 +99,25 @@ struct PushConstants {
   BakeUniforms *bake;
 };
 [[vk::push_constant]]
-PushConstants pc;
+PushConstants pushConstants;
 
-// One bindless descriptor set, sampler2D[] at binding 0 and samplerCube[] at 1
+// Bindless arrays, indexed by the slots in the uniform blocks
 [[vk::binding(0, 0)]]
 Sampler2D textures2D[];
 [[vk::binding(1, 0)]]
 SamplerCube texturesCube[];
 
-// A short array of dedicated descriptors, for images tapped many times per
-// fragment. Binding 2 is the bindless storage-image array, which no shader reads
-// yet; binding 3 is this one
-//
-// Indexed by a literal, never by a value: Intel's Vulkan driver re-fetches a
-// dynamically indexed bindless descriptor on every tap, which cost ~1.7x the
-// frame time when the shadow atlases lived in textures2D. Which image is in
-// which slot is the scene's choice, declared through ImageSpec.HotSlot
+// Dedicated descriptors for the shadow atlases: index by a literal only,
+// a dynamic index made the frame ~1.7x slower
 [[vk::binding(3, 0)]]
 Sampler2D hotTextures[4];
 
-// The scene puts the static shadow atlas in hot slot 0 and the dynamic one in 1,
-// which is what ShadowRecord.flags bit 0 selects between
 #define HOT_SHADOW_STATIC (hotTextures[0])
 #define HOT_SHADOW_DYNAMIC (hotTextures[1])
 
-#define FRAME (pc.frame)
-#define DRAW (pc.draw)
-#define BAKE (pc.bake)
-#define RECORD(i) (pc.records[i])
-#define TEX_OUR (textures2D[DRAW.texOurTexture])
-#define TEX_NORMAL (textures2D[DRAW.texNormalMap])
-#define TEX_SKYBOX (texturesCube[FRAME.texSkybox])
+#define TEX_DIFFUSE (textures2D[pushConstants.draw.texDiffuse])
+#define TEX_NORMAL (textures2D[pushConstants.draw.texNormalMap])
+#define TEX_SKYBOX (texturesCube[pushConstants.frame.texSkybox])
 
-// The projection matrices built in scene/ are the OpenGL convention, giving
-// clip z in [-w, w]; Vulkan clips to [0, w], so every vertex stage remaps
+// Projections are OpenGL style, clip z in [-w, w]; Vulkan wants [0, w]
 #define TO_VK_DEPTH(pos) ((pos).z = ((pos).z + (pos).w) * 0.5)

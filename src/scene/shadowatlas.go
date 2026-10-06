@@ -791,7 +791,7 @@ func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pi
 					pipeline = pipes.DepthPoint
 				}
 				ctx = &drawContext{frame: frame, pass: pass, pipeline: pipeline}
-				ctx.push[PushBake] = frame.Upload(&bake)
+				ctx.push.bake = frame.Upload(&bake)
 				drawn++
 			}
 			mesh.draw(ctx, &uniforms)

@@ -52,7 +52,7 @@ Backend.Frame(func(f Frame) {
 | Method | What it does |
 | --- | --- |
 | `Init(window, Request)` | instance, device, allocator, swapchain, frames, descriptors, defaults |
-| `Caps()` | what the device can do, and which of `Request`'s features it granted |
+| `Capacities()` | what the device can do, and which of `Request`'s features it granted |
 | `Shutdown()` | waits idle, destroys everything in reverse order |
 
 ### Once per resource, at load time — 7 methods
@@ -131,7 +131,7 @@ vulkan/            the only package that may import vk.*
 | `image.go` | images, views, uploads |
 | `buffer.go` | buffers, meshes, readback |
 | `convert.go` | every engine enum translated into Vulkan's, plus `CreateSampler` |
-| `swapchain.go` | the swapchain and the two images sized to it |
+| `swapchain.go` | the swapchain, its image views and the sample-count pick |
 
 ---
 
@@ -145,7 +145,7 @@ vulkan/            the only package that may import vk.*
    instance (validation layers when `[debug] validation` is set, and
    `VK_EXT_debug_utils` when the loader has it) → the label entry points →
    physical device, queue family, logical device →
-   VMA allocator → sample count → swapchain, depth and MSAA images →
+   VMA allocator → sample count → swapchain →
    command pool → per-frame data (command buffer, fence, semaphore, 2 MiB mapped
    arena) → the default sampler → the descriptor set →
    the global pipeline layout → the white pixel and black cube → `Caps`.
@@ -179,10 +179,16 @@ Backend.Frame(func(f) {
     f.Upload(&frameUniforms)      once — the prepass and the forward pass share the address
     f.Upload(shadowTiles)         once — a variable-length array, so it is a pointer
 
-    s.BakeShadows                 the static atlas pass, when allocation moved
-                                  a Copy per dirty dynamic tile
-                                  the dynamic atlas pass
-    s.RunDepthPrepass             depth only, no colour attachment
+    f.Pass("shadowStatic", …) {   only when s.HasStaticBakes: it clears the atlas
+        s.RenderStaticBakes
+    }
+    s.CopyDynamicTiles            a Copy per dirty dynamic tile, from the static atlas
+    f.Pass("shadowDynamic", …) {  only when s.HasDynamicBakes: loads, draws over the copies
+        s.RenderDynamicBakes
+    }
+    f.Pass("depthPrepass", …) {   depth only, no colour attachment
+        s.RenderDepth
+    }
 
     f.Pass("main", …) {           the only pass that clears colour
         s.RenderSkybox            its own uploaded block, view translation stripped
@@ -216,10 +222,10 @@ them in.
 ### 4.1 Lifecycle
 
 `Init(window, Request) error` brings up the whole device stack. `Request` names
-optional features; `Caps().Features` reports what was actually granted, which is
+optional features; `Capacities().Features` reports what was actually granted, which is
 not always what was asked for, and that is the fork a caller branches on.
 
-`Caps()` also carries `MaxAnisotropy`, the supported `SampleCounts`,
+`Capacities()` also carries `MaxAnisotropy`, the supported `SampleCounts`,
 `BackbufferSamples` (what a pipeline drawn on the screen has to match) and
 `Formats(Format) bool`, which probes the device rather than assuming.
 
@@ -268,7 +274,7 @@ those are the two things with an address Go will hand out.
 FrameUniforms   4760 bytes   camera + 64 lights + the skybox slot   once per pass
 BakeUniforms      80 bytes   the one tile a depth pass is baking    once per tile
 ShadowTile        96 bytes   one shadow tile                        an array, once per frame
-DrawUniforms     128 bytes   model matrix + material                once per draw
+DrawUniforms     100 bytes   model matrix + material                once per draw
 ```
 
 They mirror `shaders/slang/common.slang` field for field. That works because
@@ -309,8 +315,8 @@ One 32-byte range, four device addresses, positional:
 2  records   ShadowRecord*      3  bake   BakeUniforms*
 ```
 
-`scene.PushFrame` … `scene.PushBake` are the only names that give them meaning;
-the backend pushes four opaque words. A shader dereferences only the slots it
+`scene`'s `pushBlocks` struct names them, and its `words()` lays them out in
+this order; the backend pushes four opaque words. A shader dereferences only the slots it
 declares — the main pass leaves `bake` unset, a depth pass leaves `frame` and
 `records` unset.
 
@@ -337,7 +343,7 @@ nine times per fragment — going bindless there cost ~1.7x the frame time. An
 image asks for it with `ImageSpec.Hot` and names which of the four with
 `HotSlot`, so the two sides agree on a number rather than on a creation order.
 The backend still never says "shadow"; `scene/shadowatlas.go` puts the static
-atlas in hot slot 0 and the dynamic one in 1, and `ShadowRecord.Flags` bit 0
+atlas in hot slot 0 and the dynamic one in 1, and `ShadowTile.Flags` bit 0
 picks between them.
 
 **Slots are reclaimable, and only through the retire queue.** `Destroy` retires
@@ -350,8 +356,8 @@ wrong pixels, not a validation error.
 
 `CreatePipeline(PipelineSpec)` bakes shaders, vertex layout, cull, winding, depth
 compare, depth write, blend, attachment formats and sample count into one object.
-`FormatBackbuffer` and `FormatBackbufferDepth` let a caller declare the screen's
-formats without knowing what the swapchain picked.
+`FormatBackbuffer` lets a caller declare the screen's colour format without
+knowing what the swapchain picked.
 
 Only the viewport and scissor stay dynamic state. The lazy
 `pipelines[pass][layout]` table is gone, and with it the inference that decided
@@ -477,20 +483,40 @@ therefore calls `TO_VK_DEPTH` from `common.slang`. Changing the projections
 instead would remove the macro — a cleanup, not a bug.
 
 **MSAA is a backbuffer-only property, and the backbuffer is the backend's.**
-`settings.MSAASamples` (1 = off) is read once at `Init`. The backend allocates a
-multisampled colour image plus a matching multisampled depth image; a pass that
-attaches the reserved `Backbuffer` view draws into the multisampled one and
-resolves into the swapchain image with `ResolveModeAverage`, which the caller
-never has to know. Offscreen images stay single-sampled unless their `ImageSpec`
+`settings.MSAASamples` (1 = off) is passed in `Request.Samples` at `Init`, and the
+backend reports what it settled on as `Capacities().BackbufferSamples`.
+`core/targets.go` then builds the multisampled colour image and the matching depth
+image at that count; the main pass draws into the colour one and resolves into
+the reserved `Backbuffer` view. Offscreen images stay single-sampled unless their `ImageSpec`
 asks otherwise — a later pass has to *sample* them, and these shaders cannot read
 a multisampled texture. A pipeline whose sample count disagrees with its pass's
 attachments is invalid, so a pipeline drawn on the screen takes
-`Caps().BackbufferSamples` and everything else takes 1.
+`Capacities().BackbufferSamples` and everything else takes 1.
 
-The reason the two backbuffer images are the backend's rather than the caller's
-is that only the backend sees a resize: `renderer.Backbuffer` and
-`renderer.BackbufferDepth` are reserved views, and `recreateSwapchain` rebuilds
-what they point at without anything above `renderer/` noticing.
+Only the swapchain is the backend's: `renderer.Backbuffer` is a reserved view,
+and `recreateSwapchain` rebuilds what it points at. The window-sized depth and
+MSAA images are the caller's, so `screenTargets.rebuildOnResize` polls the size
+back out of the backend at the top of every frame.
+
+**The backbuffer is split across two owners.** The swapchain is a ring of 2–3
+images the window system allocates; each frame borrows one (`AcquireNextImageKHR`
+sets `backend.imageIndex`), draws, and presents it. "The backbuffer" is whichever
+one is borrowed this frame, and `renderer.Backbuffer` is the fixed name for it.
+
+|                   | `backend.swapchainImages[i]`               | `screenTargets.color`                                 |
+| ----------------- | ------------------------------------------ | ----------------------------------------------------- |
+| How many          | 2–3, rotating                              | one, reused every frame, only when MSAA is on         |
+| Per pixel         | 1 colour: the finished frame               | N colours: the raw samples, before averaging          |
+| Contents live     | until presented                            | the main pass only (`StoreOp = DontCare`, transient)  |
+| Allocated by      | the window system (`vk.CreateSwapchainKHR`) | the engine (`CreateImage`, `core/targets.go`)         |
+| Seen by `core` as | `renderer.Backbuffer`, never directly      | a `renderer.ImageHandle` it owns                      |
+
+Nothing points one at the other. The main pass always draws into
+`screenTargets.color` with `Resolve: renderer.Backbuffer`, and the colour-attachment
+translation in `vulkan/frame.go` looks up `swapchainImages[imageIndex]` as the
+resolve target when the pass opens. The draw target is fixed and the resolve
+destination rotates. Without MSAA there is no `color` image, and the main pass
+draws straight into `renderer.Backbuffer`.
 
 **Outside a light's frustum reads unshadowed — and the sampler no longer says
 so.** `BorderColor = OpaqueWhiteFloat` gave that free while a shadow map was a
@@ -502,7 +528,7 @@ shadow. The border colour is now only a backstop.
 
 **The uniform struct is the contract.** `renderer/uniforms.go` has an `init`
 that panics if `LightData` stops being 72 bytes, `FrameUniforms` 4760,
-`BakeUniforms` 80, `ShadowTile` 96 or `DrawUniforms` 128. Field _order_ is what
+`BakeUniforms` 80, `ShadowTile` 96 or `DrawUniforms` 100. Field _order_ is what
 has to match, and the size panic does not check order — see §4.3 for how to
 verify it.
 
@@ -521,8 +547,8 @@ verify it.
 | A shadow pops coarse/sharp as the camera moves                        | `nextTierThreshold` in `scene/shadowatlas.go` — the 20% band is what stops a boundary score changing a light's ceiling every frame                                          |
 | Two shadows flicker against each other, neither camera nor light moving | `slotStickiness` — they are trading the last slot of a contended pool, each changing tile size or position frame to frame                                                  |
 | A whole slot size sits idle in the atlas while lights degrade          | the scene's light mix does not match `slotLayout`. Phase 1b should have re-offered the spare slots; if it did not, that is the bug. Otherwise retune the layout             |
-| The whole scene is near black, and bright with `[debug] noShadows` | Every light is self-shadowing. A single-sided plane baked into its own shadow map shades against itself, and acne over the whole plane reads as a scene with no lights. Set `<castsShadow>false</castsShadow>` on it — `Mesh.CastsShadow`, checked in `BakeShadows` |
-| A lit disc under a round object, its shadow starting a diameter away | Peter-panning. The bake is culling front faces somewhere, so the *far* surface of a closed caster is what landed in the map. `BakeShadows` must leave the cull mode at `CullBack` |
+| The whole scene is near black, and bright with `[debug] noShadows` | Every light is self-shadowing. A single-sided plane baked into its own shadow map shades against itself, and acne over the whole plane reads as a scene with no lights. Set `<castsShadow>false</castsShadow>` on it — `Mesh.CastsShadow`, checked in `bakeLight` |
+| A lit disc under a round object, its shadow starting a diameter away | Peter-panning. The bake is culling front faces somewhere, so the *far* surface of a closed caster is what landed in the map. The depth pipelines in `scene/pipelines.go` must keep `CullBack` |
 | A light is bright but casts nothing you can see                       | Usually placement, not code. A light needs to be well above its caster and off to one side, or the shadow lands where no visible ground catches it. Look at its tile in a capture: an empty tile means the bake saw nothing, a full tile means the shadow is off-screen |
 | Shadows from the wrong light, or a hairline crack at a cube-face edge | `forward.slang` `shadowLookup` — the tap clamp and the `+2 texel` FOV widening in `scene/shadowatlas.go` `cubeFaceFov` are what prevent each (`tmp/LIGHTING_PLAN.md` §4.2) |
 | A point shadow lands on the wrong face                                | `cubeFaceDirs` (`scene/shadowatlas.go`) and `cubeFace()` (`forward.slang`) are two lists that must agree                                                                    |
@@ -559,9 +585,7 @@ Instance                                          DestroyInstance
     ├── SwapchainKHR ─────────── sized to the window
     │   ├── swapImages[]          owned by the swapchain, never destroyed
     │   ├── swapViews[]           DestroyImageView          ┐
-    │   ├── renderSems[]          DestroySemaphore          │ destroySwapchain
-    │   ├── depthImage/View       VmaDestroyImage           │
-    │   └── msaaImage/View        VmaDestroyImage           ┘ only when MSAA is on
+    │   └── renderSems[]          DestroySemaphore          ┘ destroySwapchain
     │
     ├── CommandPool                                 DestroyCommandPool
     │   └── frames[2].cb          freed with the pool
@@ -587,16 +611,17 @@ Instance                                          DestroyInstance
         └── modules{}   shader modules, cached by "<set>.<stage>"
 ```
 
-`renderer.BackbufferImage` and the two reserved views are not in these tables:
-they name whichever swapchain image the frame acquired, plus the depth and MSAA
-images, all of which belong to the swapchain-sized class above.
+`renderer.Backbuffer` and `renderer.BackbufferImage` are not in these tables:
+they name whichever swapchain image the frame acquired. The window-sized depth
+and MSAA images are ordinary `images[]` entries that `core/targets.go` creates
+and destroys on resize.
 
 ### Five lifetime classes
 
 | Class                        | Objects                                                                                                   | Created                              | Destroyed                                                    |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------ |
 | **Permanent**                | instance, surface, device, allocator, command pool, descriptor pool/set/layout, pipeline layout | `Init`, once                  | `Shutdown`, reverse order                                    |
-| **Swapchain-sized**          | swapchain, image views, render semaphores, depth image + view, MSAA colour image + view                   | `createSwapchain`                    | `destroySwapchain` — **also on every resize**                |
+| **Swapchain-sized**          | swapchain, its image views, render semaphores                                                             | `createSwapchain`                    | `destroySwapchain` — **also on every resize**                |
 | **Per frame in flight** (×2) | command buffer, fence, acquire semaphore, uniform arena                                       | `createFrameData`                    | `Shutdown`                                                   |
 | **Per resource**             | shader modules, pipelines, images, views, buffers, meshes, samplers                                       | load time, on demand                 | `Destroy` (which retires) or `Shutdown`                      |
 | **Retired**                  | anything `Destroy` touched, and staging buffers replaced mid-frame                                        | `retire`                             | `drainRetired`, once `framesInFlight + 1` frames have passed |

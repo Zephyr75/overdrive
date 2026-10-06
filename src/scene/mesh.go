@@ -209,14 +209,8 @@ func parseMTL(path string) ([]Material, error) {
 		case "newmtl":
 			materials = append(materials, material)
 			material = newMaterial()
-		case "Ns":
-			material.Shininess = f32(fields, 1)
-		case "Ka":
-			material.Ambient = vec3(fields)
 		case "Kd":
 			material.Diffuse = vec3(fields)
-		case "Ks":
-			material.Specular = vec3(fields)
 		case "d":
 			material.Alpha = f32(fields, 1)
 		case "Pm": // MTL PBR extension: metalness
@@ -380,10 +374,7 @@ func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) {
 	for i := range mesh.indexGroups {
 		mat := mesh.Materials[i]
 
-		uniforms.MatAmbient = mat.Ambient
 		uniforms.MatDiffuse = mat.Diffuse
-		uniforms.MatSpecular = mat.Specular
-		uniforms.MatShininess = mat.Shininess
 		uniforms.MatMetallic = mat.Metallic
 		uniforms.MatRoughness = mat.Roughness
 		uniforms.MatAo = mat.Ao
