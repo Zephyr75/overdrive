@@ -107,7 +107,7 @@ A raw lookup answers lit or shadowed per texel, so edges are blocky. PCF compare
 
 ## 4. Depth prepass
 
-`[renderer] depthPrepass`, on by default. A depth-only pass draws every mesh through `prepass.slang` (no colour attachment, empty fragment stage); the main pass keeps that depth and the forward pipeline compares `EQUAL`, so `fsMain` runs once per pixel.
+Always on; `[debug] noPrepass` turns it off for comparison. A depth-only pass draws every mesh through `prepass.slang` (no colour attachment, empty fragment stage); the main pass keeps that depth and the forward pipeline compares `EQUAL`, so `fsMain` runs once per pixel.
 
 - **Why**: `fsMain` is the most expensive shader (up to 64 lights, each with Cook-Torrance and 4–13 PCF taps). Early-Z already rejects hidden fragments, but only against what has been drawn; the prepass gives exact per-pixel rejection with no sorting. It wins on depth complexity and shows no gain on the flat showcase, which is expected.
 - **`EQUAL` compares bits.** `prepass.slang` repeats `forward.slang`'s position maths operation for operation (not `depth.slang`'s premultiplied matrix, which rounds differently), and both passes read the same uploaded `FrameUniforms` address. Verified: prepass on and off differ in 6 pixels of 2.07 M.
@@ -226,11 +226,11 @@ Every runtime knob is in the TOML file; a bad value rejects the file (`settings.
 | Section | Keys |
 | --- | --- |
 | `[window]` | `width`, `height` |
-| `[renderer]` | `backend` (only `"vulkan"`), `depthPrepass` |
+| `[renderer]` | `backend` (only `"vulkan"`) |
 | `[shadows]` | `atlasSize`, `slotDivisors`/`slotCounts`, `tierScores`, `dynamicAtlas`, `bakeBudgetMiB`, `pcf`, `nearPlane`/`farPlane` |
 | `[antialiasing]` | `mode`, `samples` |
 | `[textures]` | `anisotropy` (does almost nothing until textures have mips) |
-| `[debug]` | `validation`, `lockCamera` (reproducible captures), `noShadows` (tells "too dark" from "wrongly shadowed") |
+| `[debug]` | `validation`, `lockCamera` (reproducible captures), `noShadows` (tells "too dark" from "wrongly shadowed"), `noPrepass` (checks the prepass renders like plain depth testing) |
 
 **`configs/low.toml`** is the low tier, with no low-end code path: atlas halved to 2048 (same 337 slots, half the sharpness each), `dynamicAtlas = false` (no per-frame shadow work, movers cast nothing), `pcf = "cheap"`, no MSAA, no anisotropy.
 

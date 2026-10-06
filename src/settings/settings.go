@@ -32,8 +32,6 @@ type Config struct {
 	Renderer struct {
 		// The graphics API: Vulkan is the only backend implemented so far
 		Backend string
-		// Draw depth first and shade only what survives, with an EQUAL depth test
-		DepthPrepass bool
 	}
 	// The shadow atlas, what it is carved into, and what a frame may spend rebuilding it
 	Shadows struct {
@@ -72,6 +70,8 @@ type Config struct {
 		LockCamera bool
 		// Light every light unshadowed, while still baking every tile
 		NoShadows bool
+		// Skip the depth prepass and depth-test the main pass with LESS, to check the two paths render alike
+		NoPrepass bool
 	}
 }
 
@@ -83,7 +83,6 @@ func defaults() Config {
 	var cfg Config
 	cfg.Window.Width, cfg.Window.Height = 1920, 1080
 	cfg.Renderer.Backend = "vulkan"
-	cfg.Renderer.DepthPrepass = true
 	cfg.Shadows.AtlasSize = 4096
 	cfg.Shadows.SlotDivisors = []int{2, 8, 16, 32}
 	cfg.Shadows.SlotCounts = []int{1, 16, 64, 256}

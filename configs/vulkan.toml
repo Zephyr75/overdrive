@@ -7,9 +7,6 @@ height = 1080
 [renderer]
 backend = "vulkan"
 
-# Draw depth first so each pixel is shaded once
-depthPrepass = true
-
 [shadows]
 # Atlas side in texels, a power of two from 1024 to 8192: bigger is sharper
 atlasSize = 4096
@@ -50,3 +47,6 @@ lockCamera = false
 
 # Render every light unshadowed, to tell "too dark" apart from "wrongly shadowed"
 noShadows = false
+
+# Skip the depth prepass, to check it renders the same as plain depth testing
+noPrepass = false

@@ -202,7 +202,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 
 			// Depth first, so the forward pass shades each visible fragment once
 			// rather than once per surface drawn over it
-			prepass := loadedScene != nil && settings.Current.Renderer.DepthPrepass
+			prepass := loadedScene != nil && !settings.Current.Debug.NoPrepass
 			if prepass {
 				frame.Pass(renderer.PassSpec{
 					Name:  "depthPrepass",

@@ -89,13 +89,13 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) {
 	// If a depth pre‑pass is enabled we want EQUAL so the forward shader
 	// runs only once per pixel; otherwise we use a normal less‑than.
 	forwardCompare := renderer.CompareLess
-	if settings.Current.Renderer.DepthPrepass {
+	if !settings.Current.Debug.NoPrepass {
 		forwardCompare = renderer.CompareEqual
 	}
 
 	// ---- forward pass ----------------------------------------------------
 	// Renders the world geometry with lighting. Uses the same depth comparison
-	// as the pre‑pass when DepthPrepass is true, otherwise it writes a normal
+	// as the pre‑pass unless [debug] noPrepass is set, otherwise it writes a normal
 	// depth value.
 	pipes.Forward, err = backend.CreatePipeline(renderer.PipelineSpec{
 		Name: "forward", Shader: "forward", Vertex: meshLayout,

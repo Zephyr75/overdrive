@@ -7,8 +7,6 @@ height = 1080
 
 [renderer]
 backend = "vulkan"
-# Kept on: it saves more shading than it costs
-depthPrepass = true
 
 [shadows]
 # Half the side of the default: every shadow half as sharp, same slot count
@@ -36,3 +34,4 @@ anisotropy = 1
 validation = false
 lockCamera = false
 noShadows = false
+noPrepass = false
