@@ -113,7 +113,7 @@ func (scene *Scene) RenderSkybox(frame renderer.Frame, pass renderer.Pass, pipes
 	view := mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
 	sky.View = view.Mat3().Mat4()
 	sky.Projection = mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov),
-		float32(settings.WindowWidth)/float32(settings.WindowHeight), 0.1, 100.0)
+		float32(settings.Current.Window.Width)/float32(settings.Current.Window.Height), 0.1, 100.0)
 
 	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Skybox}
 	ctx.push.frame = frame.Upload(&sky)

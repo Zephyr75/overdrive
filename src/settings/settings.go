@@ -9,35 +9,6 @@ const (
 	AAMSAA AAMode = "msaa"
 )
 
-var (
-	WindowWidth  int = 1920
-	WindowHeight int = 1080
-
-	// The graphics API: Vulkan is the only backend implemented so far
-	Backend string = "vulkan"
-
-	AntiAliasing AAMode = AAMSAA
-	// Samples per pixel when AntiAliasing is AAMSAA: 2, 4 or 8
-	MSAASamples int = 4
-
-	// Anisotropic filtering on material textures: 1 (off), 2, 4, 8 or 16.
-	// Lowered to the device limit at sampler creation rather than rejected
-	Anisotropy int = 8
-
-	// Draw depth first and shade only what survives, with an EQUAL depth test
-	DepthPrepass bool = true
-)
-
-// The [debug] section: switches that change how a run is inspected
-var (
-	// Vulkan validation layers. Costs frame rate, reports API misuse
-	Validation bool = false
-	// Freeze the camera on start to allow reproducible captures
-	LockCamera bool = false
-	// Light every light unshadowed, while still baking every tile
-	NoShadows bool = false
-)
-
 // PCF quality: how many taps a shadow lookup spends
 type PCFQuality string
 
@@ -51,57 +22,101 @@ const (
 // The atlas size the shadow bias constants in forward.slang were tuned at
 const shadowReferenceAtlas = 4096
 
-// The [shadows] section: the shadow atlas, what it is carved into, and what a
-// frame may spend rebuilding it
-var (
-	// Side of the one shadow atlas, in texels. A power of two, 1024 to 8192
-	ShadowAtlasSize int = 4096
+// The shape of a settings file, one struct per TOML section
+type Config struct {
+	Window struct {
+		// Updated on resize by input.FramebufferSizeCallback
+		Width  int
+		Height int
+	}
+	Renderer struct {
+		// The graphics API: Vulkan is the only backend implemented so far
+		Backend string
+		// Draw depth first and shade only what survives, with an EQUAL depth test
+		DepthPrepass bool
+	}
+	// The shadow atlas, what it is carved into, and what a frame may spend rebuilding it
+	Shadows struct {
+		// Side of the one shadow atlas, in texels. A power of two, 1024 to 8192
+		AtlasSize int
+		// Slot row i has slots of AtlasSize / SlotDivisors[i], SlotCounts[i] of them
+		SlotDivisors []int
+		SlotCounts   []int
+		// The score (radius / distance to camera) at which a light earns each row after the first, descending
+		TierScores []float32
+		// Build the second atlas, so a moving object casts a moving shadow
+		DynamicAtlas bool
+		// Dynamic shadow texels a frame may re-bake, in units of 2^20
+		BakeBudgetMiB int
+		// Taps a shadow lookup spends
+		PCF PCFQuality
+		// The near and far planes every shadow projection is built with
+		NearPlane float32
+		FarPlane  float32
+	}
+	AntiAliasing struct {
+		Mode AAMode
+		// Samples per pixel when Mode is AAMSAA: 1, 2, 4 or 8
+		Samples int
+	} `toml:"antialiasing"`
+	Textures struct {
+		// Anisotropic filtering on material textures: 1 (off), 2, 4, 8 or 16,
+		// lowered to the device limit at sampler creation
+		Anisotropy int
+	}
+	// Inspection switches, kept in the file so a run's whole configuration is readable from it
+	Debug struct {
+		// Vulkan validation layers. Costs frame rate, reports API misuse
+		Validation bool
+		// Freeze the camera on start to allow reproducible captures
+		LockCamera bool
+		// Light every light unshadowed, while still baking every tile
+		NoShadows bool
+	}
+}
 
-	// Slot i has size ShadowAtlasSize / ShadowSlotDivisors[i]
-	ShadowSlotDivisors []int = []int{2, 8, 16, 32}
-	// There are ShadowSlotCounts[i] slots of size i
-	ShadowSlotCounts []int = []int{1, 16, 64, 256}
+// The live settings: the defaults below until Load replaces them with a file
+var Current = defaults()
 
-	// The score (radius / distance to camera) at which a light earns each
-	// non-sun row above, descending. One per row after the first
-	ShadowTierScores []float32 = []float32{0.50, 0.20, 0.08}
-
-	// Build the second atlas, so a moving object casts a moving shadow.
-	// False is the low-end switch: every record falls back to the static atlas,
-	// movers cast nothing, and the per-frame shadow cost goes to zero
-	ShadowDynamicAtlas bool = true
-
-	// Texels, in MiB, a frame may spend rebuilding dynamic tiles. What does not
-	// fit waits, ranked by score, keeping the tile it already has
-	ShadowBakeBudgetMiB int = 8
-
-	// Taps a shadow lookup spends
-	ShadowPCF PCFQuality = PCFFull
-
-	// The near and far planes every shadow projection is built with
-	ShadowNearPlane float32 = 1.0
-	ShadowFarPlane  float32 = 50.0
-)
+// The value of every key a settings file leaves out
+func defaults() Config {
+	var cfg Config
+	cfg.Window.Width, cfg.Window.Height = 1920, 1080
+	cfg.Renderer.Backend = "vulkan"
+	cfg.Renderer.DepthPrepass = true
+	cfg.Shadows.AtlasSize = 4096
+	cfg.Shadows.SlotDivisors = []int{2, 8, 16, 32}
+	cfg.Shadows.SlotCounts = []int{1, 16, 64, 256}
+	cfg.Shadows.TierScores = []float32{0.50, 0.20, 0.08}
+	cfg.Shadows.DynamicAtlas = true
+	cfg.Shadows.BakeBudgetMiB = 8
+	cfg.Shadows.PCF = PCFFull
+	cfg.Shadows.NearPlane, cfg.Shadows.FarPlane = 1.0, 50.0
+	cfg.AntiAliasing.Mode = AAMSAA
+	cfg.AntiAliasing.Samples = 4
+	cfg.Textures.Anisotropy = 8
+	return cfg
+}
 
 // Reports whether material textures are sampled anisotropically, 1 meaning plain isotropic filtering
-func AnisotropyEnabled() bool { 
-	return Anisotropy > 1
+func AnisotropyEnabled() bool {
+	return Current.Textures.Anisotropy > 1
 }
 
 // Reports whether the backbuffer is multisampled
-func IsMSAAEnabled() bool { 
-	return AntiAliasing == AAMSAA && MSAASamples > 1
+func IsMSAAEnabled() bool {
+	return Current.AntiAliasing.Mode == AAMSAA && Current.AntiAliasing.Samples > 1
 }
 
 // Returns the combined resolution of dynamic shadow tiles a frame may spend rebuilding
-func ShadowBakeBudget() int { 
-	return ShadowBakeBudgetMiB << 20
+func ShadowBakeBudget() int {
+	return Current.Shadows.BakeBudgetMiB << 20
 }
 
 // Returns how much the shadow normal-offset bias must grow at this atlas size
 //
 // forward.slang's offsets are world-space constants tuned at 4096, so a smaller
 // atlas doubles a texel's world footprint and brings back the acne they hide
-func ShadowNormalScale() float32 { 
-	return float32(shadowReferenceAtlas) / float32(ShadowAtlasSize)
+func ShadowNormalScale() float32 {
+	return float32(shadowReferenceAtlas) / float32(Current.Shadows.AtlasSize)
 }

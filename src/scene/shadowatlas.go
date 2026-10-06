@@ -14,7 +14,7 @@ import (
 // shadowAtlas.reset and known good by then (settings.checkShadowAtlas rejects a
 // layout that cannot be carved). LIGHTING_PLAN.md §4.1 is the default partition
 var (
-	atlasSize = settings.ShadowAtlasSize
+	atlasSize = settings.Current.Shadows.AtlasSize
 	// The extremes of the slot layout, named so the layout and the allocator can
 	// size themselves off it
 	sunTileSize = atlasSize / 2  // the largest slot, and the sun's ceiling
@@ -38,8 +38,8 @@ var (
 
 // Rebuilds the layout tables from settings, before any slot is carved
 func loadLayoutSettings() { 
-	atlasSize = settings.ShadowAtlasSize
-	div, count := settings.ShadowSlotDivisors, settings.ShadowSlotCounts
+	atlasSize = settings.Current.Shadows.AtlasSize
+	div, count := settings.Current.Shadows.SlotDivisors, settings.Current.Shadows.SlotCounts
 
 	slotLayout = slotLayout[:0]
 	for i := range div {
@@ -49,7 +49,7 @@ func loadLayoutSettings() {
 	minTileSize = slotLayout[len(slotLayout)-1].size
 
 	shadowTiers = shadowTiers[:0]
-	for i, score := range settings.ShadowTierScores {
+	for i, score := range settings.Current.Shadows.TierScores {
 		shadowTiers = append(shadowTiers, struct {
 			minScore float32
 			size     int
@@ -561,7 +561,7 @@ func (scene *Scene) markDirtyTiles() ([]dynamicUpdate, bool) {
 		alloc.staticQueued, alloc.dynamicQueued = false, false
 
 		// Flag that the dynamic tile should be baked if the caster is moving
-		alloc.dynamicStudy = settings.ShadowDynamicAtlas && scene.movableCasterInRange(light)
+		alloc.dynamicStudy = settings.Current.Shadows.DynamicAtlas && scene.movableCasterInRange(light)
 
 		if !alloc.staticValid { 
 			runStatic = true 
@@ -667,7 +667,7 @@ func (light *Light) shadowTile(slot slot, size int, face, faces int, dynamic boo
 	}
 	// Bit 1 is the PCF quality, riding the same word rather than growing
 	// ShadowRecord: a per-tile knob for free, should a tier ever want one
-	if settings.ShadowPCF == settings.PCFCheap {
+	if settings.Current.Shadows.PCF == settings.PCFCheap {
 		flags |= 2
 	}
 	tile := renderer.ShadowTile{

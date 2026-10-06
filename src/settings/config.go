@@ -6,46 +6,11 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// Runtime inputs to use for the current execution
-type Config struct {
-	Window struct {
-		Width  int
-		Height int
-	}
-	Shadows struct {
-		AtlasSize     int
-		SlotDivisors  []int
-		SlotCounts    []int
-		TierScores    []float64
-		DynamicAtlas  bool
-		BakeBudgetMiB int
-		PCF           string
-		NearPlane     float64
-		FarPlane      float64
-	}
-	Renderer struct {
-		Backend      string
-		DepthPrepass bool
-	}
-	AntiAliasing struct {
-		Mode    string
-		Samples int
-	} `toml:"antialiasing"`
-	Textures struct {
-		Anisotropy int
-	}
-	// Inspection switches, not rendering ones. Kept in the file rather than in
-	// environment variables so a run's whole configuration is readable from it
-	Debug struct {
-		Validation bool
-		LockCamera bool
-		NoShadows  bool
-	}
-}
-
-// Loads a settings file over the defaults
-func Load(path string) error { 
-	cfg := loadDefaults()
+// Loads a settings file over the defaults, changing nothing if any key or value is wrong
+func Load(path string) error {
+	// Start from fresh defaults rather than a copy of Current, so the decoder
+	// never writes into slices Current still shares
+	cfg := defaults()
 
 	meta, err := toml.DecodeFile(path, &cfg)
 	if err != nil {
@@ -55,108 +20,54 @@ func Load(path string) error {
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		return fmt.Errorf("settings %s: unknown key %q", path, undecoded[0].String())
 	}
-	if err := apply(cfg); err != nil {
+	if err := validate(&cfg); err != nil {
 		return fmt.Errorf("settings %s: %w", path, err)
 	}
+	Current = cfg
 	return nil
 }
 
-// Returns the loadDefaults settings in Config form, which is what makes an absent key mean "keep the default"
-func loadDefaults() Config { 
-	var defaults Config
-	defaults.Window.Width, defaults.Window.Height = WindowWidth, WindowHeight
-	defaults.Shadows.AtlasSize = ShadowAtlasSize
-	defaults.Shadows.SlotDivisors = ShadowSlotDivisors
-	defaults.Shadows.SlotCounts = ShadowSlotCounts
-	defaults.Shadows.TierScores = make([]float64, len(ShadowTierScores))
-	for i, score := range ShadowTierScores {
-		defaults.Shadows.TierScores[i] = float64(score)
-	}
-	defaults.Shadows.DynamicAtlas = ShadowDynamicAtlas
-	defaults.Shadows.BakeBudgetMiB = ShadowBakeBudgetMiB
-	defaults.Shadows.PCF = string(ShadowPCF)
-	defaults.Shadows.NearPlane = float64(ShadowNearPlane)
-	defaults.Shadows.FarPlane = float64(ShadowFarPlane)
-	defaults.Renderer.Backend = Backend
-	defaults.Renderer.DepthPrepass = DepthPrepass
-	defaults.AntiAliasing.Mode = string(AntiAliasing)
-	defaults.AntiAliasing.Samples = MSAASamples
-	defaults.Textures.Anisotropy = Anisotropy
-	defaults.Debug.Validation = Validation
-	defaults.Debug.LockCamera = LockCamera
-	defaults.Debug.NoShadows = NoShadows
-	return defaults
-}
-
-// Validates a decoded config and writes it into the package variables, rejecting the whole file if any value is wrong
-func apply(cfg Config) error { 
+// Rejects any value the engine cannot use, normalising the backend name in place
+func validate(cfg *Config) error {
 	if cfg.Window.Width <= 0 || cfg.Window.Height <= 0 {
 		return fmt.Errorf("window resolution must be positive, got %dx%d", cfg.Window.Width, cfg.Window.Height)
 	}
 	if err := checkShadowAtlas(cfg); err != nil {
 		return err
 	}
-	pcf, err := normalisePCF(cfg.Shadows.PCF)
-	if err != nil {
+	if err := checkPCF(cfg.Shadows.PCF); err != nil {
 		return err
 	}
-
 	backend, err := normaliseBackend(cfg.Renderer.Backend)
 	if err != nil {
 		return err
 	}
-	mode, err := normaliseAAMode(cfg.AntiAliasing.Mode)
-	if err != nil {
+	cfg.Renderer.Backend = backend
+	if err := checkAAMode(cfg.AntiAliasing.Mode); err != nil {
 		return err
 	}
-	if mode == AAMSAA {
+	if cfg.AntiAliasing.Mode == AAMSAA {
 		if err := checkSamples(cfg.AntiAliasing.Samples); err != nil {
 			return err
 		}
 	}
-
-	if err := checkAnisotropy(cfg.Textures.Anisotropy); err != nil {
-		return err
-	}
-	WindowWidth, WindowHeight = cfg.Window.Width, cfg.Window.Height
-	ShadowAtlasSize = cfg.Shadows.AtlasSize
-	ShadowSlotDivisors, ShadowSlotCounts = cfg.Shadows.SlotDivisors, cfg.Shadows.SlotCounts
-	ShadowTierScores = make([]float32, len(cfg.Shadows.TierScores))
-	for i, score := range cfg.Shadows.TierScores {
-		ShadowTierScores[i] = float32(score)
-	}
-	ShadowDynamicAtlas = cfg.Shadows.DynamicAtlas
-	ShadowBakeBudgetMiB = cfg.Shadows.BakeBudgetMiB
-	ShadowPCF = pcf
-	ShadowNearPlane = float32(cfg.Shadows.NearPlane)
-	ShadowFarPlane = float32(cfg.Shadows.FarPlane)
-	Backend = backend
-	DepthPrepass = cfg.Renderer.DepthPrepass
-	AntiAliasing = mode
-	MSAASamples = cfg.AntiAliasing.Samples
-	Anisotropy = cfg.Textures.Anisotropy
-	Validation = cfg.Debug.Validation
-	LockCamera = cfg.Debug.LockCamera
-	NoShadows = cfg.Debug.NoShadows
-	return nil
+	return checkAnisotropy(cfg.Textures.Anisotropy)
 }
 
 // Accepts the PCF quality names
-func normalisePCF(name string) (PCFQuality, error) { 
-	switch PCFQuality(name) {
-	case PCFFull:
-		return PCFFull, nil
-	case PCFCheap:
-		return PCFCheap, nil
+func checkPCF(pcf PCFQuality) error {
+	switch pcf {
+	case PCFFull, PCFCheap:
+		return nil
 	}
-	return "", fmt.Errorf("unknown shadows.pcf %q, want \"full\" or \"cheap\"", name)
+	return fmt.Errorf("unknown shadows.pcf %q, want \"full\" or \"cheap\"", pcf)
 }
 
 // Rejects a shadow atlas or slot layout the allocator could not carve
 //
 // The only place that can: a layout that does not pack silently leaves every
 // light with ShadowIndex = -1 and the scene unshadowed
-func checkShadowAtlas(cfg Config) error { 
+func checkShadowAtlas(cfg *Config) error {
 	atlasSize := cfg.Shadows.AtlasSize
 	if atlasSize < 1024 || atlasSize > 8192 || atlasSize&(atlasSize-1) != 0 {
 		return fmt.Errorf("shadows.atlasSize must be a power of two from 1024 to 8192, got %d", atlasSize)
@@ -218,14 +129,12 @@ func normaliseBackend(name string) (string, error) {
 }
 
 // Accepts the anti-aliasing mode names
-func normaliseAAMode(mode string) (AAMode, error) { 
-	switch AAMode(mode) {
-	case AANone:
-		return AANone, nil
-	case AAMSAA:
-		return AAMSAA, nil
+func checkAAMode(mode AAMode) error {
+	switch mode {
+	case AANone, AAMSAA:
+		return nil
 	}
-	return "", fmt.Errorf("unknown antialiasing mode %q, want \"msaa\" or \"none\"", mode)
+	return fmt.Errorf("unknown antialiasing mode %q, want \"msaa\" or \"none\"", mode)
 }
 
 // Rejects sample counts not supported by the backend

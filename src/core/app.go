@@ -60,7 +60,7 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 	glfw.WindowHint(glfw.ClientAPI, glfw.NoAPI)
 
 	// Create the GLFW window with specified width, height, and title
-	window, err := glfw.CreateWindow(settings.WindowWidth, settings.WindowHeight, name, nil, nil)
+	window, err := glfw.CreateWindow(settings.Current.Window.Width, settings.Current.Window.Height, name, nil, nil)
 	if err != nil {
 		glfw.Terminate()
 	}
@@ -69,7 +69,7 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 	// Wire the input callbacks, falling back to the built-in handlers
 	window.SetFramebufferSizeCallback(input.FramebufferSizeCallback)
 	window.SetScrollCallback(input.ScrollCallback)
-	if !settings.LockCamera {
+	if !settings.Current.Debug.LockCamera {
 		if app.MouseCallback != nil {
 			window.SetCursorPosCallback(app.MouseCallback)
 		} else {
@@ -83,7 +83,7 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 	// here, not in the backend
 	samples := 1
 	if settings.IsMSAAEnabled() {
-		samples = settings.MSAASamples
+		samples = settings.Current.AntiAliasing.Samples
 	}
 
 	utils.HandleError(app.Backend.Init(window, renderer.Request{
@@ -147,7 +147,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 		loadedScene.UpdateMeshes()
 
 		// Process input before anything is recorded, so the camera is current
-		if settings.LockCamera {
+		if settings.Current.Debug.LockCamera {
 			// Nothing moves the camera
 		} else if app.InputHandler != nil {
 			app.InputHandler(app.Window, deltaTime)
@@ -163,7 +163,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 			if loadedScene != nil {
 				// Allocate this frame's tiles first: FillFrameUniforms copies each
 				// light's record index out of it, and the bake walks the same tiles
-				loadedScene.UpdateShadows(settings.ShadowNearPlane, settings.ShadowFarPlane)
+				loadedScene.UpdateShadows(settings.Current.Shadows.NearPlane, settings.Current.Shadows.FarPlane)
 				loadedScene.FillFrameUniforms(&frameUniforms)
 				reads = loadedScene.ShadowImages()
 			}
@@ -202,7 +202,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 
 			// Depth first, so the forward pass shades each visible fragment once
 			// rather than once per surface drawn over it
-			prepass := loadedScene != nil && settings.DepthPrepass
+			prepass := loadedScene != nil && settings.Current.Renderer.DepthPrepass
 			if prepass {
 				frame.Pass(renderer.PassSpec{
 					Name:  "depthPrepass",

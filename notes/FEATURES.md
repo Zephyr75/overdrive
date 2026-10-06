@@ -95,7 +95,7 @@ Capacity after a sun, everything at one tier:
 
 A raw lookup answers lit or shadowed per texel, so edges are blocky. PCF compares the fragment against several neighbouring texels and averages the yes/no answers. It filters the *comparisons*, not the depths, so the atlas sampler is `FilterNearest` and the shader blends.
 
-- `[shadows] pcf` → `settings.ShadowPCF` → `Flags` bit 1 when cheap, and `PCFStep = 1 / tileSize` (one texel, `texelSize` in the shader).
+- `[shadows] pcf` → `settings.Current.Shadows.PCF` → `Flags` bit 1 when cheap, and `PCFStep = 1 / tileSize` (one texel, `texelSize` in the shader).
 - **Early bail** (`pcfTile`): 4 corner taps first. If they agree (almost every fragment outside a penumbra) it returns at once; otherwise the full 3×3. `"cheap"` stops at the 4 corners, so a penumbra quantises to quarters.
 
 ### Test scenes and reading the atlas

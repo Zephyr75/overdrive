@@ -89,7 +89,7 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) {
 	// If a depth pre‑pass is enabled we want EQUAL so the forward shader
 	// runs only once per pixel; otherwise we use a normal less‑than.
 	forwardCompare := renderer.CompareLess
-	if settings.DepthPrepass {
+	if settings.Current.Renderer.DepthPrepass {
 		forwardCompare = renderer.CompareEqual
 	}
 

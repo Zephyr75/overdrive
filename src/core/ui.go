@@ -73,7 +73,7 @@ func newOverlay(backend renderer.Backend) (*overlay, error) {
 		return nil, err
 	}
 	ovl.pipeline = pass
-	ovl.resize(settings.WindowWidth, settings.WindowHeight)
+	ovl.resize(settings.Current.Window.Width, settings.Current.Window.Height)
 	return ovl, nil
 }
 
@@ -100,7 +100,7 @@ func (ovl *overlay) resize(width, height int) {
 // fullscreen quad, inside the main pass
 func (ovl *overlay) draw(frame renderer.Frame, pass renderer.Pass, app App, widget func(app App) ui.UIElement) { 
 	window := app.Window
-	ovl.resize(settings.WindowWidth, settings.WindowHeight)
+	ovl.resize(settings.Current.Window.Width, settings.Current.Window.Height)
 
 	img := image.NewRGBA(image.Rect(0, 0, ovl.width, ovl.height))
 	var instance ui.UIElement

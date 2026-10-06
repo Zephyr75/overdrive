@@ -25,7 +25,7 @@ func (shot *screenshot) record(backend renderer.Backend, frame renderer.Frame, n
 	if shot == nil || shot.taken || n != shot.frame {
 		return false
 	}
-	width, height := settings.WindowWidth, settings.WindowHeight
+	width, height := settings.Current.Window.Width, settings.Current.Window.Height
 	if shot.buffer == 0 {
 		shot.buffer, _ = backend.CreateBuffer(renderer.BufferSpec{
 			Name: "screenshot", Size: uint64(width * height * 4),
@@ -42,7 +42,7 @@ func (shot *screenshot) record(backend renderer.Backend, frame renderer.Frame, n
 // Reads the captured buffer back and writes it as a PNG, after the frame that
 // recorded the copy has been submitted
 func (shot *screenshot) write(backend renderer.Backend) error { 
-	width, height := settings.WindowWidth, settings.WindowHeight
+	width, height := settings.Current.Window.Width, settings.Current.Window.Height
 	pixels := backend.ReadBuffer(shot.buffer)
 	if len(pixels) < width*height*4 {
 		return fmt.Errorf("screenshot: read %d bytes, wanted %d", len(pixels), width*height*4)

@@ -14,8 +14,8 @@ import (
 
 var (
 	firstMouse bool    = true
-	lastX      float64 = float64(settings.WindowWidth) / 2.0
-	lastY      float64 = float64(settings.WindowHeight) / 2.0
+	lastX      float64 = float64(settings.Current.Window.Width) / 2.0
+	lastY      float64 = float64(settings.Current.Window.Height) / 2.0
 	s          *scene.Scene
 )
 
@@ -26,8 +26,8 @@ func SetScene(scene *scene.Scene) {
 
 // Records the new window size, which is all a resize needs because Backend.BeginPass sets the viewport per pass
 func FramebufferSizeCallback(window *glfw.Window, width int, height int) { 
-	settings.WindowWidth = width
-	settings.WindowHeight = height
+	settings.Current.Window.Width = width
+	settings.Current.Window.Height = height
 }
 
 // Turns mouse motion into camera yaw and pitch, clamped to ±89° to avoid a flipped up vector

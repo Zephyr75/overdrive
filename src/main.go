@@ -73,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	app := core.NewApp("Gutter", settings.WindowWidth, settings.WindowHeight, nil, nil)
+	app := core.NewApp("Gutter", settings.Current.Window.Width, settings.Current.Window.Height, nil, nil)
 	app.ScreenshotFile = *shot
 
 	scene, err := scene.NewScene(paths.Asset(*sceneName), app.Backend)

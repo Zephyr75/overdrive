@@ -179,7 +179,7 @@ func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error 
 func (backend *VKBackend) createInstance() error {
 	// Add validation layers if required to help catch misuse in driver API calls
 	var layers []string
-	if settings.Validation {
+	if settings.Current.Debug.Validation {
 		layers = append(layers, "VK_LAYER_KHRONOS_validation")
 	}
 
@@ -339,7 +339,7 @@ func (backend *VKBackend) createFrames() error {
 func (backend *VKBackend) createDefaultSampler() { 
 	anisotropy := float32(0)
 	if settings.AnisotropyEnabled() {
-		anisotropy = float32(settings.Anisotropy)
+		anisotropy = float32(settings.Current.Textures.Anisotropy)
 	}
 	sampler, err := vk.CreateSampler(backend.vkDevice, vk.SamplerCreateInfo{
 		MagFilter: vk.FilterLinear, MinFilter: vk.FilterLinear,
