@@ -1,61 +1,96 @@
 # TODO — the working list
 
-> **Scope** small, concrete open items. Anything needing a paragraph of reasoning lives in `FEATURES.md` §9.
+> **Scope** small, concrete open items, split by priority. Anything needing a paragraph of reasoning lives in `FEATURES.md` §9.
 >
 > `[ ]` open · `[~]` started · `[-]` dropped on purpose
 
 ---
 
-## Engine
+## Now — a clean engine for tiny games
 
-- [ ] Fix Gutter on Overdrive: `main.go` still calls `App.Run` with a nil widget
-- [ ] Clustered forward: removes the fixed `MaxLights = 64` and stops a light behind the camera scoring like one in front
-- [ ] Proper box colliders (only sphere and plane exist)
+The goal: build small games quickly on proper shadows, clean image quality, basic PBR shading, a working UI and base physics, with objects placed and moved from Blender.
+
+### Transforms and Blender export
+
+Today the OBJ is exported in world space, `<rotation>` is written but ignored, scale is not exported, and a move rebuilds and re-uploads every vertex on the CPU (`Mesh.updateVertices`).
+
+- [ ] Export each OBJ in **local space** (no object transform applied) and write position, rotation and scale to the XML
+- [ ] Give each mesh a model matrix built from position/rotation/scale, sent in `DrawUniforms.Model` (the shaders already multiply by it)
+- [ ] `MoveTo` / `MoveBy` (and a new rotate) update the matrix only, no vertex re-upload; drop `initialPosition` and the per-move buffer rewrite
+- [ ] Bake and cull shadows with the transformed bounds (`boundsCenter`, `casterInRange`), and keep a moved mesh dirtying its dynamic tiles
+- [ ] Check the normal matrix (`inverse3` in `forward.slang`) under rotation and non-uniform scale
+- [ ] Re-export `showcase.xml` and `stress.xml`, and compare with `-screenshot` before and after
+
+### Physics
+
+- [ ] Build colliders from the mesh's bounds and transform instead of raw vertices (`NewSphereFromMesh` takes vertex 0's distance to the position)
+- [ ] Box colliders (only sphere and plane exist)
+- [ ] Mark a mesh's collider type and static/dynamic in Blender, exported to the XML
+- [ ] Physics bodies drive the mesh's model matrix, rotation included
 - [ ] Verlet distance constraints
-- [ ] Audio support
 
-## Backend
+### UI
 
-- [ ] **Vulkan-native clip space**: build projections y-flipped with `[0, 1]` depth, then delete `TO_VK_DEPTH`, the negative-height viewport and the atlas passes' `WindingClockwise`
-- [ ] Reverse-Z, once the above lands
-- [ ] Bind `ReloadPipelines` (shader hot reload) to a key or a file watcher
-- [ ] Ray queries: `go-vulkan` acceleration-structure bindings, then `CreateAccel`/`BuildAccel` and their specs
-- [ ] **Prove the stack**: HDR + tonemap + bloom built entirely in `scene/` or a new `effects/` package, touching nothing under `vulkan/`
-- [ ] Score physical devices instead of taking `devices[0]`
-- [ ] Split `BufferCopyDst`'s second meaning ("the CPU reads this back", which picks cached memory in `vulkan/buffer.go`) into a `Readback` flag
+- [ ] Fix Gutter on Overdrive: `main.go` still calls `App.Run` with a nil widget, so only the crosshair draws
 
-## Rendering
+### Shadows
 
-- [ ] Post-process AA (FXAA/TAA): needs the scene rendered offscreen, which `PassSpec` already expresses
-- [ ] HDR + tonemapping + bloom: `FormatRGBA16F` exists and `Capacities().Formats` probes it; a mip chain of views plus `BlendAdd` is all bloom needs
+- [ ] **Sun shadows that follow the camera**: the sun's tile covers a fixed `Ortho(-10, 10, -10, 10)` box around the origin. Fit it to the view frustum, then cascades if one tile is not sharp enough
+- [ ] A moving light dirties its own tiles (nothing moves a light yet; a game will)
+- [ ] Slope-scaled depth bias, for walls and floors that must cast (needs `vkCmdSetDepthBias` in `go-vulkan`)
+
+### Image quality
+
+- [ ] **Mipmaps**: textures shimmer at a distance, and anisotropy does nothing without them. `go-vulkan` has the blit format-feature flags but no `CmdBlitImage` function. Needed:
+  - [ ] Bind `vkCmdBlitImage` + `VkImageBlit` in `go-vulkan`
+  - [ ] A mip count on `ImageSpec`, passed as `MipLevels` in `vulkan/image.go` and covered by views and barriers (all hardcoded to level 0 today)
+  - [ ] Generate the chain after upload (`floor(log2(max(w, h))) + 1` levels, one blit per level, the 6-layer cubemap path included)
+  - [ ] The skybox sampler's `MaxLod` following the chain (the default sampler already allows 16)
+- [ ] Alpha cutout (foliage, fences): stays in the prepass, but `prepass.slang` must `discard` exactly like `forward.slang` or `EQUAL` speckles
+
+### Housekeeping
+
+- [ ] A first test: `shadowAtlas.allocate` is pure CPU logic over `[]Light`
+- [ ] Rename `[shadows] bakeBudgetMiB`: it counts texels in units of 2^20, not memory
+- [ ] Remove the shadow sampler's white border (`scene/shadowatlas.go`): `shadowLookup` returns before sampling outside a tile, so it is never reached
+
+---
+
+## Later — cool, not needed now
+
+### Rendering
+
+- [ ] Texture-driven PBR: metallic, roughness and AO maps
+- [ ] Real IBL: irradiance cubemap, prefiltered specular mips, BRDF LUT
+- [ ] HDR + tonemapping + bloom, built entirely outside `vulkan/` (the test of the interface)
+- [ ] Post-process AA (FXAA/TAA), for specular and normal-map shimmer MSAA cannot fix
 - [ ] Ambient occlusion (SSAO), reading the prepass depth
-- [ ] Blending / transparency: a second pipeline drawn after the opaque `EQUAL` batch, skipped in `Scene.RenderDepth`, `CompareLess`, no depth write, sorted back to front. `Material.Alpha` is parsed but never reaches `DrawUniforms`
-- [ ] Alpha cutout: stays in the prepass, but `prepass.slang` must `discard` exactly like `forward.slang` or `EQUAL` speckles
+- [ ] Blending / transparency: a pass after the opaque `EQUAL` batch, `CompareLess`, no depth write, sorted back to front; `Material.Alpha` has to reach `DrawUniforms`
+- [ ] Clustered forward: removes the 64-light cap and the score's blindness to off-screen lights
 - [ ] Instancing
-- [~] **Mipmaps**, which is what makes anisotropy pay off. `go-vulkan` has `CmdBlitImage` and the linear-filter format probe; still needed:
-  - [ ] Mip count on texture upload (`floor(log2(max(w, h))) + 1`), the 6-layer cubemap path included, plus `GenerateMips` and the mip-range barrier back
-  - [ ] The material sampler's `MaxLod` following the chain length
-- [ ] Shadow cascades for the sun (one 2048 tile today)
-- [ ] Slope-scaled depth bias, for a flat surface that must cast
-- [ ] Ray-traced shadows (`FEATURES.md` §9)
+- [ ] Ray-traced shadows through ray queries (acceleration-structure bindings in `go-vulkan` first)
 - [ ] Ray marching for basic shapes and clouds
 - [ ] Geometry shader for fur
 
-## Tooling and tests
+### Backend
 
-- [ ] **Any test at all**: there is not one `_test.go`. Start with `shadowAtlas.allocate`, pure CPU logic over `[]Light`
-- [~] Image regression test: `go run . -screenshot out.png` writes frame 90, nothing compares two runs yet
-- [ ] Rename `[shadows] bakeBudgetMiB`: it counts texels in units of 2^20, not memory
-- [ ] Remove the shadow sampler's white border (`scene/shadowatlas.go`): `shadowLookup` returns before sampling outside a tile, so it is never reached
-- [-] GPU timestamp queries: built, then deleted unused; RenderDoc profiles per pass
-- [-] Debug object names and the validation messenger: validation output comes from a `VK_LAYER_SETTINGS_PATH` file instead (`CLAUDE.md`)
+- [ ] Vulkan-native clip space: y-flipped `[0, 1]` projections, then delete `TO_VK_DEPTH`, the negative-height viewport and the atlas passes' `WindingClockwise`
+- [ ] Reverse-Z, once the above lands
+- [ ] Bind `ReloadPipelines` (shader hot reload) to a key or a file watcher
+- [ ] Score physical devices instead of taking `devices[0]`
+- [ ] Split `BufferCopyDst`'s second meaning ("the CPU reads this back") into a `Readback` flag
+- [ ] Image regression test comparing two `-screenshot` runs automatically
 
-## Shading experiments
+### Engine
+
+- [ ] Audio
+
+### Shading experiments
 
 - [ ] Glass shader (needs transparency)
 - [ ] Watercolor shader: [reference](https://x.com/TheMirzaBeig/status/2016702324576579644), [Blender version](https://www.reddit.com/r/blender/comments/1hcfb8x/realtime_watercolor_shader_in_blender/)
 
-## Procedural / world
+### Procedural / world
 
 - [ ] Wave Function Collapse
 - [ ] Noise terrain
@@ -63,6 +98,13 @@
 - [ ] Isotropic remeshing
 - [ ] Navmesh
 - [ ] Bezier paths
+
+---
+
+## Dropped
+
+- [-] GPU timestamp queries: built, then deleted unused; RenderDoc profiles per pass
+- [-] Debug object names and the validation messenger: validation output comes from a `VK_LAYER_SETTINGS_PATH` file instead (`CLAUDE.md`)
 
 ## Reference
 
