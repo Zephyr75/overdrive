@@ -64,7 +64,7 @@ func (sphere *Sphere2) Collider() physics.Collider { return sphere.Sphere }
 func main() { 
 	// Must load before NewApp, which is where the window and backend read them
 	configName := flag.String("config", "vulkan.toml", "settings file: a bare name resolves under configs/, a path is used as given")
-	sceneName := flag.String("scene", "showcase.xml", "scene file, resolved under assets/")
+	sceneName := flag.String("scene", "showcase/showcase.xml", "scene file, resolved under assets/")
 	shot := flag.String("screenshot", "", "write one PNG of the rendered frame to this path, then quit")
 	flag.Parse()
 	// A bad settings file is the user's mistake, not a crash, so it gets a line

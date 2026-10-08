@@ -1,0 +1,42 @@
+<?xml version="1.0" ?>
+<scene>
+	<camera name="Camera">
+		<type>persp</type>
+		<position>-0.8712259531021118,-1.867217779159546,0.5624567866325378</position>
+		<front>0.3559640645980835,0.915347695350647,-0.18822431564331055</front>
+		<up>0.06822196394205093,0.1754256784915924,0.9821261167526245</up>
+		<yaw>-21.250277498587725</yaw>
+		<pitch>79.1508207438032</pitch>
+		<fov>39.597755335771296</fov>
+	</camera>
+	<mesh name="Football">
+		<position>-0.21678990125656128,0.11758199334144592,0.35354432463645935</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Football.obj</obj>
+		<mtl>Football.mtl</mtl>
+	</mesh>
+	<mesh name="Floor">
+		<position>-9.537912593905582e-17,0.0,0.0</position>
+		<rotation>0.0,0.0,0.0</rotation>
+		<obj>Floor.obj</obj>
+		<mtl>Floor.mtl</mtl>
+	</mesh>
+	<mesh name="Wall">
+		<position>1.7987892099890801e-16,1.0221836566925049,0.23588047921657562</position>
+		<rotation>-1.5707963705062866,-2.220446049250313e-16,2.220446049250313e-16</rotation>
+		<obj>Wall.obj</obj>
+		<mtl>Wall.mtl</mtl>
+	</mesh>
+	<mesh name="Plank">
+		<position>-0.23142299056053162,0.11570439487695694,0.13360391557216644</position>
+		<rotation>2.0785378751497774e-08,0.5235987305641174,-0.5235986709594727</rotation>
+		<obj>Plank.obj</obj>
+		<mtl>Plank.mtl</mtl>
+	</mesh>
+	<mesh name="Suzanne">
+		<position>-0.41206711530685425,0.11865060776472092,0.06329013407230377</position>
+		<rotation>-0.6108652353286743,-1.2735955631180138e-16,4.015631001699928e-17</rotation>
+		<obj>Suzanne.obj</obj>
+		<mtl>Suzanne.mtl</mtl>
+	</mesh>
+</scene>

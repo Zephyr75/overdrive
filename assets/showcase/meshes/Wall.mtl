@@ -1,0 +1,13 @@
+# Blender 5.2.0 LTS MTL File: 'showcase.blend'
+# www.blender.org
+
+newmtl stacked_brick_wall
+Ka 1.000000 1.000000 1.000000
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 2
+map_Kd /home/zeph/GitHub/overdrive/assets/showcase/stacked_brick_wall_4k.blend/textures/stacked_brick_wall_diff_4k.jpg
+map_Ns /home/zeph/GitHub/overdrive/assets/showcase/stacked_brick_wall_4k.blend/textures/stacked_brick_wall_rough_4k.exr
+map_Bump -bm 1.000000 /home/zeph/GitHub/overdrive/assets/showcase/stacked_brick_wall_4k.blend/textures/stacked_brick_wall_nor_gl_4k.exr
