@@ -37,7 +37,7 @@ const (
 	meshStride = 8 * 4
 	// position(3): the skybox cube
 	positionStride = 3 * 4
-	// clip-space position(3) | uv(2): the UI overlay
+	// unit-quad position(3) | uv(2): the UI overlay
 	overlayStride = 5 * 4
 )
 

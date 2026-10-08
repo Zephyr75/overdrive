@@ -4,6 +4,8 @@ import (
 	"go-vulkan/vk"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
+
+	"github.com/Zephyr75/overdrive/settings"
 )
 
 // The swapchain alone. Everything else sized to the window — the depth buffer,
@@ -26,10 +28,24 @@ func (backend *VKBackend) createSwapchain() error {
 	}
 	backend.vkSwapExtent = vkSwapExtent
 
+	presentMode, err := backend.pickPresentMode()
+	if err != nil {
+		return err
+	}
+	// Mailbox replaces a queued image rather than waiting for it, which needs
+	// one image beyond the minimum to have somewhere to render meanwhile
+	imageCount := capabilities.MinImageCount
+	if presentMode != vk.PresentModeFifoKHR {
+		imageCount++
+		if capabilities.MaxImageCount > 0 {
+			imageCount = min(imageCount, capabilities.MaxImageCount)
+		}
+	}
+
 	// Create swapchain with provided parameters
 	backend.vkSwapchainCI = vk.SwapchainCreateInfo{
 		Surface:       backend.vkSurface,
-		MinImageCount: capabilities.MinImageCount,
+		MinImageCount: imageCount,
 		ImageFormat:   backend.vkSwapFormat,
 		// Use SRGB non-linear for correct color space
 		ImageColorSpace: vk.ColorSpaceSrgbNonlinearKHR,
@@ -39,8 +55,7 @@ func (backend *VKBackend) createSwapchain() error {
 		PreTransform: vk.SurfaceTransformIdentityKHR,
 		// No blending with window system
 		CompositeAlpha: vk.CompositeAlphaOpaqueKHR,
-		// FIFO present mode is always supported and provides v-sync
-		PresentMode: vk.PresentModeFifoKHR,
+		PresentMode:    presentMode,
 	}
 	swapchain, err := vk.CreateSwapchainKHR(backend.vkDevice, backend.vkSwapchainCI)
 	if err != nil {
@@ -144,4 +159,25 @@ func (backend *VKBackend) recreateSwapchain() {
 	// Destroy old swapchain and create a new one that matches the new size
 	backend.destroySwapchain()
 	fatalVk(backend.createSwapchain(), "recreate swapchain")
+}
+
+// FIFO waits for the display's refresh and is the only mode every driver has.
+// With vsync off, mailbox renders uncapped without tearing and immediate
+// uncapped with it; whichever the surface lists first, in that order
+func (backend *VKBackend) pickPresentMode() (vk.PresentMode, error) {
+	if settings.Current.Window.VSync {
+		return vk.PresentModeFifoKHR, nil
+	}
+	modes, err := vk.GetPhysicalDeviceSurfacePresentModesKHR(backend.vkPhysDevice, backend.vkSurface)
+	if err != nil {
+		return 0, err
+	}
+	for _, want := range []vk.PresentMode{vk.PresentModeMailboxKHR, vk.PresentModeImmediateKHR} {
+		for _, mode := range modes {
+			if mode == want {
+				return mode, nil
+			}
+		}
+	}
+	return vk.PresentModeFifoKHR, nil
 }

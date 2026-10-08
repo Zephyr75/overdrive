@@ -1,9 +1,6 @@
 package core
 
 import (
-	"image"
-
-	"github.com/disintegration/imaging"
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"github.com/go-gl/mathgl/mgl32"
@@ -11,39 +8,48 @@ import (
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/scene"
-	"github.com/Zephyr75/overdrive/settings"
 )
 
-// The overlay's geometry: two triangles in clip space, position(3) | uv(2), so
-// it draws like any other mesh
+// The overlay's geometry: a unit quad, position(3) | uv(2), with uv equal to
+// position. Each gutter Cmd stretches it onto its rect through the model matrix
 var quadVertices = []float32{
-	-1, 1, 0, 0, 1,
-	-1, -1, 0, 0, 0,
+	0, 0, 0, 0, 0,
+	1, 0, 0, 1, 0,
 	1, 1, 0, 1, 1,
 
+	0, 0, 0, 0, 0,
 	1, 1, 0, 1, 1,
-	-1, -1, 0, 0, 0,
-	1, -1, 0, 1, 0,
+	0, 1, 0, 0, 1,
 }
 
-// Everything the UI overlay owns on the GPU, plus the hover state that decides
-// whether the widget tree is rasterised again this frame
+// A texture gutter handed over, uploaded once and kept while it is drawn
+type uiTexture struct {
+	image    renderer.ImageHandle
+	slot     int32
+	lastUsed int
+}
+
+// A texture not drawn for this many frames is destroyed, giving its slot back:
+// a label whose text changes, like an FPS counter, mints a new one each time
+const textureLifetime = 120
+
+// Everything the UI overlay owns on the GPU, plus the draw list prepared for
+// this frame
 type overlay struct {
-	backend       renderer.Backend
-	pipeline      renderer.PipelineHandle
-	mesh          renderer.MeshHandle
-	image         renderer.ImageHandle
-	slot          int32
-	width, height int
+	backend  renderer.Backend
+	pipeline renderer.PipelineHandle
+	mesh     renderer.MeshHandle
 
-	lastInstance string
-	lastMap      map[string]bool
-	areas        []ui.Area
+	drawList      ui.DrawList
+	width, height int // the backbuffer the draw list was laid out for
+	textures      map[uint64]*uiTexture
+	frame         int
+	mouseDown     bool
 }
 
-// Builds the overlay's quad, pipeline and first canvas image
-func newOverlay(backend renderer.Backend) (*overlay, error) { 
-	ovl := &overlay{backend: backend, lastMap: map[string]bool{}}
+// Builds the overlay's quad and pipeline
+func newOverlay(backend renderer.Backend) (*overlay, error) {
+	ovl := &overlay{backend: backend, textures: map[uint64]*uiTexture{}}
 
 	buf, _ := backend.CreateBuffer(renderer.BufferSpec{
 		Name: "overlayQuad", Usage: renderer.BufferVertex,
@@ -51,9 +57,9 @@ func newOverlay(backend renderer.Backend) (*overlay, error) {
 	})
 	ovl.mesh = backend.CreateMesh(renderer.MeshSpec{Name: "overlayQuad", Vertices: buf, Stride: 5 * 4})
 
-	// Tests depth but does not write it: the overlay composites over the
-	// finished scene from the near plane
-	pass, err := backend.CreatePipeline(renderer.PipelineSpec{
+	// No culling, since the model matrix flips Y and so the winding; no depth
+	// test, since gutter's list is already in painter's order over the scene
+	pipeline, err := backend.CreatePipeline(renderer.PipelineSpec{
 		Name: "ui", Shader: "ui",
 		Vertex: renderer.VertexLayout{
 			Stride: 5 * 4,
@@ -62,8 +68,8 @@ func newOverlay(backend renderer.Backend) (*overlay, error) {
 				{Location: 1, Format: renderer.FormatRG32F, Offset: 3 * 4},
 			},
 		},
-		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
-		DepthCompare: renderer.CompareLess, DepthWrite: false,
+		Cull:         renderer.CullNone,
+		DepthCompare: renderer.CompareAlways, DepthWrite: false,
 		Blend:        renderer.BlendAlpha,
 		ColorFormats: []renderer.Format{renderer.FormatBackbuffer},
 		DepthFormat:  renderer.FormatDepth32F,
@@ -72,78 +78,111 @@ func newOverlay(backend renderer.Backend) (*overlay, error) {
 	if err != nil {
 		return nil, err
 	}
-	ovl.pipeline = pass
-	ovl.resize(settings.Current.Window.Width, settings.Current.Window.Height)
+	ovl.pipeline = pipeline
 	return ovl, nil
 }
 
-// Replaces the canvas image when the window size changed
-func (ovl *overlay) resize(width, height int) { 
-	if ovl.image != 0 && ovl.width == width && ovl.height == height {
+// Builds the widget tree, fires a click, and uploads any texture the draw list
+// introduces. Runs before the frame is recorded: an upload outside a frame
+// lands immediately, while one inside a frame would only be copied at the start
+// of the next, after this frame had already sampled the image
+func (ovl *overlay) prepare(app App, widget func(app App) ui.UIElement) {
+	ovl.drawList.Reset()
+	if widget == nil {
 		return
 	}
-	if ovl.image != 0 {
-		ovl.backend.Destroy(ovl.image)
+	ovl.frame++
+	ovl.width, ovl.height = ovl.backend.BackbufferSize()
+
+	// Mouse-look captures the cursor, and a captured cursor reports a virtual
+	// position, so the UI only sees the mouse while the cursor is free
+	input := ui.Input{CursorX: -1, CursorY: -1, Width: ovl.width, Height: ovl.height}
+	free := app.Window.GetInputMode(glfw.CursorMode) != glfw.CursorDisabled
+	if free {
+		// The cursor is in window coordinates, the draw list in backbuffer pixels
+		x, y := app.Window.GetCursorPos()
+		if w, h := app.Window.GetSize(); w > 0 && h > 0 {
+			input.CursorX = x * float64(ovl.width) / float64(w)
+			input.CursorY = y * float64(ovl.height) / float64(h)
+		}
 	}
-	ovl.image = ovl.backend.CreateImage(renderer.ImageSpec{
-		Name: "uiOverlay", Width: width, Height: height, Format: renderer.FormatRGBA8,
-		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
-	})
-	ovl.slot = int32(ovl.backend.Slot(ovl.image))
-	ovl.width, ovl.height = width, height
-	// Fill it once outside any frame, so the first pass samples an image in a
-	// layout it has actually been transitioned into rather than Undefined
-	ovl.backend.UpdateImage(ovl.image, renderer.ImageData{Pixels: make([]byte, width*height*4), Width: width, Height: height})
+
+	areas := widget(app).Draw(&ovl.drawList, input)
+
+	// Fire on the press edge, topmost area first, so a held button acts once
+	down := free && app.Window.GetMouseButton(glfw.MouseButtonLeft) == glfw.Press
+	if down && !ovl.mouseDown {
+		for i := len(areas) - 1; i >= 0; i-- {
+			if areas[i].Function != nil && ui.MouseInBounds(input, areas[i]) {
+				areas[i].Function()
+				break
+			}
+		}
+	}
+	ovl.mouseDown = down
+
+	// gutter hands back the same Key for the same content every frame, so a
+	// texture is uploaded the first time its Key shows up and reused after
+	for i := range ovl.drawList.Cmds {
+		t := ovl.drawList.Cmds[i].Tex
+		if t == nil {
+			continue
+		}
+		tex, ok := ovl.textures[t.Key]
+		if !ok {
+			image := ovl.backend.CreateImage(renderer.ImageSpec{
+				Name: "uiTexture", Width: t.W, Height: t.H, Format: renderer.FormatRGBA8,
+				Usage: renderer.ImageSampled | renderer.ImageCopyDst,
+			})
+			// gutter's textures are tightly packed RGBA8, straight alpha
+			ovl.backend.UpdateImage(image, renderer.ImageData{Pixels: t.Pixels.Pix, Width: t.W, Height: t.H})
+			tex = &uiTexture{image: image, slot: int32(ovl.backend.Slot(image))}
+			ovl.textures[t.Key] = tex
+		}
+		tex.lastUsed = ovl.frame
+	}
+
+	for key, tex := range ovl.textures {
+		if ovl.frame-tex.lastUsed > textureLifetime {
+			ovl.backend.Destroy(tex.image)
+			delete(ovl.textures, key)
+		}
+	}
 }
 
-// Rasterises the widget tree into the canvas, uploads it and draws it as a
-// fullscreen quad, inside the main pass
-func (ovl *overlay) draw(frame renderer.Frame, pass renderer.Pass, app App, widget func(app App) ui.UIElement) { 
-	window := app.Window
-	ovl.resize(settings.Current.Window.Width, settings.Current.Window.Height)
-
-	img := image.NewRGBA(image.Rect(0, 0, ovl.width, ovl.height))
-	var instance ui.UIElement
-	if widget != nil {
-		instance = widget(app)
+// Draws the prepared list inside the main pass: one quad per Cmd, in order,
+// each stretched onto its rect and tinted by its colour
+func (ovl *overlay) draw(frame renderer.Frame, pass renderer.Pass) {
+	if ovl.width == 0 || ovl.height == 0 {
+		return
 	}
-	equal := true
-	for _, area := range ovl.areas {
-		if ui.MouseInBounds(window, area) != ovl.lastMap[area.ToString()] {
-			equal = false
+	sw, sh := float32(ovl.width), float32(ovl.height)
+	for i := range ovl.drawList.Cmds {
+		cmd := &ovl.drawList.Cmds[i]
+		r := cmd.Rect
+		if cmd.Color.A == 0 || r.W <= 0 || r.H <= 0 {
+			continue
 		}
-		if ui.MouseInBounds(window, area) && window.GetMouseButton(glfw.MouseButtonLeft) == glfw.Press {
-			area.Function()
+
+		// Pixels, top-left origin, Y down, to clip space, Y up: the main pass
+		// flips Y, as the old fullscreen canvas's UVs relied on
+		model := mgl32.Translate3D(2*float32(r.X)/sw-1, 1-2*float32(r.Y)/sh, 0).
+			Mul4(mgl32.Scale3D(2*float32(r.W)/sw, -2*float32(r.H)/sh, 1))
+
+		// DrawUniforms is size-locked to common.slang, so the tint rides in the
+		// material colour and metallic slots rather than a field of its own.
+		// Slot 0 is the backend's white pixel, so an untextured Cmd is a fill
+		uniforms := renderer.DrawUniforms{
+			Model:       model,
+			MatDiffuse:  [3]float32{float32(cmd.Color.R) / 255, float32(cmd.Color.G) / 255, float32(cmd.Color.B) / 255},
+			MatMetallic: float32(cmd.Color.A) / 255,
 		}
-	}
-
-	if instance != nil {
-		// Redraw only when the widget tree or the hover state changed
-		if ovl.lastInstance != instance.ToString() || !equal {
-			ovl.lastInstance = instance.ToString()
-			ovl.areas = instance.Draw(img, window)
-
-			newAreas := []ui.Area{}
-			for _, area := range ovl.areas {
-				if area.Left != 0 || area.Right != 0 || area.Top != 0 || area.Bottom != 0 {
-					newAreas = append(newAreas, area)
-				}
+		if cmd.Tex != nil {
+			if tex, ok := ovl.textures[cmd.Tex.Key]; ok {
+				uniforms.TexDiffuse = tex.slot
 			}
-			ovl.areas = newAreas
 		}
-		for _, area := range ovl.areas {
-			ovl.lastMap[area.ToString()] = ui.MouseInBounds(window, area)
-		}
+		push := scene.DrawOnlyAddressArray(frame.Upload(&uniforms))
+		pass.Draw(renderer.DrawCall{Pipeline: ovl.pipeline, Mesh: ovl.mesh, Push: push})
 	}
-
-	flipped := imaging.FlipV(img)
-	// Called from inside the pass, so the backend stages this and records the
-	// copy at the start of the next frame
-	ovl.backend.UpdateImage(ovl.image, renderer.ImageData{Pixels: flipped.Pix, Width: ovl.width, Height: ovl.height})
-
-	// The overlay is an ordinary mesh with an ordinary material, so it needs no
-	// special draw path — only a texture slot and an identity transform
-	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4(), TexDiffuse: ovl.slot}
-	push := scene.DrawOnlyAddressArray(frame.Upload(&uniforms))
-	pass.Draw(renderer.DrawCall{Pipeline: ovl.pipeline, Mesh: ovl.mesh, Push: push})
 }

@@ -155,6 +155,9 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 			input.DefaultInput(app.Window, deltaTime)
 		}
 
+		// Before the frame: textures the UI introduces are uploaded outside it
+		overlay.prepare(app, widget)
+
 		backend.Frame(func(frame renderer.Frame) {
 			var frameUniforms renderer.FrameUniforms
 			var frameAddr, recordAddr renderer.Address
@@ -230,7 +233,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 					loadedScene.RenderSkybox(frame, pass, pipelines, &frameUniforms)
 					loadedScene.RenderScene(frame, pass, pipelines, frameAddr, recordAddr)
 				}
-				overlay.draw(frame, pass, app, widget)
+				overlay.draw(frame, pass)
 			})
 
 			captured = shot.record(backend, frame, frameNo)

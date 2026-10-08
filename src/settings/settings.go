@@ -28,6 +28,9 @@ type Config struct {
 		// Updated on resize by input.FramebufferSizeCallback
 		Width  int
 		Height int
+		// Wait for the display's refresh: false renders as fast as the GPU can,
+		// through mailbox (no tearing) or immediate (tears) when supported
+		VSync bool
 	}
 	Renderer struct {
 		// The graphics API: Vulkan is the only backend implemented so far
@@ -82,6 +85,7 @@ var Current = defaults()
 func defaults() Config {
 	var cfg Config
 	cfg.Window.Width, cfg.Window.Height = 1920, 1080
+	cfg.Window.VSync = true
 	cfg.Renderer.Backend = "vulkan"
 	cfg.Shadows.AtlasSize = 4096
 	cfg.Shadows.SlotDivisors = []int{2, 8, 16, 32}

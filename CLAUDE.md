@@ -129,7 +129,7 @@ for f in shaders/vk/*.spv; do spirv-val --scalar-block-layout "$f"; done
 
 `slangc` comes from the AUR `shader-slang-bin` package, which installs to `/opt/shader-slang-bin/bin/slangc` and **does not put it on PATH** — so `build_shaders.sh` needs `SLANGC=/opt/shader-slang-bin/bin/slangc` unless that directory has been added to PATH. (Arch's `slang` package is the unrelated S-Lang library.) `src/shaders/vk/` is git-ignored, so a fresh clone builds and tests fine but cannot run until the script has been run once.
 
-The backend links against the `vk` package in the sibling repo `../../go-vulkan` (a `replace` directive in `go.mod`, resolving to `/home/zeph/GitHub/go-vulkan`). `go-vulkan/BINDINGS_OVERDRIVE.md` lists the bindings only Overdrive uses and what is still to be added (ray queries); `go-vulkan/BINDINGS_HOWTO.md` lists the core set the tutorial port also uses.
+The backend links against the `vk` package in the sibling repo `../../go-vulkan` (a `replace` directive in `go.mod`, resolving to `/home/zeph/GitHub/go-vulkan`). `go-vulkan/BINDINGS_OVERDRIVE_GUTTER.md` lists the bindings Overdrive and gutter use beyond the tutorial, with which of the two calls each, and what is still to be added (ray queries); `go-vulkan/BINDINGS_HOWTO.md` lists the core set the tutorial port also uses.
 
 ## Architecture
 
