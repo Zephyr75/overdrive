@@ -5,19 +5,45 @@ import (
 
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/Zephyr75/overdrive/paths"
 	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/settings"
 )
 
-type Skybox struct {
-	mesh    renderer.MeshHandle
-	Texture renderer.ImageHandle
-	// The cube slot the shader samples, resolved once at load
-	Slot int32
+// The scene's <environment>: an equirectangular .hdr in textures/ beside the scene
+type EnvironmentXml struct {
+	File string `xml:"file"`
+	// Multiplies the whole environment, Blender's Background strength; 0 reads as 1
+	Strength float32 `xml:"strength"`
+	// Turn about the vertical axis in radians, Blender's Mapping Z rotation
+	Rotation float32 `xml:"rotation"`
+	// Caps the radiance the image lights with, 0 for none: set it below the sun
+	// when a scene light stands in for the sun, or the sun is counted twice
+	Clamp float32 `xml:"clamp"`
 }
 
-// Uploads the skybox cube and loads its six face images as a cubemap
+// The sky behind the scene and the image-based light it gives, both from one environment
+type Skybox struct {
+	mesh renderer.MeshHandle
+	// Read from the XML before setup; an empty path lights the scene with a flat grey
+	path               string
+	Strength, Rotation float32
+	clamp              float32
+	// The background, the prefiltered specular chain and the irradiance, all
+	// equirectangular RGBA16F; the shader samples them by these 2D slots
+	SkySlot, SpecularSlot, IrradianceSlot int32
+}
+
+// The radiance of the flat environment a scene without one gets
+const flatEnvironment = 0.05
+
+// Scales the light the environment gives, never the sky drawn behind the scene
+//
+// Stands in for the sky occlusion the engine lacks: unoccluded, Blender's
+// environment at full strength lights the inside of every shadow and buries
+// the scene lights; 0.25 is tuned by eye on the showcase against them
+const environmentLightScale = 0.25
+
+// Uploads the skybox cube, then bakes and uploads the environment maps
 func (skybox *Skybox) setup(backend renderer.Backend) error {
 	vertices := []float32{
 		// positions
@@ -70,41 +96,50 @@ func (skybox *Skybox) setup(backend renderer.Backend) error {
 		Name: "skyboxCube", Usage: renderer.BufferVertex, Location: renderer.LocationHost, InitialData: vertices,
 	})
 	skybox.mesh = backend.CreateMesh(renderer.MeshSpec{Name: "skyboxCube", Vertices: buf, Stride: positionStride})
-	faces, width, height, err := loadCubeFaces([6]string{
-		paths.Texture("skybox/right.png"),
-		paths.Texture("skybox/left.png"),
-		paths.Texture("skybox/top.png"),
-		paths.Texture("skybox/bottom.png"),
-		paths.Texture("skybox/front.png"),
-		paths.Texture("skybox/back.png"),
-	})
-	if err != nil {
-		return fmt.Errorf("skybox: %w", err)
+
+	source := flatEquirect(flatEnvironment)
+	if skybox.path != "" {
+		var err error
+		if source, err = loadHDR(skybox.path); err != nil {
+			return fmt.Errorf("environment %s: %w", skybox.path, err)
+		}
 	}
-	// A skybox is never viewed at a grazing angle, so no anisotropy, 
-	// clamped so a face's edge texels do not wrap into the opposite side
+	if skybox.clamp > 0 {
+		source.clamp(skybox.clamp)
+	}
+	chain := buildChain(source)
+
+	// Wraps around the horizon, clamps at the poles, and mips for the specular chain
 	sampler := backend.CreateSampler(renderer.SamplerSpec{
-		Name: "skybox", Mag: renderer.FilterLinear, Min: renderer.FilterLinear,
+		Name: "environment", Mag: renderer.FilterLinear, Min: renderer.FilterLinear,
 		Mipmap:   renderer.FilterLinear,
-		OutsideU: renderer.OutsideClampToEdge,
+		OutsideU: renderer.OutsideRepeat,
 		OutsideV: renderer.OutsideClampToEdge,
 		OutsideW: renderer.OutsideClampToEdge,
-		MaxLod:   1,
+		MaxLod:   specularLevels,
 	})
-	skybox.Texture = backend.CreateImage(renderer.ImageSpec{
-		Name: "skybox", Width: width, Height: height, Layers: 6, Kind: renderer.ImageCube,
-		Format:  renderer.FormatRGBA8,
-		Usage:   renderer.ImageSampled | renderer.ImageCopyDst,
-		Sampler: sampler,
-	})
-	// Six same-sized faces concatenated, so one copy fills the whole image
-	pixels := make([]byte, 0, len(faces[0])*6)
-	for _, face := range faces {
-		pixels = append(pixels, face...)
+	skybox.SkySlot = uploadEquirect(backend, sampler, "environmentSky", []*equirect{chain.atWidth(skyWidth)})
+	specular := bakeSpecular(chain)
+	irradiance := bakeIrradiance(chain)
+	// After every bake: specular[0] is the chain's own 512 level, scaled in place
+	for _, level := range append(specular, irradiance) {
+		level.scale(environmentLightScale)
 	}
-	backend.UpdateImage(skybox.Texture, renderer.ImageData{Pixels: pixels, Width: width, Height: height, LayerCount: 6})
-	skybox.Slot = int32(backend.Slot(skybox.Texture))
+	skybox.SpecularSlot = uploadEquirect(backend, sampler, "environmentSpecular", specular)
+	skybox.IrradianceSlot = uploadEquirect(backend, sampler, "environmentIrradiance", []*equirect{irradiance})
 	return nil
+}
+
+// Uploads one RGBA16F image, levels[k] as mip k, and returns its 2D slot
+func uploadEquirect(backend renderer.Backend, sampler renderer.SamplerHandle, name string, levels []*equirect) int32 {
+	img := backend.CreateImage(renderer.ImageSpec{
+		Name: name, Width: levels[0].width, Height: levels[0].height, Format: renderer.FormatRGBA16F,
+		Usage: renderer.ImageSampled | renderer.ImageCopyDst, MipLevels: len(levels), Sampler: sampler,
+	})
+	for mip, level := range levels {
+		backend.UpdateImage(img, renderer.ImageData{Pixels: level.rgba16f(), Width: level.width, Height: level.height, Mip: mip})
+	}
+	return int32(backend.Slot(img))
 }
 
 // Draws the skybox first in the main pass, with a depth test that lets it fill the far plane

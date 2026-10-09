@@ -431,7 +431,7 @@ func (vkFrame *vkFrame) Clear(spec renderer.ClearSpec) {
 	vkFrame.VKBackend.recordUseImage(vkFrame.vkCommandBuffer, entry, useCopyDst)
 	vk.CmdClearColorImage(vkFrame.vkCommandBuffer, entry.vkImage, vk.ImageLayoutTransferDstOptimal, spec.Color,
 		vk.ImageSubresourceRange{
-			AspectMask: entry.vkAspect, BaseMipLevel: 0, LevelCount: 1,
+			AspectMask: entry.vkAspect, BaseMipLevel: 0, LevelCount: entry.levels(),
 			BaseArrayLayer: 0, LayerCount: entry.layerCount,
 		})
 }

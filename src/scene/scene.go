@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/go-gl/mathgl/mgl32"
 
@@ -16,6 +17,7 @@ type SceneXml struct {
 	CamXml    CameraXml  `xml:"camera"`
 	MeshesXml []MeshXml  `xml:"mesh"`
 	LightsXml []LightXml `xml:"light"`
+	EnvXml    *EnvironmentXml `xml:"environment"`
 }
 
 type Scene struct {
@@ -63,7 +65,7 @@ func NewScene(path string, backend renderer.Backend) (Scene, error) {
 	// One atlas for every light, allocated here rather than per casting light.
 	// Who gets a tile of it is a per-frame decision, not a load-time one
 	scene.atlas.setup(backend)
-	// Last because it owns the cubemap the main pass samples, and needs nothing above
+	// Last because it owns the environment maps the main pass samples, and needs nothing above
 	if err := scene.Skybox.setup(backend); err != nil {
 		return Scene{}, err
 	}
@@ -144,7 +146,7 @@ func LoadScene(path string) (Scene, error) {
 	scene.Cam = sceneXml.CamXml.toCamera()
 
 	for i, meshXml := range sceneXml.MeshesXml {
-		scene.Meshes[i], err = meshXml.toMesh()
+		scene.Meshes[i], err = meshXml.toMesh(filepath.Dir(path))
 		if err != nil {
 			return Scene{}, fmt.Errorf("mesh %s: %w", meshXml.Name, err)
 		}
@@ -152,6 +154,19 @@ func LoadScene(path string) (Scene, error) {
 
 	for i, lightXml := range sceneXml.LightsXml {
 		scene.Lights[i] = lightXml.toLight()
+	}
+
+	// Without an element the sky is a flat grey, which Skybox.setup builds
+	scene.Skybox.Strength = 1
+	if env := sceneXml.EnvXml; env != nil {
+		if env.File != "" {
+			scene.Skybox.path = filepath.Join(filepath.Dir(path), "textures", env.File)
+		}
+		if env.Strength != 0 {
+			scene.Skybox.Strength = env.Strength
+		}
+		scene.Skybox.Rotation = env.Rotation
+		scene.Skybox.clamp = env.Clamp
 	}
 
 	return scene, nil
@@ -193,7 +208,11 @@ func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) {
 		}
 	}
 
-	uniforms.TexSkybox = scene.Skybox.Slot
+	uniforms.TexSky = scene.Skybox.SkySlot
+	uniforms.TexSpecular = scene.Skybox.SpecularSlot
+	uniforms.TexIrradiance = scene.Skybox.IrradianceSlot
+	uniforms.EnvStrength = scene.Skybox.Strength
+	uniforms.EnvRotation = scene.Skybox.Rotation
 
 	// The two atlases are dedicated descriptors the shader reaches by a literal
 	// index, so nothing about them travels in this block: which of the two a

@@ -1,7 +1,6 @@
 package scene
 
 import (
-	"fmt"
 	"image"
 	"image/draw"
 	_ "image/jpeg"
@@ -27,19 +26,35 @@ func loadRGBA(path string) (pixels []byte, width, height int, err error) {
 	return rgba.Pix, size.X, size.Y, nil
 }
 
-// Decodes six cube faces, checking they agree on a size the backend can upload as one image
-func loadCubeFaces(paths [6]string) (faces [6][]byte, width, height int, err error) { 
-	for i, path := range paths {
-		pixels, faceWidth, faceHeight, faceErr := loadRGBA(path)
-		if faceErr != nil {
-			return faces, 0, 0, fmt.Errorf("cubemap face %s: %w", path, faceErr)
+// One level of a mip chain, tightly packed RGBA8
+type mipLevel struct {
+	pixels        []byte
+	width, height int
+}
+
+// Box-filters RGBA8 pixels down to 1x1, level 0 being the input itself
+//
+// Averages the stored bytes, so an sRGB albedo is filtered in gamma space: a
+// little dark at distance, kept for simplicity
+func mipChain(pixels []byte, width, height int) []mipLevel {
+	levels := []mipLevel{{pixels, width, height}}
+	for width > 1 || height > 1 {
+		nextWidth, nextHeight := max(width/2, 1), max(height/2, 1)
+		next := make([]byte, nextWidth*nextHeight*4)
+		for y := 0; y < nextHeight; y++ {
+			// An odd or 1-texel side reads its last texel twice rather than past the edge
+			y0, y1 := min(2*y, height-1), min(2*y+1, height-1)
+			for x := 0; x < nextWidth; x++ {
+				x0, x1 := min(2*x, width-1), min(2*x+1, width-1)
+				for c := 0; c < 4; c++ {
+					sum := int(pixels[(y0*width+x0)*4+c]) + int(pixels[(y0*width+x1)*4+c]) +
+						int(pixels[(y1*width+x0)*4+c]) + int(pixels[(y1*width+x1)*4+c])
+					next[(y*nextWidth+x)*4+c] = byte((sum + 2) / 4)
+				}
+			}
 		}
-		if i == 0 {
-			width, height = faceWidth, faceHeight
-		} else if faceWidth != width || faceHeight != height {
-			return faces, 0, 0, fmt.Errorf("cubemap face %s: %dx%d, expected %dx%d", path, faceWidth, faceHeight, width, height)
-		}
-		faces[i] = pixels
+		pixels, width, height = next, nextWidth, nextHeight
+		levels = append(levels, mipLevel{pixels, width, height})
 	}
-	return faces, width, height, nil
+	return levels
 }

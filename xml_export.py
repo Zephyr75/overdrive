@@ -5,7 +5,7 @@ from xml.dom.minidom import Document
 
 import bpy
 import bpy_extras
-from bpy.props import BoolProperty, IntProperty, StringProperty
+from bpy.props import BoolProperty, FloatProperty, IntProperty, StringProperty
 from bpy_extras.io_utils import ExportHelper
 from mathutils import Matrix, Vector
 
@@ -24,10 +24,20 @@ bl_info = {
 
 class OverdriveWriter:
 
-    def __init__(self, context, filepath):
+    # Formats the engine decodes as they are; anything else becomes a PNG
+    ENGINE_FORMATS = {'.png', '.jpg', '.jpeg'}
+    # Every MTL key that names a texture, the file being the line's last field
+    MAP_KEYS = {'map_Kd', 'map_Ks', 'map_Ns', 'map_d', 'map_Bump', 'bump', 'norm',
+                'map_Pr', 'map_Pm', 'map_Ps', 'map_Ke', 'refl', 'map_refl', 'disp'}
+
+    def __init__(self, context, filepath, env_clamp=0.0):
         self.context = context
         self.filepath = filepath
         self.working_dir = os.path.dirname(self.filepath)
+        self.textures_dir = os.path.join(self.working_dir, 'textures')
+        self.env_clamp = env_clamp
+        # Source path to exported name, so a texture shared by meshes is converted once
+        self.exported_textures = {}
 
     def create_xml_element(self, name, attr):
         el = self.doc.createElement(name)
@@ -88,7 +98,10 @@ class OverdriveWriter:
         for light in lights:
             self.write_light(light)
 
-        # 4) write the xml file
+        # 4) export the world's environment texture
+        self.write_environment()
+
+        # 5) write the xml file
         self.doc.writexml(open(self.filepath, "w"), "", "\t", "\n")
 
     def write_vector(self, vec):
@@ -163,11 +176,14 @@ class OverdriveWriter:
         mtl_name = mesh.name + ".mtl"
         obj_path = os.path.join(self.working_dir, 'meshes', obj_name)
         mesh.select_set(True)
+        # PBR extensions write Pr/Pm and map_Pr, which the engine reads as
+        # roughness and metallic; without them only Kd survives
         bpy.ops.wm.obj_export(filepath=obj_path, check_existing=False,
                               export_selected_objects=True, export_smooth_groups=False,
                               export_materials=True, export_triangulated_mesh=True,
-                              apply_modifiers=True)
+                              export_pbr_extensions=True, apply_modifiers=True)
         mesh.select_set(False)
+        self.localise_mtl(os.path.join(self.working_dir, 'meshes', mtl_name))
 
         # Add the corresponding entry to the xml
         mesh_element = self.create_xml_element("mesh", {"name": mesh.name})
@@ -200,6 +216,95 @@ class OverdriveWriter:
 
         for ob in viewport_selection:
             ob.select_set(True)
+
+    def localise_mtl(self, mtl_path):
+        """Copies or converts every texture an MTL names into textures/, and
+        rewrites its line to the bare file name the engine resolves there"""
+        if not os.path.exists(mtl_path):
+            return
+        with open(mtl_path) as f:
+            lines = f.read().splitlines()
+        out = []
+        for line in lines:
+            fields = line.split()
+            if fields and fields[0] in self.MAP_KEYS and len(fields) > 1:
+                # Colour maps stay sRGB; every other map is data and must not be
+                # gamma-encoded on its way to 8 bits
+                name = self.export_texture(fields[-1], is_data=fields[0] != 'map_Kd')
+                if name:
+                    line = ' '.join(fields[:-1] + [name])
+            out.append(line)
+        with open(mtl_path, 'w') as f:
+            f.write('\n'.join(out) + '\n')
+
+    def export_texture(self, ref, is_data):
+        """Puts one texture in textures/, as a PNG unless the engine reads its format"""
+        src = bpy.path.abspath(ref)
+        if src in self.exported_textures:
+            return self.exported_textures[src]
+        if not os.path.exists(src):
+            print("WARN: texture not found: " + src)
+            return None
+        os.makedirs(self.textures_dir, exist_ok=True)
+        stem, ext = os.path.splitext(os.path.basename(src))
+        if ext.lower() in self.ENGINE_FORMATS:
+            name = os.path.basename(src)
+            shutil.copyfile(src, os.path.join(self.textures_dir, name))
+        else:
+            name = stem + '.png'
+            self.convert_image(src, os.path.join(self.textures_dir, name), 'PNG', is_data)
+        self.exported_textures[src] = name
+        return name
+
+    def convert_image(self, src, dst, file_format, is_data):
+        """Re-saves an image in another format through a throwaway datablock,
+        so the user's own images keep their path and settings"""
+        img = bpy.data.images.load(src, check_existing=False)
+        try:
+            if is_data:
+                img.colorspace_settings.name = 'Non-Color'
+            img.file_format = file_format
+            img.filepath_raw = dst
+            img.save()
+        finally:
+            bpy.data.images.remove(img)
+
+    def write_environment(self):
+        """Writes the World's Environment Texture as a Radiance .hdr and an
+        <environment> element; Strength and the Mapping Z rotation come along"""
+        world = self.context.scene.world
+        if world is None or not world.use_nodes:
+            return
+        nodes = world.node_tree.nodes
+        env = next((n for n in nodes if n.type == 'TEX_ENVIRONMENT' and n.image), None)
+        if env is None:
+            print("WARN: no Environment Texture in the world, the engine will use a flat grey")
+            return
+        background = next((n for n in nodes if n.type == 'BACKGROUND'), None)
+        mapping = next((n for n in nodes if n.type == 'MAPPING'), None)
+
+        src = bpy.path.abspath(env.image.filepath)
+        os.makedirs(self.textures_dir, exist_ok=True)
+        name = os.path.splitext(os.path.basename(src))[0] + '.hdr'
+        dst = os.path.join(self.textures_dir, name)
+        if src.lower().endswith('.hdr'):
+            shutil.copyfile(src, dst)
+        else:
+            self.convert_image(src, dst, 'HDR', is_data=False)
+
+        env_element = self.create_xml_element("environment", {})
+        values = [("file", name)]
+        if background is not None:
+            values.append(("strength", str(background.inputs['Strength'].default_value)))
+        if mapping is not None:
+            values.append(("rotation", str(mapping.inputs['Rotation'].default_value[2])))
+        if self.env_clamp > 0:
+            values.append(("clamp", str(self.env_clamp)))
+        for tag, value in values:
+            element = self.create_xml_element(tag, {})
+            element.appendChild(self.doc.createTextNode(value))
+            env_element.appendChild(element)
+        self.scene.appendChild(env_element)
 
     def write_light(self, light):
         light_element = self.create_xml_element("light", {"name": light.name})
@@ -264,8 +369,12 @@ class OverdriveExporter(bpy.types.Operator, ExportHelper):
     filename_ext = ".xml"
     filter_glob: StringProperty(default="*.xml", options={'HIDDEN'})
 
+    # Caps the environment's radiance in the engine, 0 for none: set it below the
+    # sun when a Sun lamp stands in for it, or the sun is counted twice
+    env_clamp: FloatProperty(name="Environment clamp", default=0.0, min=0.0)
+
     def execute(self, context):
-        ovd = OverdriveWriter(context, self.filepath)
+        ovd = OverdriveWriter(context, self.filepath, self.env_clamp)
         ovd.write()
         return {'FINISHED'}
 

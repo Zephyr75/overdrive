@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/go-gl/mathgl/mgl32"
 
-	"github.com/Zephyr75/overdrive/paths"
 	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/utils"
 )
@@ -79,12 +79,14 @@ func (mesh *Mesh) MoveTo(dest mgl32.Vec3) {
 }
 
 // Parses the OBJ and MTL files an XML mesh names into geometry and materials
-func (mXml MeshXml) toMesh() (Mesh, error) { 
-	obj, err := parseOBJ(paths.Mesh(mXml.Obj))
+//
+// Both live in meshes/ beside the scene file, so a scene folder is self-contained
+func (mXml MeshXml) toMesh(sceneDir string) (Mesh, error) { 
+	obj, err := parseOBJ(filepath.Join(sceneDir, "meshes", mXml.Obj))
 	if err != nil {
 		return Mesh{}, err
 	}
-	materials, err := parseMTL(paths.Mesh(mXml.mtlPath()))
+	materials, err := parseMTL(filepath.Join(sceneDir, "meshes", mXml.mtlPath()), sceneDir)
 	if err != nil {
 		return Mesh{}, err
 	}
@@ -188,7 +190,7 @@ func triangleIndices(fields []string) []uint32 {
 }
 
 // Reads an MTL file's material definitions, in the order the OBJ's groups use them
-func parseMTL(path string) ([]Material, error) { 
+func parseMTL(path string, sceneDir string) ([]Material, error) { 
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open MTL: %w", err)
@@ -217,10 +219,16 @@ func parseMTL(path string) ([]Material, error) {
 			material.Metallic = f32(fields, 1)
 		case "Pr": // MTL PBR extension: roughness
 			material.Roughness = f32(fields, 1)
+		// A map line may carry options before its file (map_Bump -bm 1.0 f.png),
+		// so the file is the last field: a path with spaces is not supported
 		case "map_Kd":
-			material.TexturePath = texturePath(fields[1])
-		case "map_Bump", "bump":
-			material.NormalMapPath = texturePath(fields[1])
+			material.TexturePath = texturePath(sceneDir, fields[len(fields)-1])
+		case "map_Bump", "bump", "norm":
+			material.NormalMapPath = texturePath(sceneDir, fields[len(fields)-1])
+		// map_Pr is the PBR extension's key; Blender writes the same roughness
+		// image under map_Ns when the extension is off
+		case "map_Pr", "map_Ns":
+			material.RoughnessMapPath = texturePath(sceneDir, fields[len(fields)-1])
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -253,13 +261,13 @@ func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh {
 	return mesh
 }
 
-// Resolves an MTL texture reference to a project-local path
+// Resolves an MTL texture reference to textures/ beside the scene file
 //
 // Blender bakes the exporting machine's absolute path, so only the basename
 // survives — otherwise a scene loads nowhere but where it was authored.
-func texturePath(ref string) string { 
+func texturePath(sceneDir, ref string) string { 
 	ref = strings.ReplaceAll(ref, "\\", "/")
-	return paths.Texture(path.Base(ref))
+	return filepath.Join(sceneDir, "textures", path.Base(ref))
 }
 
 // Flattens the OBJ face lists into the interleaved vertex array and per-group index lists
@@ -330,34 +338,38 @@ func (mesh *Mesh) setup(backend renderer.Backend) error {
 	// Load the material textures recorded at parse time
 	for i := range mesh.Materials {
 		mat := &mesh.Materials[i]
-		if mat.TexturePath != "" {
-			pix, width, height, err := loadRGBA(mat.TexturePath)
-			if err != nil {
-				return fmt.Errorf("texture %s: %w", mat.TexturePath, err)
-			}
-			mat.Texture = uploadTexture(backend, mat.TexturePath, pix, width, height)
-			mat.TextureSlot = int32(backend.Slot(mat.Texture))
+		var err error
+		if mat.Texture, mat.TextureSlot, err = loadTexture(backend, mat.TexturePath); err != nil {
+			return fmt.Errorf("texture %s: %w", mat.TexturePath, err)
 		}
-		if mat.NormalMapPath != "" {
-			pix, width, height, err := loadRGBA(mat.NormalMapPath)
-			if err != nil {
-				return fmt.Errorf("normal map %s: %w", mat.NormalMapPath, err)
-			}
-			mat.NormalMap = uploadTexture(backend, mat.NormalMapPath, pix, width, height)
-			mat.NormalMapSlot = int32(backend.Slot(mat.NormalMap))
+		if mat.NormalMap, mat.NormalMapSlot, err = loadTexture(backend, mat.NormalMapPath); err != nil {
+			return fmt.Errorf("normal map %s: %w", mat.NormalMapPath, err)
+		}
+		if mat.RoughnessMap, mat.RoughnessMapSlot, err = loadTexture(backend, mat.RoughnessMapPath); err != nil {
+			return fmt.Errorf("roughness map %s: %w", mat.RoughnessMapPath, err)
 		}
 	}
 	return nil
 }
 
-// Uploads tightly packed RGBA8 pixels as a sampled 2D image
-func uploadTexture(backend renderer.Backend, name string, pixels []byte, width, height int) renderer.ImageHandle {
+// Decodes and uploads one material texture with its mip chain, slot 0 (the white pixel) when path is empty
+func loadTexture(backend renderer.Backend, path string) (renderer.ImageHandle, int32, error) {
+	if path == "" {
+		return 0, 0, nil
+	}
+	pixels, width, height, err := loadRGBA(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	levels := mipChain(pixels, width, height)
 	img := backend.CreateImage(renderer.ImageSpec{
-		Name: name, Width: width, Height: height, Format: renderer.FormatRGBA8,
-		Usage: renderer.ImageSampled | renderer.ImageCopyDst,
+		Name: path, Width: width, Height: height, Format: renderer.FormatRGBA8,
+		Usage: renderer.ImageSampled | renderer.ImageCopyDst, MipLevels: len(levels),
 	})
-	backend.UpdateImage(img, renderer.ImageData{Pixels: pixels, Width: width, Height: height})
-	return img
+	for mip, level := range levels {
+		backend.UpdateImage(img, renderer.ImageData{Pixels: level.pixels, Width: level.width, Height: level.height, Mip: mip})
+	}
+	return img, int32(backend.Slot(img)), nil
 }
 
 // Reuploads the vertex buffer when a Move marked it dirty
@@ -386,6 +398,12 @@ func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) {
 		uniforms.UseNormalMap = 0
 		if mat.NormalMap != 0 {
 			uniforms.UseNormalMap = 1
+		}
+		// The shader multiplies the two, so a mapped material's scalar must be 1,
+		// as Blender ignores a socket's own value once a texture drives it
+		uniforms.TexRoughness = mat.RoughnessMapSlot
+		if mat.RoughnessMap != 0 {
+			uniforms.MatRoughness = 1
 		}
 
 		ctx.draw(mesh.meshesPerMaterial[i], uniforms)

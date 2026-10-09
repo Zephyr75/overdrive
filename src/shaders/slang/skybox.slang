@@ -17,5 +17,5 @@ VSOut vsMain(float3 aPos) {
 
 [shader("fragment")]
 float4 fsMain(VSOut i) : SV_Target {
-  return TEX_SKYBOX.Sample(i.texCoords);
+  return toDisplay(envSample(TEX_SKY, normalize(i.texCoords), 0.0));
 }

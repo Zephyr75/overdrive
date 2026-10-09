@@ -18,20 +18,24 @@ type Material struct {
 
 	// Texture file paths recorded at MTL-parse time, the GPU handles being
 	// created in Mesh.setup once a backend is available.
-	TexturePath   string
-	NormalMapPath string
-	Texture       renderer.ImageHandle
-	NormalMap     renderer.ImageHandle
-	// The shader-visible slots of the two, resolved once at load: a draw block
+	TexturePath      string
+	NormalMapPath    string
+	RoughnessMapPath string // sampled in .r and multiplied into Roughness
+	Texture          renderer.ImageHandle
+	NormalMap        renderer.ImageHandle
+	RoughnessMap     renderer.ImageHandle
+	// The shader-visible slots of the three, resolved once at load: a draw block
 	// carries the slot, never the handle
-	TextureSlot   int32
-	NormalMapSlot int32
+	TextureSlot      int32
+	NormalMapSlot    int32
+	RoughnessMapSlot int32
 }
 
 // Returns the defaults a material carries before its MTL entry is parsed
 //
 // Roughness and Ao must not start at zero, or a material with no PBR keys reads
-// as a perfect mirror with no ambient light.
+// as a perfect mirror with no ambient light. Nor Diffuse, which tints map_Kd:
+// Blender writes no Kd when a texture drives the base colour.
 func newMaterial() Material { 
-	return Material{Metallic: 0, Roughness: 1, Ao: 1}
+	return Material{Diffuse: mgl32.Vec3{1, 1, 1}, Metallic: 0, Roughness: 1, Ao: 1, Alpha: 1}
 }

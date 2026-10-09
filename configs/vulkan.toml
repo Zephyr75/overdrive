@@ -4,7 +4,7 @@
 width = 2560
 height = 1440
 # false uncaps the frame rate: mailbox if the driver has it, else immediate
-vsync = false
+vsync = true
 
 [renderer]
 backend = "vulkan"

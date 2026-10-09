@@ -41,11 +41,9 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
 
 ### Image quality
 
-- [ ] **Mipmaps**: textures shimmer at a distance, and anisotropy does nothing without them. `go-vulkan` has the blit format-feature flags but no `CmdBlitImage` function. Needed:
-  - [ ] Bind `vkCmdBlitImage` + `VkImageBlit` in `go-vulkan`
-  - [ ] A mip count on `ImageSpec`, passed as `MipLevels` in `vulkan/image.go` and covered by views and barriers (all hardcoded to level 0 today)
-  - [ ] Generate the chain after upload (`floor(log2(max(w, h))) + 1` levels, one blit per level, the 6-layer cubemap path included)
-  - [ ] The skybox sampler's `MaxLod` following the chain (the default sampler already allows 16)
+- [x] **Mipmaps**: `ImageSpec.MipLevels` and `ImageData.Mip`, the chain built on the CPU (`scene/image.go` `mipChain`) rather than by blits, so `go-vulkan` needed no `CmdBlitImage`
+  - [ ] Filter albedo in linear space (`FormatRGBA8Srgb` + drop the shader's `pow 2.2`): the box filter averages gamma bytes today
+  - [ ] A deferred (mid-frame) `UpdateImage` keeps one pending copy per image, so two mips written in one frame lose the first
 - [ ] Alpha cutout (foliage, fences): stays in the prepass, but `prepass.slang` must `discard` exactly like `forward.slang` or `EQUAL` speckles
 
 ### Housekeeping
@@ -60,8 +58,13 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
 
 ### Rendering
 
-- [ ] Texture-driven PBR: metallic, roughness and AO maps
-- [ ] Real IBL: irradiance cubemap, prefiltered specular mips, BRDF LUT
+- [ ] Texture-driven PBR: metallic and AO maps (roughness is done, `map_Pr`)
+- [x] Real IBL: prefiltered specular mips and irradiance, as equirect maps baked in Go (`scene/ibl.go`)
+- [ ] **The HDRI's sun as a shadow-casting light.** The image-based light casts no shadow, so an HDRI sun lights the inside of every shadow. When `<clamp>` is set, turn what it removes into a sun instead of discarding it:
+  - [ ] `(*equirect).extractSun(limit)` in `scene/ibl.go`: sum `(L − limit)·dω` per channel over the texels above the limit, direction weighted by that energy
+  - [ ] Move the `.hdr` decode, extraction and clamp from `Skybox.setup` into `LoadScene` (CPU only); append a `LightSun` with `Color` = irradiance / its largest channel, `Intensity` = that channel, `Pos` = mesh bounds centre + 25 m along `Dir` (the shadow camera is `Ortho(±10, 1, 50)` from `Pos`)
+  - [ ] Default the exporter's Environment clamp to 20 (outdoor skies stay below it; cedar_bridge peaks at 19.4 outside the sun)
+  - [ ] Then lower or drop `environmentLightScale` (`scene/skybox.go`), which partly compensates for this
 - [ ] HDR + tonemapping + bloom, built entirely outside `vulkan/` (the test of the interface)
 - [ ] Post-process AA (FXAA/TAA), for specular and normal-map shimmer MSAA cannot fix
 - [ ] Ambient occlusion (SSAO), reading the prepass depth

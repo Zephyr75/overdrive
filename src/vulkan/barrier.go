@@ -67,7 +67,7 @@ func (backend *VKBackend) recordUseImage(commandBuffer vk.CommandBuffer, image *
 		SrcQueueFamilyIndex: vk.QueueFamilyIgnored, DstQueueFamilyIndex: vk.QueueFamilyIgnored,
 		Image: image.vkImage,
 		SubresourceRange: vk.ImageSubresourceRange{
-			AspectMask: image.vkAspect, BaseMipLevel: 0, LevelCount: 1,
+			AspectMask: image.vkAspect, BaseMipLevel: 0, LevelCount: image.levels(),
 			BaseArrayLayer: 0, LayerCount: image.layerCount,
 		},
 	}}})

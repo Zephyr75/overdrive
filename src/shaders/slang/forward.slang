@@ -105,7 +105,6 @@ float shadowLookup(int recordIndex, float3 fragPos, float3 normal,
 }
 
 // ---- Cook-Torrance metallic-roughness PBR -----------------------------------
-static const float PI = 3.14159265358979;
 
 // Copied out of pushConstants.draw once, so the light loop reads registers rather than memory
 struct MatParams {
@@ -136,6 +135,15 @@ float geometrySmith(float3 N, float3 V, float3 L, float roughness) {
 
 float3 fresnelSchlick(float cosTheta, float3 F0) {
   return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+// Karis's fit of the split-sum BRDF integral, scale and bias on F0, in place of a LUT
+float2 envBRDFApprox(float roughness, float NdotV) {
+  const float4 c0 = float4(-1.0, -0.0275, -0.572, 0.022);
+  const float4 c1 = float4(1.0, 0.0425, 1.04, -0.04);
+  float4 r = roughness * c0 + c1;
+  float a004 = min(r.x * r.x, exp2(-9.28 * NdotV)) * r.x + r.y;
+  return float2(-1.04, 1.04) * a004 + r.zw;
 }
 
 // Fresnel for the ambient term, which has no single half vector
@@ -220,7 +228,9 @@ float4 fsMain(VSOut i) : SV_Target {
   MatParams mat;
   mat.albedo = albedo;
   mat.metallic = pushConstants.draw.matMetallic;
-  mat.roughness = clamp(pushConstants.draw.matRoughness, 0.04, 1.0);
+  // The map is the white pixel when there is none, so the scalar stands alone
+  float roughness = pushConstants.draw.matRoughness * TEX_ROUGHNESS.Sample(flippedTex).r;
+  mat.roughness = clamp(roughness, 0.04, 1.0);
   // Dielectrics reflect ~4%, metals reflect their albedo
   mat.F0 = lerp(float3(0.04), albedo, pushConstants.draw.matMetallic);
   float ao = pushConstants.draw.matAo;
@@ -256,19 +266,18 @@ float4 fsMain(VSOut i) : SV_Target {
     Lo += contrib * (1.0 - shadow);
   }
 
-  // Ambient from the skybox, a crude stand-in for prefiltered IBL
-  float3 F = fresnelSchlickRoughness(max(dot(norm, viewDir), 0.0), mat.F0,
-                                     mat.roughness);
+  // Image-based light, split-sum: the specular map was prefiltered per
+  // roughness at load, the BRDF integral is fitted analytically below
+  float NdotV = max(dot(norm, viewDir), 0.0);
+  float3 F = fresnelSchlickRoughness(NdotV, mat.F0, mat.roughness);
   float3 kD = (float3(1.0) - F) * (1.0 - mat.metallic);
-  // One raw cubemap tap overestimates irradiance, so it is damped
-  float3 irradiance = TEX_SKYBOX.Sample(norm).rgb * 0.35;
+  float3 irradiance = envSample(TEX_IRRADIANCE, norm, 0.0);
   float3 R = reflect(-viewDir, norm);
-  float3 prefiltered = TEX_SKYBOX.Sample(R).rgb;
-  float3 ambient = (kD * irradiance * albedo + prefiltered * F) * ao;
+  float3 prefiltered =
+      envSample(TEX_SPECULAR, R, mat.roughness * (SPECULAR_LEVELS - 1));
+  float2 brdf = envBRDFApprox(mat.roughness, NdotV);
+  float3 ambient =
+      (kD * irradiance * albedo + prefiltered * (mat.F0 * brdf.x + brdf.y)) * ao;
 
-  // Reinhard tonemap, then gamma
-  float3 color = ambient + Lo;
-  color = color / (color + float3(1.0));
-  color = pow(color, float3(1.0 / 2.2));
-  return float4(color, 1.0);
+  return toDisplay(ambient + Lo);
 }

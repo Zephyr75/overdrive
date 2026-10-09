@@ -12,10 +12,8 @@ import (
 
 // Where each kind of file lives, relative to the root
 const (
-	assetsDir   = "assets"
-	configsDir  = "configs"
-	meshesDir   = "assets/meshes"
-	texturesDir = "assets/textures"
+	assetsDir  = "assets"
+	configsDir = "configs"
 	// The generated SPIR-V, which build_shaders.sh writes next to its sources
 	shadersDir = "src/shaders/vk"
 )
@@ -78,12 +76,6 @@ func resolve(parts ...string) string {
 
 // Returns the path of a top-level asset, such as a scene XML or a font
 func Asset(name string) string { return resolve(assetsDir, name) } 
-
-// Returns the path of an OBJ or MTL file
-func Mesh(name string) string { return resolve(meshesDir, name) } 
-
-// Returns the path of a texture, name being allowed a subdirectory ("skybox/top.png")
-func Texture(name string) string { return resolve(texturesDir, name) } 
 
 // Returns the path of a compiled shader module
 func Shader(name string) string { return resolve(shadersDir, name) } 

@@ -67,7 +67,12 @@ struct FrameUniforms {
   float3 viewPos;
   int lightCount;
   LightData lights[MAX_LIGHTS];
-  int texSkybox;
+  // 2D slots of the equirectangular environment
+  int texSky;
+  int texSpecular;
+  int texIrradiance;
+  float envStrength;
+  float envRotation;
   // 4096 / atlasSize, widens the normal-offset bias on a smaller atlas
   float shadowNormalScale;
 };
@@ -79,7 +84,7 @@ struct BakeUniforms {
   float farPlane;
 };
 
-// 100 bytes, renderer.DrawUniforms: transform and material, once per draw
+// 104 bytes, renderer.DrawUniforms: transform and material, once per draw
 struct DrawUniforms {
   float4x4 model;
   float3 matDiffuse;
@@ -89,6 +94,7 @@ struct DrawUniforms {
   int texDiffuse;
   int texNormalMap;
   int useNormalMap;
+  int texRoughness;
 };
 
 // Four addresses in one push constant, in the order scene/pipelines.go fills them
@@ -117,7 +123,36 @@ Sampler2D hotTextures[4];
 
 #define TEX_DIFFUSE (textures2D[pushConstants.draw.texDiffuse])
 #define TEX_NORMAL (textures2D[pushConstants.draw.texNormalMap])
-#define TEX_SKYBOX (texturesCube[pushConstants.frame.texSkybox])
+#define TEX_ROUGHNESS (textures2D[pushConstants.draw.texRoughness])
+#define TEX_SKY (textures2D[pushConstants.frame.texSky])
+#define TEX_SPECULAR (textures2D[pushConstants.frame.texSpecular])
+#define TEX_IRRADIANCE (textures2D[pushConstants.frame.texIrradiance])
+
+// Mips of the prefiltered specular map, one per roughness step: scene/ibl.go specularLevels
+#define SPECULAR_LEVELS 6
+static const float PI = 3.14159265358979;
+
+// Equirect uv of a direction, v = 0 at +Y: scene/ibl.go equirectUV is the CPU twin.
+// The rotation is Blender's world Z rotation, which is about +Y here
+float2 envUV(float3 d) {
+  float c = cos(pushConstants.frame.envRotation);
+  float s = sin(pushConstants.frame.envRotation);
+  d = float3(d.x * c + d.z * s, d.y, d.z * c - d.x * s);
+  return float2(0.5 + atan2(d.z, d.x) / (2.0 * PI),
+                0.5 - asin(clamp(d.y, -1.0, 1.0)) / PI);
+}
+
+// Radiance from one of the environment maps, at an explicit mip: implicit
+// derivatives jump across the u = 0/1 seam and would pick the smallest mip there
+float3 envSample(Sampler2D map, float3 d, float lod) {
+  return map.SampleLevel(envUV(d), lod).rgb * pushConstants.frame.envStrength;
+}
+
+// Reinhard, then gamma: the swapchain is UNORM, so the shader encodes
+float4 toDisplay(float3 color) {
+  color = color / (color + float3(1.0));
+  return float4(pow(color, float3(1.0 / 2.2)), 1.0);
+}
 
 // Projections are OpenGL style, clip z in [-w, w]; Vulkan wants [0, w]
 #define TO_VK_DEPTH(pos) ((pos).z = ((pos).z + (pos).w) * 0.5)

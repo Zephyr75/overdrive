@@ -68,6 +68,7 @@ type ImageSpec struct {
 	Width, Height int
 	Depth         int // Depth allows 3D textures, defaults to 1 for a single plane
 	Layers        int // 0 gets default value of 1 : a cube needs 6
+	MipLevels     int // 0 means 1; every level is filled by its own UpdateImage
 	Format        Format
 	Usage         ImageUsage
 	Kind          ImageKind
@@ -95,6 +96,7 @@ type ImageData struct {
 	Depth         int // 0 means 1
 	BaseLayer     int
 	LayerCount    int // 0 means 1
+	Mip           int // the level written, whose size Width and Height must give
 }
 
 // --- buffers -----------------------------------------------------------------

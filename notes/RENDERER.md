@@ -53,7 +53,7 @@ Two separate paths, and the split is forced:
 ```mermaid
 graph LR
     subgraph BDA["buffer device address"]
-        U["FrameUniforms 4760 B<br/>BakeUniforms 80 B<br/>DrawUniforms 100 B<br/>ShadowTile[] 96 B each"] --> RG["per-frame arena<br/>2 MiB, mapped"]
+        U["FrameUniforms 4776 B<br/>BakeUniforms 80 B<br/>DrawUniforms 104 B<br/>ShadowTile[] 96 B each"] --> RG["per-frame arena<br/>2 MiB, mapped"]
         RG --> PC["push constant<br/>4 × 64-bit address"]
     end
     subgraph DESC["descriptors"]
@@ -70,10 +70,10 @@ A buffer is plain memory, so a shader can read it through a pointer. An image is
 `Frame.Upload(data any) Address` memcpys a value or slice into this frame's arena and returns its GPU address. The backend never reads a field.
 
 ```
-FrameUniforms   4760 bytes   camera + 64 lights + the skybox slot   once per frame
+FrameUniforms   4776 bytes   camera + 64 lights + environment       once per frame
 BakeUniforms      80 bytes   the one tile a depth pass is baking    once per tile
 ShadowTile        96 bytes   one shadow tile                        an array, once per frame
-DrawUniforms     100 bytes   model matrix + PBR material            once per draw
+DrawUniforms     104 bytes   model matrix + PBR material            once per draw
 ```
 
 - **Split by update frequency**, so a draw costs one 100-byte memcpy plus a 32-byte push.
