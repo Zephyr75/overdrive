@@ -35,6 +35,8 @@ type Mesh struct {
 	Faces         [][]uint32 // one []uint32 per material group, pos/tex/norm indices interleaved in threes
 	Materials     []Material
 	Position      mgl32.Vec3
+	// Turn about Position since load; baked into the vertices like a move
+	Rotation mgl32.Quat
 	// Whether the shadow bake draws this mesh, default true; false is for a
 	// receiver that would contribute nothing but its own acne
 	CastsShadow bool
@@ -61,19 +63,20 @@ type Mesh struct {
 }
 
 // Offsets the mesh and rebuilds its vertex data for the next upload
-func (mesh *Mesh) MoveBy(x float32, y float32, z float32) { 
-	mesh.Movable = true
-	mesh.Position[0] += x
-	mesh.Position[1] += y
-	mesh.Position[2] += z
-	mesh.fillVertices()
-	mesh.needsUpdate = true
-}
+// func (mesh *Mesh) MoveBy(x float32, y float32, z float32) { 
+// 	mesh.Movable = true
+// 	mesh.Position[0] += x
+// 	mesh.Position[1] += y
+// 	mesh.Position[2] += z
+// 	mesh.fillVertices()
+// 	mesh.needsUpdate = true
+// }
 
-// Moves the mesh to a position and rebuilds its vertex data for the next upload
-func (mesh *Mesh) MoveTo(dest mgl32.Vec3) { 
+// Moves and turns the mesh in one rebuild, rotation being about its own Position
+func (mesh *Mesh) Place(dest mgl32.Vec3, rotation mgl32.Quat) {
 	mesh.Movable = true
 	mesh.Position = dest
+	mesh.Rotation = rotation
 	mesh.fillVertices()
 	mesh.needsUpdate = true
 }
@@ -252,6 +255,7 @@ func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh {
 		Faces:           obj.faces,
 		Materials:       materials,
 		Position:        pos,
+		Rotation:        mgl32.QuatIdent(),
 		initialPosition: pos,
 		CastsShadow:     mXml.CastsShadow == nil || *mXml.CastsShadow,
 		Movable:         mXml.Movable != nil && *mXml.Movable,
@@ -284,7 +288,14 @@ func (mesh *Mesh) fillVertices() {
 			posIndex := mesh.Faces[i][j] - 1
 			texIndex := mesh.Faces[i][j+1] - 1
 			normIndex := mesh.Faces[i][j+2] - 1
-			position := mesh.Position.Sub(mesh.initialPosition).Add(mesh.Vertices[posIndex])
+			// A mesh that never turned keeps the old arithmetic exactly, so its
+			// vertices are bit for bit what the OBJ holds
+			vertex, normal := mesh.Vertices[posIndex], mesh.NormalCoords[normIndex]
+			if mesh.Rotation != mgl32.QuatIdent() {
+				vertex = mesh.initialPosition.Add(mesh.Rotation.Rotate(vertex.Sub(mesh.initialPosition)))
+				normal = mesh.Rotation.Rotate(normal)
+			}
+			position := mesh.Position.Sub(mesh.initialPosition).Add(vertex)
 			if first {
 				lo, hi, first = position, position, false
 			}
@@ -299,9 +310,9 @@ func (mesh *Mesh) fillVertices() {
 			value = append(value, position[0])
 			value = append(value, position[1])
 			value = append(value, position[2])
-			value = append(value, mesh.NormalCoords[normIndex][0])
-			value = append(value, mesh.NormalCoords[normIndex][1])
-			value = append(value, mesh.NormalCoords[normIndex][2])
+			value = append(value, normal[0])
+			value = append(value, normal[1])
+			value = append(value, normal[2])
 			value = append(value, mesh.TextureCoords[texIndex][0])
 			value = append(value, mesh.TextureCoords[texIndex][1])
 			face = append(face, index)

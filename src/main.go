@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Zephyr75/overdrive/core"
-	"github.com/Zephyr75/overdrive/ecs"
 	"github.com/Zephyr75/overdrive/paths"
 	"github.com/Zephyr75/overdrive/physics"
 	"github.com/Zephyr75/overdrive/scene"
@@ -19,47 +18,6 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 	// "fmt"
 )
-
-/////////////
-
-// An immovable body, its collider a named field rather than embedded so the Collider() method has a name to occupy
-type StaticCollider struct {
-	collider physics.Collider
-}
-
-func (collider *StaticCollider) Init(world *ecs.World)      {}                           
-func (collider *StaticCollider) Update(world *ecs.World)    {}                           
-func (collider *StaticCollider) Type() string               { return "StaticCollider" } 
-func (collider *StaticCollider) Collider() physics.Collider { return collider.collider }
-
-// A falling ball, its mesh following the collider each frame
-type Sphere struct {
-	*physics.Sphere
-	*scene.Mesh
-}
-
-func (sphere *Sphere) Init(world *ecs.World) {} 
-
-func (sphere *Sphere) Update(world *ecs.World) { 
-	sphere.Accelerate(mgl32.Vec3{0.0, -9.8, 0.0})
-	sphere.Mesh.MoveTo(sphere.Pos)
-}
-
-func (sphere *Sphere) Type() string { return "Sphere" } 
-
-func (sphere *Sphere) Collider() physics.Collider { return sphere.Sphere } 
-
-// A static ball the falling one collides against
-type Sphere2 struct {
-	name string
-	*physics.Sphere
-	*scene.Mesh
-}
-
-func (sphere *Sphere2) Init(world *ecs.World)      {}                       
-func (sphere *Sphere2) Update(world *ecs.World)    {}                      
-func (sphere *Sphere2) Type() string               { return "Sphere2" }     
-func (sphere *Sphere2) Collider() physics.Collider { return sphere.Sphere } 
 
 func main() { 
 	// Must load before NewApp, which is where the window and backend read them
@@ -80,27 +38,28 @@ func main() {
 	scene, err := scene.NewScene(paths.Asset(*sceneName), app.Backend)
 	utils.HandleError(err)
 
-	world := createWorld(&scene)
-
-	app.Run(&scene, HUD, world)
+	app.Run(&scene, HUD, createWorld(&scene), nil)
 
 }
 
-// Wires the physics bodies this demo needs, skipping any mesh the scene lacks so every scene still loads
-func createWorld(scene *scene.Scene) *ecs.World { 
-	world := ecs.World{}
-
-	if mesh := scene.FindMesh("Ground"); mesh != nil {
-		world.AddEntities(&StaticCollider{physics.NewPlaneFromMesh(mesh, true)})
+// The physics bodies this demo needs, skipping any mesh the scene lacks so every scene still loads
+func createWorld(scene *scene.Scene) *physics.World {
+	world := physics.World{Gravity: mgl32.Vec3{0, -9.8, 0}}
+	// What the ball can land on and bounce off, all boxes in the showcase
+	for _, name := range []string{"Floor", "Plank", "Wall"} {
+		if mesh := scene.FindMesh(name); mesh != nil {
+			world.Add(physics.NewBoxFromMesh(mesh))
+		}
 	}
-	if mesh := scene.FindMesh("Sphere2"); mesh != nil {
-		world.AddEntities(&StaticCollider{physics.NewSphereFromMesh(mesh, true)})
+	if mesh := scene.FindMesh("Football"); mesh != nil {
+		ball := physics.NewSphereFromMesh(mesh)
+		// A football: a thin shell, on cobbles that roll like rough ground
+		ball.Restitution = 0.4
+		ball.Friction = 0.5
+		ball.Inertia = 2.0 / 3.0
+		ball.RollingResistance = 0.05
+		world.Add(ball)
 	}
-	if mesh := scene.FindMesh("Sphere"); mesh != nil {
-		world.AddEntities(&Sphere{physics.NewSphereFromMesh(mesh, false), mesh})
-	}
-
-	world.Init()
 	return &world
 }
 

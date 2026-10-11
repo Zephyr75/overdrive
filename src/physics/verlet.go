@@ -1,8 +1,8 @@
 package physics
 
 import (
+	"github.com/Zephyr75/overdrive/scene"
 	"github.com/go-gl/mathgl/mgl32"
-	// "math"
 )
 
 type Collider interface {
@@ -12,20 +12,27 @@ type Collider interface {
 	Body() *Verlet
 }
 
+// The state every body has, whatever its shape
 type Verlet struct {
 	Pos     mgl32.Vec3
 	PrevPos mgl32.Vec3 // last step's Pos; the gap between the two stands in for velocity
 	Accel   mgl32.Vec3 // accumulated this step by Accelerate, consumed and zeroed by UpdatePosition
 	Fixed   bool       // true skips integration, an immovable collider
+	// Angular velocity in radians per step, the axis scaled by the angle, as Pos - PrevPos is velocity per step
+	Spin mgl32.Vec3
+	// Turned by Spin each step, for the mesh only: no collision reads it
+	Orientation mgl32.Quat
+	// Placed where the body is after every step; nil for a body nothing draws
+	Mesh *scene.Mesh
 }
 
-// Creates Verlet state at rest, fixed bodies never being integrated
-func NewVerlet(pos mgl32.Vec3, fixed bool) Verlet { 
-	return Verlet{pos, pos, mgl32.Vec3{0.0, 0.0, 0.0}, fixed}
+// Creates a movable body at rest
+func NewVerlet(pos mgl32.Vec3) Verlet {
+	return Verlet{Pos: pos, PrevPos: pos, Orientation: mgl32.QuatIdent()}
 }
 
 // Runs one Verlet integration step, velocity being implied by the previous position
-func (verlet *Verlet) UpdatePosition(deltaTime float32) { 
+func (verlet *Verlet) UpdatePosition(deltaTime float32) {
 	if verlet.Fixed {
 		return
 	}
@@ -36,6 +43,17 @@ func (verlet *Verlet) UpdatePosition(deltaTime float32) {
 }
 
 // Accumulates acceleration for this step, cleared by UpdatePosition
-func (verlet *Verlet) Accelerate(accel mgl32.Vec3) { 
+func (verlet *Verlet) Accelerate(accel mgl32.Vec3) {
 	verlet.Accel = verlet.Accel.Add(accel)
+}
+
+// Turns the body by its spin and moves its mesh to match
+func (verlet *Verlet) follow() {
+	if verlet.Fixed || verlet.Mesh == nil {
+		return
+	}
+	if angle := verlet.Spin.Len(); angle > 0 {
+		verlet.Orientation = mgl32.QuatRotate(angle, verlet.Spin.Mul(1/angle)).Mul(verlet.Orientation).Normalize()
+	}
+	verlet.Mesh.Place(verlet.Pos, verlet.Orientation)
 }

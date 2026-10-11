@@ -115,10 +115,12 @@ no-op. Object names are *not* set: images and buffers show as raw handles.
 
 **Images are inspected with `-screenshot` or in RenderDoc.** `-screenshot
 out.png` copies the swapchain image into a host buffer and writes a PNG of frame
-90 — late enough for the physics and the shadow allocator to settle, so two runs
-photograph the same scene and can be diffed. RenderDoc is still what shows the
-shadow atlases and the per-pass state; `lockCamera = true` is what makes two
-captures comparable.
+90. Physics then counts exactly 1/60 s a frame, so frame 90 is the same
+simulated moment on every run and display, and two runs can be diffed. It is
+also before physics starts (5 s, `physicsStartDelay` in `core/app.go`), so the
+showcase ball is photographed at its starting point. Use `lockCamera = true` too, or mouse-look moves the
+camera during the run. RenderDoc is still what shows the shadow atlases and the
+per-pass state.
 
 `go vet ./...` reports two pre-existing `possible misuse of unsafe.Pointer` in
 `vulkan/backend.go`; they are the device-address arithmetic and are not new.
@@ -137,10 +139,10 @@ The backend links against the `vk` package in the sibling repo `../../go-vulkan`
 ## Architecture
 
 ```
-main.go            builds an App, loads a Scene, builds an ECS World
+main.go            builds an App, loads a Scene, adds its physics bodies
 core/              NewApp (window + backend), App.Run (the frame loop), the UI overlay
-scene/ ecs/        meshes, lights, camera, skybox, materials, pipelines, physics entities
-input/ physics/    — plain Go, zero graphics calls
+scene/ ecs/        meshes, lights, camera, skybox, materials, pipelines, game-logic entities
+input/ physics/    — plain Go, zero graphics calls; physics.World steps the bodies and moves their meshes
 renderer/          the abstraction: Backend/Frame/Pass/Compute, opaque handles, the uniform blocks
 vulkan/            the only package that may import vk.*
 ```

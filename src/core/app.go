@@ -10,6 +10,7 @@ import (
 	"github.com/Zephyr75/gutter/ui"
 	"github.com/Zephyr75/overdrive/ecs"
 	"github.com/Zephyr75/overdrive/input"
+	"github.com/Zephyr75/overdrive/physics"
 	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/scene"
 	"github.com/Zephyr75/overdrive/settings"
@@ -94,8 +95,19 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 	return app
 }
 
-// Builds the pipelines and runs the frame loop until the window closes
-func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, world *ecs.World) { 
+// Physics runs in fixed steps, so a faster display draws the world more often
+// rather than running it faster
+const (
+	physicsRate = 120 // steps per simulated second
+	// The most one frame runs to catch up; a longer stall is skipped, not replayed
+	maxPhysicsSteps = 8
+	// Seconds the world holds still, so the scene can be seen before anything moves
+	physicsStartDelay = 5
+)
+
+// Builds the pipelines and runs the frame loop until the window closes; the
+// physics world and the entities are optional, either may be nil
+func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, bodies *physics.World, entities *ecs.World) {
 	backend := app.Backend
 
 	pipelines, err := scene.NewPipelines(backend)
@@ -128,14 +140,19 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 	// resolves out of. Rebuilt whenever the swapchain has resized under them
 	var targets screenTargets
 
-	// Late enough for the physics and the shadow allocator to have settled, so
-	// two runs photograph the same scene
+	// Late enough for the shadow allocator to have settled; physics counts two
+	// steps a frame meanwhile, so two runs photograph the same moment
 	var shot *screenshot
 	if app.ScreenshotFile != "" {
 		shot = &screenshot{path: app.ScreenshotFile, frame: 90}
 	}
 	frameNo := 0
 	captured := false
+
+	// From the first frame rather than from startup, whose clock already
+	// includes the whole scene load
+	physicsStart := glfw.GetTime() + physicsStartDelay
+	stepsRun := 0
 
 	// Run one iteration per frame until the window closes
 	for !app.Window.ShouldClose() {
@@ -144,7 +161,24 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 		// discovers one records nothing, so this is what catches up to it
 		targets.rebuildOnResize(backend)
 
-		world.Update(time.Second / 60)
+		// The steps that should have run by now, negative while waiting. A
+		// screenshot counts two a frame instead of the clock, so frame N is the
+		// same moment of the simulation on every run and every display
+		stepsDue := int((glfw.GetTime() - physicsStart) * physicsRate)
+		if shot != nil {
+			stepsDue = 2 * (frameNo - physicsStartDelay*60)
+		}
+		if stepsDue > stepsRun {
+			for range min(stepsDue-stepsRun, maxPhysicsSteps) {
+				if entities != nil {
+					entities.Update(time.Second / physicsRate)
+				}
+				if bodies != nil {
+					bodies.Step(1.0 / physicsRate)
+				}
+			}
+			stepsRun = stepsDue
+		}
 
 		loadedScene.UpdateMeshes()
 

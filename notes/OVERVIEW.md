@@ -31,10 +31,10 @@ graph TD
     M[main.go] --> C[core]
     C --> S[scene]
     C --> E[ecs]
+    C --> P[physics]
     C --> I[input]
     C --> R[renderer]
     S --> R
-    E --> P[physics]
     P --> S
     I --> S
     C -.->|constructs it| VK[vulkan]
@@ -58,7 +58,7 @@ overdrive/
 ├── assets/                scene XML, meshes/ (OBJ+MTL), textures/
 ├── xml_export.py          the Blender add-on that writes the scene XML
 └── src/
-    ├── main.go            builds an App, loads a Scene, builds an ECS World
+    ├── main.go            builds an App, loads a Scene, adds its physics bodies
     ├── build_shaders.sh   Slang → SPIR-V, run before the first build and after every shader edit
     ├── paths/             the one place a runtime path is spelled out
     ├── core/              app.go (window, frame loop), targets.go (screen depth + MSAA images),
@@ -67,7 +67,8 @@ overdrive/
     ├── vulkan/            the backend, one file per concept (table below)
     ├── scene/             scene.go, mesh.go, material.go, light.go, camera.go, skybox.go, image.go,
     │                      pipelines.go (every pipeline), shadowatlas.go (allocation + bakes)
-    ├── ecs/ physics/      entities, Verlet integration, sphere and plane colliders
+    ├── physics/           World (gravity, step), Verlet bodies, sphere, plane and oriented-box colliders, rolling contacts
+    ├── ecs/               game-logic entities, updated once a physics step
     ├── input/             GLFW callbacks: WASD, mouse look, scroll FOV, resize
     ├── settings/ utils/   the TOML loader and its globals; vector parsing, error handling
     └── shaders/           slang/ (source of truth), vk/ (generated SPIR-V, git-ignored)
@@ -140,7 +141,8 @@ graph TD
 Every pass is opened in `core/app.go`, in order:
 
 ```
-world.Update                      physics and ECS, fixed 1/60 step
+entities.Update, bodies.Step     ECS then physics: 1/120 s steps on real time, at most 8 a frame,
+                                  none for the first 5 s (2 a frame under -screenshot, so frame 90 is reproducible)
 s.UpdateMeshes                    re-upload the vertices a move dirtied
 input                             camera, unless [debug] lockCamera
 

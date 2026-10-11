@@ -13,7 +13,7 @@ func DefaultInput(window *glfw.Window, deltaTime float32) {
 	if window.GetKey(glfw.KeyEscape) == glfw.Press {
 		window.SetShouldClose(true)
 	}
-	var cameraSpeed float32 = 10 * deltaTime
+	var cameraSpeed float32 = 1 * deltaTime
 	if window.GetKey(glfw.KeyLeftShift) == glfw.Press {
 		cameraSpeed *= 4
 	}

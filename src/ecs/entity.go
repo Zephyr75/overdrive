@@ -1,14 +1,15 @@
 package ecs
 
-import (
-	"time"
-
-	"github.com/Zephyr75/overdrive/physics"
-)
+import "time"
 
 type World struct {
 	entities []Entity
+	// Seconds the step being run covers, for an entity's Update to read
+	step float32
 }
+
+// Returns the length of the step being run, in seconds
+func (world *World) Step() float32 { return world.step }
 
 // Adds entities to the world
 func (world *World) AddEntities(entities ...Entity) {
@@ -22,22 +23,11 @@ func (world *World) Init() {
 	}
 }
 
-// Steps every entity, resolves collisions pairwise, then integrates the Verlet positions
-func (world *World) Update(timeInterval time.Duration) { 
+// Steps every entity's game logic, once per physics step and before it
+func (world *World) Update(timeInterval time.Duration) {
+	world.step = float32(timeInterval.Seconds())
 	for _, entity := range world.entities {
 		entity.Update(world)
-	}
-
-	// Collide every ordered pair, each collider resolving its own half
-	for i, entity := range world.entities {
-		for j, otherEntity := range world.entities {
-			if i != j {
-				entity.Collider().Collide(otherEntity.Collider())
-			}
-		}
-	}
-	for _, entity := range world.entities {
-		entity.Collider().Body().UpdatePosition(1.0 / 60.0)
 	}
 
 	// for {
@@ -72,12 +62,10 @@ func (world *World) FirstEntity(entityType string) Entity {
 type Entity interface {
 	// Runs once, before the first frame
 	Init(world *World)
-	// Runs once per frame, before collisions are resolved
+	// Runs once per physics step, before the bodies move
 	Update(world *World)
 	// Names this entity's kind, for lookups by type
 	Type() string
-	// Returns the collider the physics step drives
-	Collider() physics.Collider
 }
 
 // type Sphere struct {

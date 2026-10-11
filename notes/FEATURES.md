@@ -205,23 +205,41 @@ Blender (x, y, z)  →  Overdrive (x, z, -y)
 - The camera's `front` is rebuilt from `yaw`/`pitch`, never read; `up` is world up.
 - **Static geometry is baked** into the OBJ in world space and drawn with an identity model matrix, so `<position>` matters only for meshes physics moves.
 
-### Physics and the ECS
+### Physics
 
-Plain Go, no graphics calls. `World.Update(dt)` runs three phases:
+Plain Go, no graphics calls. A game builds a `physics.World` and adds bodies to it; `World.Step(dt)` runs three phases, collision after integration and meshes placed last, so a mesh is always drawn where its body was resolved to:
 
 ```mermaid
 flowchart TD
-    W["World.Update(1/60 s)"]
-    W --> U["Entity.Update for each entity<br/>e.g. Accelerate(0, -9.8, 0)"]
-    U --> C["collision detection<br/>every pair, O(n²)"]
+    W["World.Step(1/120 s)"]
+    W --> V["gravity + Verlet integration<br/>for each body not Fixed"]
+    V --> VI["pos += (pos - prevPos) + accel·dt²<br/>accel = 0"]
+    VI --> C["collision detection<br/>every pair, O(n²)"]
     C --> SS["sphere ↔ sphere<br/>overlap → push apart"]
     C --> SP["sphere ↔ plane<br/>distance test → push out"]
-    SS --> V
-    SP --> V["Verlet integration<br/>for each non-fixed particle"]
-    V --> VI["pos += (pos - prevPos) + accel·dt²<br/>accel = 0"]
+    C --> SB["sphere ↔ box<br/>closest point → push out"]
+    C --> F["follow: turn Orientation by Spin,<br/>Mesh.Place(Pos, Orientation)"]
 ```
 
-Verlet stores the previous position instead of a velocity: stable and easy to constrain, no built-in damping. An entity owning a `scene.Mesh` calls `Mesh.MoveTo` in its `Update`; `Scene.UpdateMeshes` re-uploads exactly those meshes next frame and marks them as moved for the shadow cache.
+```go
+world := physics.World{Gravity: mgl32.Vec3{0, -9.8, 0}}
+world.Add(physics.NewBoxFromMesh(scene.FindMesh("Plank")))   // always fixed
+ball := physics.NewSphereFromMesh(scene.FindMesh("Football")) // movable, its mesh follows it
+ball.Restitution, ball.Friction = 0.4, 0.5
+world.Add(ball)
+app.Run(&scene, HUD, &world, nil)
+```
+
+Every shape embeds `Verlet`, which holds what any body has: position and previous position, `Spin`, the `Orientation` it turns, `Fixed`, and the `Mesh` that follows it. The `FromMesh` constructors set the mesh; boxes and planes are always fixed, since only a sphere responds to a contact. `ecs` is separate: entities there are game logic, updated once a step before the bodies move, and `App.Run` takes either world or nil.
+
+`core/App.Run` steps it on real time in fixed 1/120 s steps: each frame works out how many steps should have run since physics started and runs the missing ones, at most 8 (a longer stall is skipped, not replayed). One step per frame ran the world three times too fast at 180 Hz. Nothing is stepped for the first 5 s (`physicsStartDelay`), counted from the first frame because the startup clock already holds the scene load. Under `-screenshot` it is exactly two steps a frame and the wait is counted in frames, so frame 90 is the same simulated moment on any display, and is still inside the wait.
+
+Verlet stores the previous position instead of a velocity: stable and easy to constrain, no built-in damping.
+
+- **Contacts** (`Sphere.resolve`, called by every collision routine with the normal and the depth). The velocity is taken before the push out and `PrevPos` rebuilt behind the new position, or Verlet would read the push as speed. The speed into the surface is reflected, scaled by `Restitution`; a rebound under 5 mm a step is dropped so a resting ball does not hop. Friction then cancels the contact point's slip, the correction shared between speed and `Spin` by `Inertia` (2/3 for a thin shell like a football, 2/5 solid) and capped by `Friction` times the normal impulse: on a slope this alone gives the rolling acceleration g sin θ / (1 + Inertia). `RollingResistance` finally slows speed and spin in proportion, so the ball stays rolling as it stops.
+- **Boxes** (`physics.Box`, `NewBoxFromMesh`) take their axes from the mesh's face normals, not its edges: from a corner of a thin plank a face diagonal is shorter than the long edge. Sphere against box pushes out from the closest point on the box, which covers faces, edges and corners, so a ball rolls off the end of a plank; a centre already inside leaves by the nearest face.
+- **Meshes follow** through `Mesh.Place`, position and rotation together, called by `Verlet.follow` for every movable body with a mesh. It re-bakes the vertices on the CPU rather than send a model matrix, so the prepass and forward pass keep transforming every mesh identically; a mesh never turned keeps the original arithmetic bit for bit. `Scene.UpdateMeshes` re-uploads exactly those meshes next frame and marks them as moved for the shadow cache.
+- **The showcase** (`main.go` `createWorld`): `Floor`, `Plank` and `Wall` are fixed boxes; `Football` is a sphere with `Restitution` 0.4, `Friction` 0.5, `Inertia` 2/3 and `RollingResistance` 0.05. Once physics starts it drops 4 cm onto the plank, rolls down it at 2.5 m/s², and stops on the floor about 1.25 m from the plank 2.8 s later. Suzanne has no collider.
 
 ## 8. Configuration and quality tiers
 
