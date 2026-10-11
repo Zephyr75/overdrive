@@ -8,7 +8,13 @@ require (
 	github.com/go-gl/mathgl v1.2.0
 )
 
-require github.com/BurntSushi/toml v1.6.0
+require (
+	github.com/BurntSushi/toml v1.6.0
+	github.com/mdouchement/hdr v0.2.4
+	github.com/x448/float16 v0.8.4
+)
+
+require github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 
 require (
 	github.com/goki/freetype v1.0.1 // indirect

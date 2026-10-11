@@ -23,6 +23,7 @@ type image struct {
 	width, height int
 	depth         int
 	layerCount    uint32
+	mipLevels     uint32 // 0 on the placeholder and swapchain entries, read through levels
 	vkSamples     vk.SampleCountFlags
 	usage         renderer.ImageUsage
 	vkSampler     vk.Sampler
@@ -92,12 +93,15 @@ func (backend *VKBackend) CreateImage(imageSpec renderer.ImageSpec) renderer.Ima
 		vkImageType = vk.ImageType3D
 	}
 
+	mipLevels := uint32(max(imageSpec.MipLevels, 1))
+
 	vkImageCI, vkAlloc, err := backend.vmaAllocator.VmaCreateImage(vk.ImageCreateInfo{
 		Flags:       vkFlags,
 		ImageType:   vkImageType,
 		Format:      format,
 		Extent:      vk.Extent3D{Width: uint32(imageSpec.Width), Height: uint32(imageSpec.Height), Depth: uint32(depth)},
 		ArrayLayers: layers,
+		MipLevels:   mipLevels,
 		Usage:       toVkImageUsageFlags(imageSpec.Usage),
 		Samples:     toVkSampleCountFlags(imageSpec.Samples),
 	}, vk.VmaAllocationCreateInfo{Usage: vk.VmaMemoryUsageAuto})
@@ -106,7 +110,7 @@ func (backend *VKBackend) CreateImage(imageSpec renderer.ImageSpec) renderer.Ima
 	info := &image{
 		name: imageSpec.Name, vkImage: vkImageCI, vmaAllocation: vkAlloc, vkFormat: format, vkAspect: vkAspect,
 		kind: imageSpec.Kind, width: imageSpec.Width, height: imageSpec.Height, depth: depth,
-		layerCount: layers, vkSamples: toVkSampleCountFlags(imageSpec.Samples),
+		layerCount: layers, mipLevels: mipLevels, vkSamples: toVkSampleCountFlags(imageSpec.Samples),
 		usage: imageSpec.Usage, ownsImage: true, binding: -1,
 		hot: imageSpec.Hot, hotSlot: imageSpec.HotSlot, use: useNone, valid: true,
 	}
@@ -147,11 +151,11 @@ func (backend *VKBackend) makeView(imageInfo *image, spec renderer.ViewSpec) vk.
 	if spec.Aspect == renderer.AspectDepth {
 		vkAspect = vk.ImageAspectDepth
 	}
-	// Images are single-mip, so the range is always level 0 alone
+	// Every level, so a sampled view reaches the whole chain; an attachment is never mipped
 	vkView, err := vk.CreateImageView(backend.vkDevice, vk.ImageViewCreateInfo{
 		Image: imageInfo.vkImage, ViewType: toVkViewType(spec.Kind, layers), Format: imageInfo.vkFormat,
 		SubresourceRange: vk.ImageSubresourceRange{
-			AspectMask: vkAspect, BaseMipLevel: 0, LevelCount: 1,
+			AspectMask: vkAspect, BaseMipLevel: 0, LevelCount: imageInfo.levels(),
 			BaseArrayLayer: uint32(spec.BaseLayer), LayerCount: layers,
 		},
 	})
@@ -167,7 +171,7 @@ func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer
 		return
 	}
 
-	// Set dimensions if not defined
+	// Set dimensions if not defined, which only level 0 can leave out
 	width, height := data.Width, data.Height
 	if width == 0 {
 		width = image.width
@@ -185,6 +189,7 @@ func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer
 	// Define copy region
 	vkCopyRegion := vk.BufferImageCopy{
 		AspectMask:     image.vkAspect,
+		MipLevel:       uint32(data.Mip),
 		BaseArrayLayer: uint32(data.BaseLayer), LayerCount: layerCount,
 		ImageOffset: vk.Offset2D{X: int32(data.X), Y: int32(data.Y)},
 		ImageExtent: vk.Extent3D{Width: uint32(width), Height: uint32(height), Depth: 1},
@@ -263,6 +268,11 @@ func (backend *VKBackend) executePendingUploads(commandBuffer vk.CommandBuffer) 
 		image.pending = false
 	}
 	backend.pendingUploads = backend.pendingUploads[:0]
+}
+
+// How many mip levels a barrier or a view covers, 1 for the entries that never set it
+func (image *image) levels() uint32 {
+	return max(image.mipLevels, 1)
 }
 
 // Resolves an image handle, nil for out-of-range or destroyed entries

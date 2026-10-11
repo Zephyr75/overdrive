@@ -61,7 +61,13 @@ type FrameUniforms struct {
 	ViewPos    [3]float32           // world position of the camera
 	LightCount int32                // live entries in Lights, 0 to MaxLights
 	Lights     [MaxLights]LightData // every light in the scene, shadow-casting or not
-	TexSkybox  int32                // cube slot drawn as the sky and sampled for ambient
+	// 2D slots of the equirectangular environment: the sky drawn behind the
+	// scene, the specular chain prefiltered by roughness, the diffuse irradiance
+	TexSky        int32
+	TexSpecular   int32
+	TexIrradiance int32
+	EnvStrength   float32 // multiplies all three
+	EnvRotation   float32 // turn about +Y in radians, Blender's Mapping Z rotation
 	// How much to grow the shadow normal-offset bias at this atlas size, the
 	// offsets in forward.slang being world-space constants tuned at 4096
 	ShadowNormalScale float32
@@ -85,6 +91,7 @@ type DrawUniforms struct {
 	TexDiffuse   int32 // 2D slot : 0 is the backend's white pixel
 	TexNormalMap int32
 	UseNormalMap int32
+	TexRoughness int32 // 2D slot, .r multiplies MatRoughness: 0 is the white pixel
 }
 
 // Guards the common.slang correspondence on every build
@@ -92,7 +99,7 @@ func init() {
 	if unsafe.Sizeof(LightData{}) != 72 {
 		panic("renderer.LightData no longer matches common.slang")
 	}
-	if unsafe.Sizeof(FrameUniforms{}) != 4760 {
+	if unsafe.Sizeof(FrameUniforms{}) != 4776 {
 		panic("renderer.FrameUniforms no longer matches common.slang")
 	}
 	if unsafe.Sizeof(BakeUniforms{}) != 80 {
@@ -101,7 +108,7 @@ func init() {
 	if unsafe.Sizeof(ShadowTile{}) != 96 {
 		panic("renderer.ShadowTile no longer matches common.slang")
 	}
-	if unsafe.Sizeof(DrawUniforms{}) != 100 {
+	if unsafe.Sizeof(DrawUniforms{}) != 104 {
 		panic("renderer.DrawUniforms no longer matches common.slang")
 	}
 }

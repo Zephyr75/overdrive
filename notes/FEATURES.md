@@ -20,13 +20,13 @@
 | Light | Function | Notes |
 | --- | --- | --- |
 | sun | `calcDirLight` | infinite, along `direction` |
-| point | `calcPointLight` | inverse-square falloff. Import divides Blender's watts by 1000 |
-| spot | `calcSpotLight` | point falloff × `smoothstep` between outer and inner cone cosines. The XML keeps Blender's `<cone>` (degrees) and `<coneBlend>` |
+| point | `calcPointLight` | inverse-square falloff `1/(0.01 + d²)`. Import divides Blender's watts by 4π, the W/sr of a source radiating over the whole sphere |
+| spot | `calcSpotLight` | point falloff × `smoothstep` between outer and inner cone cosines, watts also over 4π, since a Blender spot is a masked point light. The XML keeps Blender's `<cone>` (degrees) and `<coneBlend>` |
 
 - **Up to 64 lights** (`MaxLights` in Go, `MAX_LIGHTS` in Slang, kept in step by hand) in any mix. Each has a `Radius`, the distance where its falloff drops below 1/255 (`scene.lightRadius`); the fragment loop skips a light beyond it before any BRDF or shadow work, which is what makes 64 affordable. A sun has radius 0 and never skips.
 - **Materials** come from the MTL: `Kd` (base colour), `Pm` (metallic), `Pr` (roughness), `map_Kd` (albedo texture, linearised with `pow(·, 2.2)`), `map_Bump`/`bump` (normal map). Without `Pm`/`Pr` a material is a matte dielectric (roughness 1).
 - **Normal mapping** builds the tangent frame per fragment from screen derivatives (`perturbNormal`, Schüler's cotangent frame), so meshes carry no tangents. Enabled per face group by `UseNormalMap`.
-- **Environment.** The skybox cubemap is drawn behind the scene with `LEQUAL` and doubles as a crude reflection probe: sampled along `N` for irradiance (damped ×0.35) and `reflect(-V, N)` for specular, mixed by `fresnelSchlickRoughness`. Real prefiltered IBL is on the roadmap.
+- **Environment.** One equirectangular `.hdr` (`<environment>` in the scene) is the sky drawn behind the scene with `LEQUAL`, uploaded at full size. The lighting maps beside it are baked **at export** by Filament's `cmgen` (`xml_export.py` `write_environment`), into `textures/<name>/`: a specular map prefiltered for GGX with one mip per roughness step (6 levels, 512×256 down) and a cosine-convolved irradiance. `scene/skybox.go` only loads them; `forward.slang` combines them split-sum, with Karis's analytic fit in place of a BRDF LUT. Equirect rather than cubes because cmgen writes it and one 2D slot per map needs no cube support; `envUV` in `common.slang` matches cmgen's mapping only with `--no-mirror`, and cmgen spaces its levels by `r·(2 − r)`, which `forward.slang`'s lookup repeats. Until 2026-10-10 the bake ran in Go at every load, with a `<clamp>` that capped the image first; both went together (`notes/SHOWCASE_PBR.md` §2.5). The light the environment gives (irradiance and specular, never the visible sky) is multiplied by `environmentLightScale` = 0.25 (`scene/skybox.go`): nothing occludes it, so at Blender's full strength it lit the inside of every shadow and hid the scene lights. A tuned stand-in for sky occlusion, to be retired by the HDRI-sun item in `notes/TODO.md` and SSAO.
 - **Tonemapping.** Radiance is unbounded, so `fsMain` ends with Reinhard plus gamma until an HDR pass exists.
 
 ## 3. Shadows
@@ -154,11 +154,12 @@ flowchart TD
 ```
 
 - **One vertex buffer, several meshes**: an OBJ with three materials is one buffer plus three index lists.
-- **Texture paths are portable**: `texturePath` keeps only the basename of Blender's absolute path and resolves it under `assets/textures/`.
+- **Texture paths are portable**: `texturePath` keeps only the basename of Blender's absolute path and resolves it under `textures/` beside the scene file.
+- **Textures are mipmapped** on the CPU at load (`mipChain`, a 2×2 box filter) and uploaded a level at a time through `ImageData.Mip`. Roughness comes from `map_Pr` (or `map_Ns`, where Blender puts it without the PBR extension) and multiplies `Pr`, which the loader forces to 1 when a map exists.
 
 ### Format
 
-Scenes are XML in `assets/`, referencing OBJ/MTL in `assets/meshes/`, written by the Blender add-on `xml_export.py` (**File → Export → Export Overdrive scene…**).
+Scenes are XML in a folder under `assets/`, referencing OBJ/MTL in `meshes/` and images in `textures/` beside the XML, written by the Blender add-on `xml_export.py` (**File → Export → Export Overdrive scene…**). The camera's direction comes from `<front>`; `<yaw>`/`<pitch>` are read only when it is absent.
 
 ```xml
 <scene>

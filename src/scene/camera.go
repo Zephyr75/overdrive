@@ -38,7 +38,7 @@ func (camera *Camera) LookAt(pos mgl32.Vec3) {
 	camera.Front = pos.Sub(camera.Pos).Normalize()
 }
 
-// Converts a parsed XML camera into engine coordinates, deriving front from yaw and pitch
+// Converts a parsed XML camera into engine coordinates, front from the exported vector or yaw and pitch
 func (camera CameraXml) toCamera() Camera { 
 	pos := utils.ParseVec3(camera.Pos)
 	front := utils.ParseVec3(camera.Front)
@@ -48,11 +48,21 @@ func (camera CameraXml) toCamera() Camera {
 	// up = mgl32.Vec3{up[0], up[2], up[1]}
 	up = mgl32.Vec3{0.0, 1.0, 0.0}
 
-	var direction mgl32.Vec3
-	direction[2] = -float32(math.Cos(float64(mgl32.DegToRad(camera.Pitch))) * math.Cos(float64(mgl32.DegToRad(camera.Yaw))))
-	direction[1] = -float32(math.Sin(float64(mgl32.DegToRad(camera.Pitch))))
-	direction[0] = -float32(math.Cos(float64(mgl32.DegToRad(camera.Pitch))) * math.Sin(float64(mgl32.DegToRad(camera.Yaw))))
-	front = direction.Normalize()
+	// Yaw and pitch from the exported front rather than the XML's own, which are
+	// Blender Euler angles (90 degrees of X is level there): the inverse of the
+	// direction formula input.DefaultMouseCallback rebuilds front with
+	yaw, pitch := camera.Yaw, camera.Pitch
+	if front.Len() > 0 {
+		front = mgl32.Vec3{front[0], front[2], -front[1]}.Normalize()
+		pitch = mgl32.RadToDeg(float32(-math.Asin(float64(front[1]))))
+		yaw = mgl32.RadToDeg(float32(math.Atan2(float64(-front[0]), float64(-front[2]))))
+	}
+	// A scene written by hand may give only yaw and pitch, in the engine's own convention
+	front = mgl32.Vec3{
+		-float32(math.Cos(float64(mgl32.DegToRad(pitch))) * math.Sin(float64(mgl32.DegToRad(yaw)))),
+		-float32(math.Sin(float64(mgl32.DegToRad(pitch)))),
+		-float32(math.Cos(float64(mgl32.DegToRad(pitch))) * math.Cos(float64(mgl32.DegToRad(yaw)))),
+	}
 
 	return Camera{
 		Name:  camera.Name,
@@ -60,8 +70,8 @@ func (camera CameraXml) toCamera() Camera {
 		Pos:   pos,
 		Front: front,
 		Up:    up,
-		Yaw:   camera.Yaw,
-		Pitch: camera.Pitch,
+		Yaw:   yaw,
+		Pitch: pitch,
 		Fov:   camera.Fov,
 	}
 }

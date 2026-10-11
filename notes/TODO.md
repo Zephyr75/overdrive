@@ -41,11 +41,9 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
 
 ### Image quality
 
-- [ ] **Mipmaps**: textures shimmer at a distance, and anisotropy does nothing without them. `go-vulkan` has the blit format-feature flags but no `CmdBlitImage` function. Needed:
-  - [ ] Bind `vkCmdBlitImage` + `VkImageBlit` in `go-vulkan`
-  - [ ] A mip count on `ImageSpec`, passed as `MipLevels` in `vulkan/image.go` and covered by views and barriers (all hardcoded to level 0 today)
-  - [ ] Generate the chain after upload (`floor(log2(max(w, h))) + 1` levels, one blit per level, the 6-layer cubemap path included)
-  - [ ] The skybox sampler's `MaxLod` following the chain (the default sampler already allows 16)
+- [x] **Mipmaps**: `ImageSpec.MipLevels` and `ImageData.Mip`, the chain built on the CPU (`scene/image.go` `mipChain`) rather than by blits, so `go-vulkan` needed no `CmdBlitImage`
+  - [ ] Filter albedo in linear space (`FormatRGBA8Srgb` + drop the shader's `pow 2.2`): the box filter averages gamma bytes today
+  - [ ] A deferred (mid-frame) `UpdateImage` keeps one pending copy per image, so two mips written in one frame lose the first
 - [ ] Alpha cutout (foliage, fences): stays in the prepass, but `prepass.slang` must `discard` exactly like `forward.slang` or `EQUAL` speckles
 
 ### Housekeeping
@@ -60,8 +58,16 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
 
 ### Rendering
 
-- [ ] Texture-driven PBR: metallic, roughness and AO maps
-- [ ] Real IBL: irradiance cubemap, prefiltered specular mips, BRDF LUT
+- [ ] Texture-driven PBR: metallic and AO maps (roughness is done, `map_Pr`)
+- [x] Real IBL: prefiltered specular mips and irradiance, as equirect maps; baked by Filament's `cmgen` in the exporter since 2026-10-10, before that in Go (`scene/ibl.go`)
+- [ ] **The HDRI's sun as a shadow-casting light.** The image-based light casts no shadow, so an HDRI sun lights the inside of every shadow. `<clamp>` was removed with the Go bake, so this now belongs in the exporter, before `cmgen` runs:
+  - [ ] In `write_environment`, cap the image at a limit (about 20: outdoor skies stay below it; cedar_bridge peaks at 19.4 outside the sun) and sum `(L − limit)·dω` per channel over the texels above it, direction weighted by that energy
+  - [ ] Run `cmgen` on the capped image, and write the removed energy as a sun `<light>`: `Color` = irradiance / its largest channel, `Intensity` = that channel, `Pos` = mesh bounds centre + 25 m along `Dir` (the shadow camera is `Ortho(±10, 1, 50)` from `Pos`)
+  - [ ] Then lower or drop `environmentLightScale` (`scene/skybox.go`), which partly compensates for this
+- [ ] **Material textures prepared by Filament's tools in the exporter** (in the release `install_cmgen.sh` downloads). Each writes one file per mip, so all of them first need `loadTexture` (`scene/mesh.go`) to load a precomputed chain instead of calling `createMipLevels`:
+  - [ ] `roughness-prefilter`: raises roughness in the far mips where the normal map is bumpy, which stops highlights shimmering on distant normal-mapped surfaces; the reason to build the chain loading at all
+  - [ ] `mipgen`: Lanczos filtering in linear space (replaces the gamma-space item under Image quality) and `--kernel=normals`, which renormalises normal-map mips that the box filter flattens today
+  - [ ] `basisu`: KTX2 GPU-compressed textures, about 4× less VRAM and faster loads than 4K PNG/JPEG; needs a KTX2 loader and BC upload (`renderer.FormatBC7`/`FormatBC7Srgb` already map to Vulkan formats, but nothing creates one yet)
 - [ ] HDR + tonemapping + bloom, built entirely outside `vulkan/` (the test of the interface)
 - [ ] Post-process AA (FXAA/TAA), for specular and normal-map shimmer MSAA cannot fix
 - [ ] Ambient occlusion (SSAO), reading the prepass depth

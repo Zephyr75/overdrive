@@ -11,8 +11,13 @@ import (
 
 // The constant term of the falloff forward.slang implements, 1/(kConstant + d²)
 //
-// One copy, because lightRadius solves the same expression as the shading does
-const lightConstant = float32(1.0)
+// One copy, because lightRadius solves the same expression as the shading does.
+// Only a guard against d = 0, so small: 1 dimmed a light half a metre away 5x
+const lightConstant = float32(0.01)
+
+// Blender's point and spot power in watts to the engine's intensity in W/sr:
+// spread over the whole sphere, a spot being a point light with a cone mask
+const wattsToIntensity = float32(1 / (4 * math.Pi))
 
 // Radiance below which a light is treated as contributing nothing
 //
@@ -81,10 +86,10 @@ func (light LightXml) toLight() Light {
 		kind = renderer.LightSun
 	case "point":
 		kind = renderer.LightPoint
-		intensity /= 1000
+		intensity *= wattsToIntensity
 	case "spot":
 		kind = renderer.LightSpot
-		intensity /= 1000
+		intensity *= wattsToIntensity
 		// Blender gives the full cone angle; the shader compares a half-angle
 		// cosine against dot(-lightDir, direction)
 		outer := mgl32.DegToRad(light.Cone) * 0.5
@@ -92,8 +97,8 @@ func (light LightXml) toLight() Light {
 		cutoff = float32(math.Cos(float64(outer * (1.0 - light.ConeBlend))))
 	}
 
-	// After the /1000 above, never before: the raw Blender energy would give a
-	// radius sqrt(1000) too large
+	// After the watts conversion above, never before: the raw Blender energy
+	// would give a radius sqrt(4 pi) too large
 	radius := float32(0)
 	if kind != renderer.LightSun {
 		radius = lightRadius(color, light.Diffuse, intensity)

@@ -159,10 +159,10 @@ Four invariants hold the engine together. Breaking any of them is how it goes wr
    `Frame.Upload(data any) Address` memcpys a block into a per-frame arena and
    returns its device address; `DrawCall.Push [4]Address` carries four of those,
    positionally, in one 32-byte push constant. The backend never reads a field.
-   `renderer/uniforms.go` declares the blocks — `FrameUniforms` (4760 bytes,
+   `renderer/uniforms.go` declares the blocks — `FrameUniforms` (4776 bytes,
    camera and lights, once per pass), `BakeUniforms` (80, the one tile a depth
    pass is baking, once per tile), `ShadowTile` (96, a variable-length array once
-   per frame) and `DrawUniforms` (100, once per draw) — and
+   per frame) and `DrawUniforms` (104, once per draw) — and
    `shaders/slang/common.slang` names which push slot is which.
 
    That works because Slang compiles with `-fvk-use-scalar-layout` and scalar layout is exactly Go's packing for `float32`/`int32` structs — so **keeping the field order in step is the whole requirement**. No 16-byte cells, no `vec3`-plus-scalar pairing, no vectors standing in for scalar arrays; that was std140's rule and it went with the OpenGL backend on 2026-08-05. Use only `float32`, `int32`, arrays of those, and `mgl32` matrices — anything with a wider alignment breaks the correspondence.
@@ -195,10 +195,11 @@ Conventions that would silently produce a mirrored or inside-out image: the scre
 - `notes/SYNCHRONIZATION.md` — recording vs executing, frames in flight, fences and semaphores, the barrier `use` table, and when a resource may be destroyed.
 - `notes/FEATURES.md` — every feature and _why it is built that way_ (lighting, the shadow atlas and its allocator, bias, PCF, prepass, MSAA, UI), the scene format and Blender add-on, the config tiers, the roadmap and known gaps (§9), and the performance history.
 - `notes/TODO.md` — the working list.
+- `notes/SHOWCASE_PBR.md` — how the showcase scene got PBR, mipmaps and HDR environment lighting: the scene-folder layout, `<environment>`, the CPU IBL bake, and what the exporter does now.
 - `notes/cheatsheets/` — reference, all opening with a Scope / Not here / Source block: `GLOSSARY.md` (one-line definitions), `DESCRIPTORS.md` (the engine's descriptor set in depth), and engine-independent `VULKAN.md`, `OPENGL.md` (API reference, kept deliberately), `PBR.md`, `RAYTRACING.md`, `GRAPHICS.md` (techniques, procedural generation, physics, AI, compression, optimisation, GPGPU, emulation), `ALGEBRA.md`.
 
 ## Conventions
 
 Comments here are one-line, sentence-case, no trailing period, placed above the declaration and explaining _why_ or _what invariant_, not what the code literally does. Match that density — it is deliberate and consistent across the tree.
 
-Scenes are XML (`src/assets/*.xml`) referencing OBJ/MTL in `assets/meshes/`, produced by the Blender add-on `xml_export.py` at the repository root. Static mesh geometry is baked into the OBJ vertices (identity model matrix), so `<position>` is unused for them.
+Scenes are XML in a folder of their own (`assets/showcase/showcase.xml`, the default `-scene`), referencing OBJ/MTL in `meshes/` and textures and the `.hdr` environment in `textures/` beside the XML, produced by the Blender add-on `xml_export.py` at the repository root. The engine decodes PNG, JPEG and Radiance `.hdr` only; the exporter converts anything else. Static mesh geometry is baked into the OBJ vertices (identity model matrix), so `<position>` is unused for them.

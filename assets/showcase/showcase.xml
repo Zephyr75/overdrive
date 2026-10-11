@@ -39,4 +39,24 @@
 		<obj>Suzanne.obj</obj>
 		<mtl>Suzanne.mtl</mtl>
 	</mesh>
+	<light name="Sun">
+		<type>sun</type>
+		<position>3.3485939502716064,-2.4170377254486084,4.089954376220703</position>
+		<direction>-0.6122806072235107,0.43778330087661743,-0.6583754420280457</direction>
+		<color>1.0,1.0,1.0</color>
+		<diffuse>1.0</diffuse>
+		<intensity>1.0</intensity>
+	</light>
+	<light name="Point">
+		<type>point</type>
+		<position>-0.9045816659927368,0.6774795651435852,0.3584015667438507</position>
+		<direction>0.0,0.0,-1.0</direction>
+		<color>1.0,0.050050124526023865,0.5951971411705017</color>
+		<diffuse>1.0</diffuse>
+		<intensity>10.0</intensity>
+	</light>
+	<environment>
+		<file>cedar_bridge_sunset_1_4k.hdr</file>
+		<strength>1.0</strength>
+	</environment>
 </scene>
