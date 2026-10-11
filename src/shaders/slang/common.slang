@@ -1,3 +1,4 @@
+#pragma once
 // Shared declarations for every Overdrive shader
 // Every struct mirrors renderer/uniforms.go field for field: keep the order identical
 
@@ -75,6 +76,12 @@ struct FrameUniforms {
   float envRotation;
   // 4096 / atlasSize, widens the normal-offset bias on a smaller atlas
   float shadowNormalScale;
+  float4x4 invProjection;
+  // Ambient occlusion: the scene depth, and ssao's occlusion and view distance
+  int texDepth;
+  int texAO;
+  float aoRadius;
+  float aoIntensity;
 };
 
 // 80 bytes, renderer.BakeUniforms: the tile a depth pass is baking
@@ -127,6 +134,8 @@ Sampler2D hotTextures[4];
 #define TEX_SKY (textures2D[pushConstants.frame.texSky])
 #define TEX_SPECULAR (textures2D[pushConstants.frame.texSpecular])
 #define TEX_IRRADIANCE (textures2D[pushConstants.frame.texIrradiance])
+#define TEX_DEPTH (textures2D[pushConstants.frame.texDepth])
+#define TEX_AO (textures2D[pushConstants.frame.texAO])
 
 // Mips of the prefiltered specular map: scene/ibl.go specularLevels and the cmgen flags in xml_export.py
 #define SPECULAR_LEVELS 6
@@ -156,3 +165,16 @@ float4 toDisplay(float3 color) {
 
 // Projections are OpenGL style, clip z in [-w, w]; Vulkan wants [0, w]
 #define TO_VK_DEPTH(pos) ((pos).z = ((pos).z + (pos).w) * 0.5)
+
+// A mesh vertex in world space, then in clip space. The prepass and every style's
+// vsMain build their positions from these two, which is what keeps the main
+// pass's EQUAL depth test exact
+float3 worldPosition(float3 aPos) {
+  return mul(pushConstants.draw.model, float4(aPos, 1.0)).xyz;
+}
+
+float4 clipPosition(float3 worldPos) {
+  float4 pos = mul(pushConstants.frame.projection, mul(pushConstants.frame.view, float4(worldPos, 1.0)));
+  TO_VK_DEPTH(pos);
+  return pos;
+}

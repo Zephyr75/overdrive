@@ -188,22 +188,11 @@ func (vkFrame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass))
 	// Prepare the optional depth attachment
 	var depthPtr *vk.RenderingAttachmentInfo
 	if spec.Depth != nil {
-		view, img, attachWidth, attachHeight, _ := backend.view(spec.Depth.View)
-		if view != 0 {
-			backend.recordUseImage(commandBuffer, img, useDepthAttachment)
-			att := vk.RenderingAttachmentInfo{
-				ImageView:   view,
-				ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
-				LoadOp:      vk.AttachmentLoadOpLoad,
-				StoreOp:     storeOp(spec.Depth.Store),
-			}
-			if clear := spec.Depth.Clear; clear != nil {
-				att.LoadOp = vk.AttachmentLoadOpClear
-				att.ClearValue = vk.ClearDepthStencil(clear[0], 0)
-			}
-			depthPtr = &att
+		depth, depthWidth, depthHeight := backend.buildDepthAttachment(commandBuffer, *spec.Depth)
+		if depth.ImageView != 0 {
+			depthPtr = &depth
 			if width == 0 {
-				width, height = attachWidth, attachHeight
+				width, height = depthWidth, depthHeight
 			}
 		}
 	}
@@ -329,6 +318,40 @@ func (backend *VKBackend) buildColorAttachment(commandBuffer vk.CommandBuffer, a
 			vkAttachmentInfo.ResolveImageLayout = vk.ImageLayoutColorAttachmentOptimal
 			vkAttachmentInfo.ResolveMode = vk.ResolveModeAverage
 			vkAttachmentInfo.StoreOp = vk.AttachmentStoreOpDontCare
+		}
+	}
+	return vkAttachmentInfo, width, height
+}
+
+// Builds the depth attachment, the counterpart of buildColorAttachment: a
+// resolve here copies the samples out for a shader to read, and they are kept
+func (backend *VKBackend) buildDepthAttachment(commandBuffer vk.CommandBuffer, attachment renderer.Attachment) (vk.RenderingAttachmentInfo, int, int) {
+	view, img, width, height, _ := backend.view(attachment.View)
+	if view == 0 {
+		return vk.RenderingAttachmentInfo{}, 0, 0
+	}
+	backend.recordUseImage(commandBuffer, img, useDepthAttachment)
+
+	vkAttachmentInfo := vk.RenderingAttachmentInfo{
+		ImageView:   view,
+		ImageLayout: vk.ImageLayoutDepthAttachmentOptimal,
+		LoadOp:      vk.AttachmentLoadOpLoad,
+		StoreOp:     storeOp(attachment.Store),
+	}
+	if clear := attachment.Clear; clear != nil {
+		vkAttachmentInfo.LoadOp = vk.AttachmentLoadOpClear
+		vkAttachmentInfo.ClearValue = vk.ClearDepthStencil(clear[0], 0)
+	}
+
+	// Sample 0 rather than an average: an averaged depth is a surface no
+	// sample lies on, and SAMPLE_ZERO is the one mode every device has
+	if attachment.Resolve != renderer.NoView {
+		resolveView, resolvedImage, _, _, _ := backend.view(attachment.Resolve)
+		if resolveView != 0 {
+			backend.recordUseImage(commandBuffer, resolvedImage, useDepthResolve)
+			vkAttachmentInfo.ResolveImageView = resolveView
+			vkAttachmentInfo.ResolveImageLayout = vk.ImageLayoutDepthAttachmentOptimal
+			vkAttachmentInfo.ResolveMode = vk.ResolveModeSampleZero
 		}
 	}
 	return vkAttachmentInfo, width, height

@@ -27,6 +27,12 @@ farPlane = 50.0
 mode = "none"
 samples = 1
 
+[ambientOcclusion]
+# Off: a full-screen pass and a 16-tap blur the low tier does not afford
+enabled = false
+radius = 0.25         # metres sampled around each pixel
+intensity = 1.5       # exponent on the result: above 1 is darker
+
 [textures]
 anisotropy = 1
 

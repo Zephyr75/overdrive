@@ -16,6 +16,10 @@ const (
 	useShaderRead
 	useColorAttachment
 	useDepthAttachment
+	// The single-sample target a multisampled depth attachment resolves into.
+	// A resolve runs in the colour-output stage with colour-write access, even
+	// for depth, so the plain depth use would leave it unsynchronised
+	useDepthResolve
 	useCopySrc
 	useCopyDst
 	useStorage
@@ -38,7 +42,9 @@ var useTable = [...]useInfo{
 	useSampled:     {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderSampledRead, false},
 	useShaderRead:  {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2VertexShader | vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderRead | vk.Access2ShaderStorageRead, false},
 	useColorAttachment: {vk.ImageLayoutColorAttachmentOptimal, vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite, true},
-	useDepthAttachment: {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentWrite, true},
+	// Read as well as write: the depth test reads what a loaded attachment holds
+	useDepthAttachment: {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentRead | vk.Access2DepthStencilAttachmentWrite, true},
+	useDepthResolve: {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests | vk.PipelineStage2ColorAttachmentOutput, vk.Access2DepthStencilAttachmentWrite | vk.Access2ColorAttachmentWrite, true},
 	useCopySrc:     {vk.ImageLayoutTransferSrcOptimal, vk.PipelineStage2Transfer, vk.Access2TransferRead, false},
 	useCopyDst:     {vk.ImageLayoutTransferDstOptimal, vk.PipelineStage2Transfer, vk.Access2TransferWrite, true},
 	useStorage:     {vk.ImageLayoutGeneral, vk.PipelineStage2ComputeShader, vk.Access2ShaderStorageRead | vk.Access2ShaderStorageWrite, true},

@@ -71,6 +71,15 @@ type FrameUniforms struct {
 	// How much to grow the shadow normal-offset bias at this atlas size, the
 	// offsets in forward.slang being world-space constants tuned at 4096
 	ShadowNormalScale float32
+	// Clip space back to view space, for passes that rebuild positions from depth
+	InvProjection mgl32.Mat4
+	// 2D slots of the ambient occlusion targets: the single-sample scene depth
+	// ssao reads, and the occlusion and view distance it writes for forward to
+	// blur. TexAO 0 is the white pixel, which is AO off
+	TexDepth    int32
+	TexAO       int32
+	AORadius    float32 // world-space radius of the sampled hemisphere
+	AOIntensity float32 // exponent on the result, above 1 darkens
 }
 
 // The one tile a depth pass is baking: uploaded per tile, ~80 bytes rather than
@@ -99,7 +108,7 @@ func init() {
 	if unsafe.Sizeof(LightData{}) != 72 {
 		panic("renderer.LightData no longer matches common.slang")
 	}
-	if unsafe.Sizeof(FrameUniforms{}) != 4776 {
+	if unsafe.Sizeof(FrameUniforms{}) != 4856 {
 		panic("renderer.FrameUniforms no longer matches common.slang")
 	}
 	if unsafe.Sizeof(BakeUniforms{}) != 80 {

@@ -31,6 +31,11 @@ func DrawOnlyAddressArray(draw renderer.Address) [4]renderer.Address {
 	return pushBlocks{draw: draw}.toAddressArray()
 }
 
+// The push addresses of a full-screen pass that reads only the frame block
+func FrameOnlyAddressArray(frame renderer.Address) [4]renderer.Address {
+	return pushBlocks{frame: frame}.toAddressArray()
+}
+
 // Bytes per vertex of each stream the engine draws
 const (
 	// position(3) | normal(3) | uv(2)

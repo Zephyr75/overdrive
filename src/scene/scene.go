@@ -176,6 +176,7 @@ func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) {
 	uniforms.View = mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
 	uniforms.Projection = mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov),
 		float32(settings.Current.Window.Width)/float32(settings.Current.Window.Height), 0.1, 100.0)
+	uniforms.InvProjection = uniforms.Projection.Inv()
 	uniforms.ViewPos = scene.Cam.Pos
 
 	count := len(scene.Lights)

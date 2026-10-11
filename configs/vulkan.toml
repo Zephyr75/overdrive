@@ -37,6 +37,12 @@ farPlane = 50.0
 mode = "msaa"         # or "none"
 samples = 4           # 1, 2, 4 or 8
 
+[ambientOcclusion]
+# Screen-space ambient occlusion: darkens the environment light in creases and under objects
+enabled = true
+radius = 0.25         # metres sampled around each pixel
+intensity = 1.5       # exponent on the result: above 1 is darker
+
 [textures]
 anisotropy = 8        # 1 (off), 2, 4, 8 or 16
 

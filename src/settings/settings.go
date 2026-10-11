@@ -60,6 +60,15 @@ type Config struct {
 		// Samples per pixel when Mode is AAMSAA: 1, 2, 4 or 8
 		Samples int
 	} `toml:"antialiasing"`
+	// Screen-space ambient occlusion from the prepass depth, darkening the
+	// environment light in creases and under objects
+	AmbientOcclusion struct {
+		Enabled bool
+		// World-space radius of the hemisphere sampled around each pixel, in metres
+		Radius float32
+		// Exponent on the result: 1 as computed, above 1 darker
+		Intensity float32
+	} `toml:"ambientOcclusion"`
 	Textures struct {
 		// Anisotropic filtering on material textures: 1 (off), 2, 4, 8 or 16,
 		// lowered to the device limit at sampler creation
@@ -98,6 +107,9 @@ func defaults() Config {
 	cfg.AntiAliasing.Mode = AAMSAA
 	cfg.AntiAliasing.Samples = 4
 	cfg.Textures.Anisotropy = 8
+	cfg.AmbientOcclusion.Enabled = true
+	cfg.AmbientOcclusion.Radius = 0.25
+	cfg.AmbientOcclusion.Intensity = 1.5
 	return cfg
 }
 

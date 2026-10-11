@@ -157,9 +157,10 @@ Backend.Frame(func(f) {
     f.Pass("shadowDynamic", …) {  only when s.HasDynamicBakes: loads, draws over the copies
         s.RenderDynamicBakes
     }
-    f.Pass("depthPrepass", …) {   depth only, no colour attachment
+    f.Pass("depthPrepass", …) {   depth only, no colour attachment; resolves sample 0 under MSAA
         s.RenderDepth
     }
+    occlusion.record              f.Pass("ssao"): full-screen, RG16F occlusion + distance from that depth
     f.Pass("main", …) {           the only pass that clears colour
         s.RenderSkybox            its own uploaded block, view translation stripped
         s.RenderScene             EQUAL against the depth the prepass left
@@ -185,10 +186,10 @@ Backend.Frame(func(f) {
 | Atlas passes leave `FlipY` false, pipelines `WindingClockwise` | an atlas is sampled, not presented; the price is inverted winding |
 | Every vertex stage calls `TO_VK_DEPTH` | projections are OpenGL style, clip z in `[-w, w]`; Vulkan clips to `[0, w]` |
 | Uniform **field order** matches between `renderer/uniforms.go` and `common.slang` | scalar layout means no marshalling and no protection; the `init()` size guard misses a swap |
-| `prepass.slang` builds position exactly like `forward.slang`'s `vsMain` | the main pass tests `EQUAL`, a last-bit difference shows as speckle |
+| `prepass.slang` and `surface.slang`'s `vsMain` both build position through `common.slang`'s `worldPosition` and `clipPosition` | the main pass tests `EQUAL`, a last-bit difference shows as speckle |
 | Clears and viewports only inside `Frame.Pass` (or `Pass.Viewport` within it) | a free-floating clear has no pass to belong to |
 | Offscreen images stay single-sampled | a later pass samples them, and a multisampled texture cannot be filtered |
-| `cubeFaceDirs` (`scene/shadowatlas.go`) and `cubeFace()` (`forward.slang`) agree | a point shadow lands on the wrong face otherwise |
+| `cubeFaceDirs` (`scene/shadowatlas.go`) and `cubeFace()` (`lighting.slang`) agree | a point shadow lands on the wrong face otherwise |
 
 The first three are OpenGL leftovers; building the projections Vulkan-native removes all of them (`TODO.md`).
 

@@ -102,6 +102,8 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 	utils.HandleError(err)
 	overlay, err := newOverlay(backend)
 	utils.HandleError(err)
+	occlusion, err := newOcclusionPasses(backend)
+	utils.HandleError(err)
 
 	if loadedScene != nil {
 		input.SetScene(loadedScene)
@@ -170,6 +172,12 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 				loadedScene.FillFrameUniforms(&frameUniforms)
 				reads = loadedScene.ShadowImages()
 			}
+			// Without the prepass there is no depth to occlude from before the main pass
+			prepass := loadedScene != nil && !settings.Current.Debug.NoPrepass
+			ao := settings.Current.AmbientOcclusion
+			runAO := prepass && ao.Enabled
+			occlusion.fillUniforms(backend, &targets, &frameUniforms, runAO, ao.Radius, ao.Intensity)
+
 			// One upload for the whole frame: the prepass and the forward pass
 			// read the same bytes, which is what an EQUAL depth test needs
 			frameAddr = frame.Upload(&frameUniforms)
@@ -205,15 +213,19 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 
 			// Depth first, so the forward pass shades each visible fragment once
 			// rather than once per surface drawn over it
-			prepass := loadedScene != nil && !settings.Current.Debug.NoPrepass
 			if prepass {
 				frame.Pass(renderer.PassSpec{
 					Name:  "depthPrepass",
-					Depth: &renderer.Attachment{View: targets.depthView, Clear: &depthClear, Store: true},
+					Depth: targets.prepassDepth(&depthClear),
 					FlipY: true,
 				}, func(pass renderer.Pass) {
 					loadedScene.RenderDepth(frame, pass, pipelines, frameAddr)
 				})
+			}
+			// Between the prepass and the main pass, which samples the result
+			if runAO {
+				occlusion.record(frame, &targets, frameAddr)
+				reads = append(reads, targets.ao)
 			}
 
 			// The main pass keeps the depth the prepass left, which is what the

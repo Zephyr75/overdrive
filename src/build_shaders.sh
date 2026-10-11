@@ -40,7 +40,9 @@ for row in \
     prepass:vsMain:vertex:vert \
     prepass:fsMain:fragment:frag \
     ui:vsMain:vertex:vert \
-    ui:fsMain:fragment:frag
+    ui:fsMain:fragment:frag \
+    ssao:vsMain:vertex:vert \
+    ssao:fsMain:fragment:frag
 do
     name=${row%%:*}; rest=${row#*:}
     entry=${rest%%:*}; rest=${rest#*:}

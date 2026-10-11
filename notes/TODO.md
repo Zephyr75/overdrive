@@ -18,7 +18,7 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
 - [ ] Give each mesh a model matrix built from position/rotation/scale, sent in `DrawUniforms.Model` (the shaders already multiply by it)
 - [ ] `MoveTo` / `MoveBy` (and a new rotate) update the matrix only, no vertex re-upload; drop `initialPosition` and the per-move buffer rewrite
 - [ ] Bake and cull shadows with the transformed bounds (`boundsCenter`, `casterInRange`), and keep a moved mesh dirtying its dynamic tiles
-- [ ] Check the normal matrix (`inverse3` in `forward.slang`) under rotation and non-uniform scale
+- [ ] Check the normal matrix (`inverse3` in `surface.slang`'s `vsMain`) under rotation and non-uniform scale
 - [ ] Re-export `showcase.xml` and `stress.xml`, and compare with `-screenshot` before and after
 
 ### Physics
@@ -48,6 +48,9 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
 
 ### Housekeeping
 
+- [ ] Swapchain-acquire write-after-read under `validate_sync`, 10 reports a run before and after AO. Likely cause, unverified: the transition out of `useNone` has no source stage, so it does not wait on the stage the acquire semaphore is waited at (`vulkan/frame.go`, the swapchain image's first `recordUseImage`)
+- [ ] `useColorAttachment` declares write access only: a colour attachment that loads (no `Clear`) or blends also reads, as `useDepthAttachment` now declares. The AO passes clear to avoid it
+
 - [ ] A first test: `shadowAtlas.allocate` is pure CPU logic over `[]Light`
 - [ ] Rename `[shadows] bakeBudgetMiB`: it counts texels in units of 2^20, not memory
 - [ ] Remove the shadow sampler's white border (`scene/shadowatlas.go`): `shadowLookup` returns before sampling outside a tile, so it is never reached
@@ -70,7 +73,8 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
   - [ ] `basisu`: KTX2 GPU-compressed textures, about 4× less VRAM and faster loads than 4K PNG/JPEG; needs a KTX2 loader and BC upload (`renderer.FormatBC7`/`FormatBC7Srgb` already map to Vulkan formats, but nothing creates one yet)
 - [ ] HDR + tonemapping + bloom, built entirely outside `vulkan/` (the test of the interface)
 - [ ] Post-process AA (FXAA/TAA), for specular and normal-map shimmer MSAA cannot fix
-- [ ] Ambient occlusion (SSAO), reading the prepass depth
+- [x] Ambient occlusion (SSAO), reading the prepass depth (`core/ao.go`)
+- [ ] Half-resolution AO: two full-screen passes at full resolution today
 - [ ] Blending / transparency: a pass after the opaque `EQUAL` batch, `CompareLess`, no depth write, sorted back to front; `Material.Alpha` has to reach `DrawUniforms`
 - [ ] Clustered forward: removes the 64-light cap and the score's blindness to off-screen lights
 - [ ] Instancing

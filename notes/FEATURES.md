@@ -15,18 +15,21 @@
 
 ## 2. Lighting and materials
 
-**Cook-Torrance metallic-roughness PBR** in `forward.slang`: GGX distribution, Smith geometry via Schlick-GGX with direct-lighting `k = (r+1)²/8`, Fresnel-Schlick, and a Lambert diffuse weighted `kD = (1 - F)(1 - metallic)`, so metals have no diffuse. `F0 = lerp(0.04, albedo, metallic)`.
+**Cook-Torrance metallic-roughness PBR** in `pbr.slang`, the style `forward.slang` shades with: GGX distribution, Smith geometry via Schlick-GGX with direct-lighting `k = (r+1)²/8`, Fresnel-Schlick, and a Lambert diffuse weighted `kD = (1 - F)(1 - metallic)`, so metals have no diffuse. `F0 = lerp(0.04, albedo, metallic)`.
 
-| Light | Function | Notes |
+What arrives from each light is computed apart from the style, in `lighting.slang`'s `sampleLight`, which returns the direction, the radiance and the shadow:
+
+| Light | Branch in `sampleLight` | Notes |
 | --- | --- | --- |
-| sun | `calcDirLight` | infinite, along `direction` |
-| point | `calcPointLight` | inverse-square falloff `1/(0.01 + d²)`. Import divides Blender's watts by 4π, the W/sr of a source radiating over the whole sphere |
-| spot | `calcSpotLight` | point falloff × `smoothstep` between outer and inner cone cosines, watts also over 4π, since a Blender spot is a masked point light. The XML keeps Blender's `<cone>` (degrees) and `<coneBlend>` |
+| sun | `LIGHT_SUN` | infinite, along `direction` |
+| point | the default | inverse-square falloff `1/(0.01 + d²)`. Import divides Blender's watts by 4π, the W/sr of a source radiating over the whole sphere |
+| spot | `LIGHT_SPOT` | point falloff × `smoothstep` between outer and inner cone cosines, watts also over 4π, since a Blender spot is a masked point light. The XML keeps Blender's `<cone>` (degrees) and `<coneBlend>` |
 
 - **Up to 64 lights** (`MaxLights` in Go, `MAX_LIGHTS` in Slang, kept in step by hand) in any mix. Each has a `Radius`, the distance where its falloff drops below 1/255 (`scene.lightRadius`); the fragment loop skips a light beyond it before any BRDF or shadow work, which is what makes 64 affordable. A sun has radius 0 and never skips.
 - **Materials** come from the MTL: `Kd` (base colour), `Pm` (metallic), `Pr` (roughness), `map_Kd` (albedo texture, linearised with `pow(·, 2.2)`), `map_Bump`/`bump` (normal map). Without `Pm`/`Pr` a material is a matte dielectric (roughness 1).
 - **Normal mapping** builds the tangent frame per fragment from screen derivatives (`perturbNormal`, Schüler's cotangent frame), so meshes carry no tangents. Enabled per face group by `UseNormalMap`.
 - **Environment.** One equirectangular `.hdr` (`<environment>` in the scene) is the sky drawn behind the scene with `LEQUAL`, uploaded at full size. The lighting maps beside it are baked **at export** by Filament's `cmgen` (`xml_export.py` `write_environment`), into `textures/<name>/`: a specular map prefiltered for GGX with one mip per roughness step (6 levels, 512×256 down) and a cosine-convolved irradiance. `scene/skybox.go` only loads them; `forward.slang` combines them split-sum, with Karis's analytic fit in place of a BRDF LUT. Equirect rather than cubes because cmgen writes it and one 2D slot per map needs no cube support; `envUV` in `common.slang` matches cmgen's mapping only with `--no-mirror`, and cmgen spaces its levels by `r·(2 − r)`, which `forward.slang`'s lookup repeats. Until 2026-10-10 the bake ran in Go at every load, with a `<clamp>` that capped the image first; both went together (`notes/SHOWCASE_PBR.md` §2.5). The light the environment gives (irradiance and specular, never the visible sky) is multiplied by `environmentLightScale` = 0.25 (`scene/skybox.go`): nothing occludes it, so at Blender's full strength it lit the inside of every shadow and hid the scene lights. A tuned stand-in for sky occlusion, to be retired by the HDRI-sun item in `notes/TODO.md` and SSAO.
+- **Ambient occlusion** (`core/ao.go`, `shaders/slang/ssao.slang`, `[ambientOcclusion]`). One full-screen pass between the prepass and the main pass, writing an RG16F image of occlusion and view distance. `ssao` rebuilds view-space position from depth through `FrameUniforms.InvProjection`, and the normal from the neighbour on each axis whose depth is closer, so a silhouette does not bend it toward the background. It then tests 16 cosine-weighted samples within `radius`, rotated per pixel by a 4×4 Bayer pattern. `forward.slang` blurs it as it reads, over 4×4 taps, skipping taps at another distance so contact shadows keep their edge: the pattern repeats every 4 pixels, so any 4×4 window holds each rotation once and the noise cancels exactly, which interleaved gradient noise (the first version, until 2026-10-11) did not, leaving a fine hatching. The blur lives in the forward pass rather than a pass of its own because the prepass makes forward shade each pixel once; the distance is stored beside the occlusion because single-sampled, the depth it would otherwise read is the main pass's own attachment. It then raises the result to `intensity` and multiplies **only the environment term**: a scene light has its own shadow map. Depth only, rather than a normal target from the prepass, because the prepass has no colour attachment and would then need one, multisampled and resolved. Under MSAA the prepass resolves sample 0 (`Attachment.Resolve` on a depth attachment, `ResolveModeSampleZero`) into a single-sample `sceneDepth`, since a bindless `Sampler2D` cannot read a multisampled image; single-sampled, AO reads the depth buffer itself. Off in `low.toml`; without the prepass there is nothing to read, and `TexAO` stays 0, the white pixel.
 - **Tonemapping.** Radiance is unbounded, so `fsMain` ends with Reinhard plus gamma until an HDR pass exists.
 
 ## 3. Shadows
@@ -41,7 +44,7 @@
 | spot | 1 | `depth.slang`, the cone's frustum widened by 2 texels | projected depth |
 | point | 6, one per 90° face | `depth_point.slang` | radial distance / `farPlane`, continuous across faces so one bias fits all six |
 
-One `shadowLookup` in `forward.slang` serves every type: it projects through the tile's own matrix, maps tile uv into the atlas through `AtlasCoords`, and forks only on the depth encoding.
+One `shadowLookup` in `lighting.slang` serves every type: it projects through the tile's own matrix, maps tile uv into the atlas through `AtlasCoords`, and forks only on the depth encoding.
 
 **Why an atlas.** The pass count stops growing with the light count (one pass per atlas, then a `Pass.Viewport` per tile), tile size is chosen per light, and the static/dynamic cache has one texel currency. It costs two things a cubemap gave free:
 
@@ -110,7 +113,7 @@ A raw lookup answers lit or shadowed per texel, so edges are blocky. PCF compare
 Always on; `[debug] noPrepass` turns it off for comparison. A depth-only pass draws every mesh through `prepass.slang` (no colour attachment, empty fragment stage); the main pass keeps that depth and the forward pipeline compares `EQUAL`, so `fsMain` runs once per pixel.
 
 - **Why**: `fsMain` is the most expensive shader (up to 64 lights, each with Cook-Torrance and 4–13 PCF taps). Early-Z already rejects hidden fragments, but only against what has been drawn; the prepass gives exact per-pixel rejection with no sorting. It wins on depth complexity and shows no gain on the flat showcase, which is expected.
-- **`EQUAL` compares bits.** `prepass.slang` repeats `forward.slang`'s position maths operation for operation (not `depth.slang`'s premultiplied matrix, which rounds differently), and both passes read the same uploaded `FrameUniforms` address. Verified: prepass on and off differ in 6 pixels of 2.07 M.
+- **`EQUAL` compares bits.** `prepass.slang` and `surface.slang`'s `vsMain` both call `worldPosition` then `clipPosition` from `common.slang`, so the operations are the same by construction (not `depth.slang`'s premultiplied matrix, which rounds differently); before 2026-10-11 the prepass repeated them by hand, and both passes read the same uploaded `FrameUniforms` address. Verified: prepass on and off differ in 6 pixels of 2.07 M.
 - **Transparency must stay out of it**: blending needs several fragments per pixel. When it lands it is a third pass, sorted back to front, `CompareLess`, depth write off. Alpha cutout belongs in the prepass, but `prepass.slang` must then `discard` identically.
 
 ## 5. Anti-aliasing — MSAA
@@ -239,7 +242,7 @@ Every runtime knob is in the TOML file; a bad value rejects the file (`settings.
 
 1. **Texture-driven PBR and real IBL.** Metallic/roughness/AO maps (`map_Pm`/`map_Pr` in `scene/mesh.go`), and the skybox prefiltered into an irradiance cubemap, a roughness-mip specular cubemap and a BRDF LUT (`cheatsheets/PBR.md` §9).
 2. **HDR, tonemapping, bloom.** Render the main pass into an `RGBA16F` image, then a post pass: bright-pass, separable blur, ACES/Reinhard, gamma. Nothing under `vulkan/` has to change, which is the test of the interface.
-3. **Ray-traced shadows** through `VK_KHR_ray_query` in `forward.slang`'s shadow test, then AO, reflections, one-bounce GI (`cheatsheets/RAYTRACING.md` §5). Needs the acceleration-structure bindings in `go-vulkan`.
+3. **Ray-traced shadows** through `VK_KHR_ray_query` in `lighting.slang`'s shadow test, then AO, reflections, one-bounce GI (`cheatsheets/RAYTRACING.md` §5). Needs the acceleration-structure bindings in `go-vulkan`.
 4. **Clustered forward**: the per-cluster light list that removes the fixed 64-light cap and stops off-screen lights scoring high.
 
 | Known gap | Where |
@@ -260,6 +263,6 @@ Every fix below was found by measurement.
 - **Shadow taps dominate the fragment shader** (up to 13 per light per fragment). Two fixes closed most of the gap to the old OpenGL backend on an Intel UHD 620:
   - **Dedicated shadow descriptors.** Intel's driver re-fetches a dynamically indexed descriptor on every tap, so the atlases sit in binding 3 indexed by a literal, ~1.7× faster. Near-free on discrete GPUs, but the atlas made it cost nothing to keep.
   - **Early-bail PCF** (§3).
-- **Material reads hoisted out of the light loop.** Through a BDA pointer the compiler cannot prove a load is loop-invariant, so reading material fields per light re-fetched them every iteration. `fsMain` copies them into a local `MatParams` once.
+- **Material reads hoisted out of the light loop.** Through a BDA pointer the compiler cannot prove a load is loop-invariant, so reading material fields per light re-fetched them every iteration. `fsMain` copies them into a local `MatParams` once, since 2026-10-11 the `Surface` that `surface.slang`'s `loadSurface` builds.
 - **The uniform split** (per frame / per tile / per draw) cut the per-draw payload from 1312 to 100 bytes. No measurable frame-rate change on the iGPU: the win is structural. Splitting `BakeUniforms` out took a full atlas from ~1.6 MiB of arena a frame to ~40 KiB.
 - **FPS subtraction does not measure anything here.** Under vsync (FIFO, 180 Hz on this machine) a frame drops cleanly to the next interval, so 9 lights and 64 lights both read ~181 FPS. RenderDoc's per-pass timings are the instrument; the engine's own timestamp queries were deleted unused.

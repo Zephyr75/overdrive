@@ -51,7 +51,22 @@ func validate(cfg *Config) error {
 			return err
 		}
 	}
+	if err := checkAmbientOcclusion(cfg); err != nil {
+		return err
+	}
 	return checkAnisotropy(cfg.Textures.Anisotropy)
+}
+
+// Rejects an occlusion radius or exponent that would sample nothing or invert the result
+func checkAmbientOcclusion(cfg *Config) error {
+	ao := cfg.AmbientOcclusion
+	if ao.Radius <= 0 {
+		return fmt.Errorf("ambientOcclusion.radius must be positive, got %g", ao.Radius)
+	}
+	if ao.Intensity <= 0 {
+		return fmt.Errorf("ambientOcclusion.intensity must be positive, got %g", ao.Intensity)
+	}
+	return nil
 }
 
 // Accepts the PCF quality names
