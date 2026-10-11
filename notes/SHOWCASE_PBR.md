@@ -102,25 +102,32 @@ Two caveats are recorded in `TODO.md`:
   <file>cedar_bridge_sunset_1_4k.hdr</file>  <!-- in textures/ -->
   <strength>1.0</strength>                    <!-- Blender's Background strength -->
   <rotation>0.0</rotation>                    <!-- radians, Blender's Mapping Z rotation -->
-  <clamp>20.0</clamp>                         <!-- caps radiance; 0 or absent = no cap -->
 </environment>
 ```
 
+`<clamp>` existed until 2026-10-10 and was dropped with the CPU bake (below): it capped the image before baking, and the bake now happens in the exporter. An old scene that still has it loads; the element is ignored.
+
 Without the element, the scene is lit by a flat 0.05 grey environment (`flatEnvironment`).
 
-**Loading and baking (`scene/ibl.go`, new, all CPU at load):**
+**Baking, in the exporter (since 2026-10-10).** `write_environment` runs Filament's `cmgen` on the World's environment image, EXR included, which it decodes itself:
 
-1. `loadHDR` decodes Radiance `.hdr`, both flat and RLE scanlines.
-   - **Why `.hdr`:** it is about 80 lines of Go. The source EXRs use PIZ and DWAA compression, for which there is no pure-Go decoder, and Blender can write `.hdr`.
-2. `clamp`, when set, caps every channel. This takes the sun out of the image-based light so a scene light can carry it with a shadow. Without the cap, the sun is counted twice and lights the inside of shadows.
-3. `buildChain` box-halves the source down to 4 texels wide.
-4. Three RGBA16F equirect images are baked:
-   - **sky**: the 2048-wide chain level, drawn behind the scene
-   - **specular**: 6 mips from 512×256 down, mip *k* prefiltered for roughness *k*/5 with 128 GGX samples a texel. *Filtered importance sampling* makes each sample read the chain level whose texel matches its share of the lobe, which is what stops 128 samples from turning the sun into fireflies.
-   - **irradiance**: 32×16, a brute-force cosine convolution of the 64-wide level, divided by π so the shader's diffuse is `irradiance * albedo`
-5. Rows are baked in parallel goroutines. The whole run, to frame 90's screenshot, takes a few seconds.
+```sh
+cmgen --quiet --no-mirror --type=equirect --format=hdr --size=256 --ibl-min-lod-size=8 \
+      --ibl-ld=textures --ibl-irradiance=textures <source image>
+```
 
-**Why equirect rather than cubemaps:** the bake is plain Go over one array, with no compute pass, no cube faces and no seam handling between faces. The cost is one direction→uv function that the CPU and GPU must agree on: `equirectUV` in Go and `envUV` in `common.slang`. Both use u = 0.5 + atan2(z, x)/2π and v = 0.5 − asin(y)/π in engine space, which is Blender's mapping after the Z-up → Y-up swap.
+That writes `textures/<name>/m0.hdr` … `m5.hdr` (the specular levels, 512×256 down to 16×8) and `textures/<name>/irradiance.hdr` (512×256), `<name>` being the stem of `<file>`. Each flag is load-bearing:
+
+- `--no-mirror`: cmgen mirrors by default for Filament's own cubemap convention. Unmirrored, its equirect lines up with `envUV` with no shift; mirrored it is flipped in u.
+- `--size=256` is the cube face, which gives a 512-wide equirect level 0. `--ibl-min-lod-size=8` keeps six levels; the default 16 would stop at five, and the engine's `specularLevels` / `SPECULAR_LEVELS` is 6.
+- cmgen spaces its levels by perceptual roughness as `lod = (levels − 1)·r·(2 − r)` (`lodToPerceptualRoughness` in its `cmgen.cpp`), not linearly, so `forward.slang` looks up the same formula.
+- Its irradiance has the same convention the Go bake had, already divided by π: the means agreed within 5% a channel.
+
+`cmgen` ships prebuilt in Filament's GitHub release tarball (`filament/bin/cmgen`, needs only the system C libraries); the AUR package is from 2020. The export dialog's **cmgen** field is its path, a bare name meaning `PATH`.
+
+**Loading (`scene/skybox.go` `Skybox.load`).** `loadHDR` (`scene/ibl.go`) decodes each file through `github.com/mdouchement/hdr/codec/rgbe` (MIT). cmgen writes `EXPOSURE=0` in its headers, which the library treats as 1. The sky is the full source `.hdr`, uploaded at its own size with no mips (4096×2048 here, 64 MB of RGBA16F); the six levels become the specular image's mips, and `load` refuses a level that is not exactly half the one above, since Vulkan derives every mip's size from level 0. Without `<environment>` each map is one flat 8×4 image.
+
+**What it replaced.** Until 2026-10-10 `scene/ibl.go` baked the same maps in Go at every load: a box-filtered chain, 128-sample GGX filtered importance sampling per specular texel, and a brute-force cosine convolution for a 32×16 irradiance. The switch was checked against it before landing: cmgen's levels matched the Go levels at the offset the two roughness spacings predict, and the showcase rendered with 99.2% of pixels within 8/255 of the Go bake. Fed the EXR rather than the clamped `.hdr`, the frame comes out about 2.5/255 redder, from the source's 14 `+Inf` sun texels.
 
 **Uniforms.** `FrameUniforms.TexSkybox` (one cube slot) is replaced by `TexSky`, `TexSpecular` and `TexIrradiance` (2D slots), plus `EnvStrength` and `EnvRotation`: 4760 → 4776 bytes. `common.slang` matches field for field. I checked the emitted offsets with `spirv-dis`: `texSky` is at 4752 and `texRoughness` at 100.
 
@@ -130,7 +137,7 @@ Without the element, the scene is lit by a flat 0.05 grey environment (`flatEnvi
   - `envUV(d)`, which applies the rotation about +Y (Blender's Z)
   - `envSample(map, d, lod)`: always `SampleLevel`, because implicit derivatives jump at the u = 0/1 seam and would pick the smallest mip along a line
   - `toDisplay`: the Reinhard + gamma that `forward.slang` already did, now shared
-- `forward.slang`'s ambient term is the split-sum: `kD·irradiance·albedo + prefiltered(R, roughness·5)·(F0·A + B)`. A and B come from Karis's analytic fit (`envBRDFApprox`) **instead of a BRDF LUT**, which saves a texture, a slot and a bake for a difference you can't see at this scale.
+- `forward.slang`'s ambient term is the split-sum: `kD·irradiance·albedo + prefiltered(R, roughness·(2 − roughness)·5)·(F0·A + B)`. A and B come from Karis's analytic fit (`envBRDFApprox`) **instead of a BRDF LUT**, which saves a texture, a slot and a bake for a difference you can't see at this scale.
 - `skybox.slang` samples the sky by the cube's direction and tonemaps like the scene. It used to output LDR bytes directly; an HDR sky that skipped the tonemap would clip to white.
 
 The skybox cube mesh and its pipeline are unchanged. Only what it samples changed. The environment sampler wraps in u and clamps in v, so the poles do not bleed into each other.
@@ -143,8 +150,8 @@ The skybox cube mesh and its pipeline are unchanged. Only what it samples change
 
 - `obj_export(..., export_pbr_extensions=True)`: writes `Pr`, `Pm` and `map_Pr`.
 - `localise_mtl`: after each OBJ export, every map in the MTL is copied or converted into `textures/`, and the line is rewritten to the bare filename. Anything that is not PNG or JPEG becomes a PNG, through a throwaway image datablock, so the user's images keep their path and settings. Every map except `map_Kd` is saved as `Non-Color`, so normals and roughness are not gamma-encoded on the way to 8 bits. A texture shared between meshes is converted once.
-- `write_environment`: finds the World's Environment Texture, saves it as `.hdr` (or copies it if it already is one), and writes `<environment>` with the Background strength and the Mapping node's Z rotation.
-- A new **Environment clamp** field in the export dialog writes `<clamp>`. Set it when a Sun lamp stands in for the HDRI's sun.
+- `write_environment`: finds the World's Environment Texture, saves it as `.hdr` (or copies it if it already is one), runs `cmgen` on the source for the lighting maps (2.5), and writes `<environment>` with the Background strength and the Mapping node's Z rotation. A missing or failing `cmgen` cancels the export with an error.
+- The export dialog's **cmgen** field is the path to Filament's `cmgen`. It replaced the **Environment clamp** field on 2026-10-10.
 
 The camera's `<yaw>`/`<pitch>` are still written but are now only a fallback.
 
@@ -177,7 +184,7 @@ Added, as you asked, until you place them in Blender:
 - **Direction**: the centroid of the HDRI's brightest texels (the sun disc), mapped back to a Blender direction. It is about 8° above the horizon, a sunset. This assumes the `.blend`'s world has **no Mapping rotation**. I could not open the `.blend` to check; if it has one, rotate the sun by the same angle.
 - **Colour**: the sun disc's measured RGB, normalised.
 - **Intensity**: the disc integrates to about (3.8, 2.1, 0.5) in linear radiance units. That is a lower bound, because the source clipped. At 3.8 the environment's fill washed out the ball's shadow on the plank. 8.0 makes it read as it does in `showcase.png`. This value is tuned by eye, not measured.
-- **`clamp` 20**: 99.99% of the environment is below 19. Only the sun and its immediate glow are above, which is exactly what the sun light replaces.
+- **`clamp` 20** (the element has since been removed, 2.5): 99.99% of the environment is below 19. Only the sun and its immediate glow are above, which is exactly what the sun light replaces.
 
 ### 2.10 Light units (2026-10-09)
 
@@ -220,6 +227,6 @@ Not verified:
 
 ## 5. Next steps in Blender
 
-1. Install the updated `xml_export.py` and re-export `showcase.blend` over `assets/showcase/showcase.xml`. Set **Environment clamp** to about 20 if you add a Sun lamp.
+1. Install the updated `xml_export.py`, point its **cmgen** field at Filament's `cmgen`, and re-export `showcase.blend` over `assets/showcase/showcase.xml`. The current `textures/cedar_bridge_sunset_1_4k/` was produced by the exporter's exact `cmgen` command from `assets/showcase/cedar_bridge_sunset_1_4k.exr`, outside Blender.
 2. Add a Sun lamp aimed along the HDRI's sun (see 2.9), then remove the hand-written `<light>`. The exporter will write the lamp, and the engine reads Blender's sun strength directly as `intensity`.
 3. Check that the re-exported `.hdr` has no `inf` in it (the sun). If the save fails or writes garbage, clamp the image in Blender first: a Math node, or re-save the EXR as float32.
