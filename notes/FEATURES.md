@@ -23,7 +23,7 @@ What arrives from each light is computed apart from the style, in `lighting.slan
 | --- | --- | --- |
 | sun | `LIGHT_SUN` | infinite, along `direction` |
 | point | the default | inverse-square falloff `1/(0.01 + d²)`. Import divides Blender's watts by 4π, the W/sr of a source radiating over the whole sphere |
-| spot | `LIGHT_SPOT` | point falloff × `smoothstep` between outer and inner cone cosines, watts also over 4π, since a Blender spot is a masked point light. The XML keeps Blender's `<cone>` (degrees) and `<coneBlend>` |
+| spot | `LIGHT_SPOT` | point falloff × `smoothstep` between outer and inner cone cosines, watts also over 4π, since a Blender spot is a masked point light. The scene file keeps Blender's `cone` (degrees) and `<coneBlend>` |
 
 - **Up to 64 lights** (`MaxLights` in Go, `MAX_LIGHTS` in Slang, kept in step by hand) in any mix. Each has a `Radius`, the distance where its falloff drops below 1/255 (`scene.lightRadius`); the fragment loop skips a light beyond it before any BRDF or shadow work, which is what makes 64 affordable. A sun has radius 0 and never skips.
 - **Materials** come from the MTL: `Kd` (base colour), `Pm` (metallic), `Pr` (roughness), `map_Kd` (albedo texture, linearised with `pow(·, 2.2)`), `map_Bump`/`bump` (normal map). Without `Pm`/`Pr` a material is a matte dielectric (roughness 1).
@@ -64,7 +64,7 @@ Who holds a slot is decided **per frame** by `shadowAtlas.allocate`:
 - **Running out costs resolution, never frame time.** A light walks down a pool at a time and finally gets `ShadowIndex = -1`, lit unshadowed.
 - **Two hysteresis margins**: `nextTierThreshold` (20%) stops a boundary score changing a light's ceiling every frame; `slotStickiness` (20%) stops two near-equal lights trading a contended pool's last slot every frame. Both are deliberately not config knobs.
 
-**Static vs dynamic.** A mesh is movable when the XML says `<movable>` or `MoveBy`/`MoveTo` has been called. A light takes a dynamic tile only while a movable caster is in range. The static side is all-or-nothing (a tile with no caster writes nothing, so a partial re-bake would leave a stale tile); the dynamic side is per tile, capped at `settings.ShadowBakeBudget()` texels a frame in score order, a light that misses out keeping its old tile.
+**Static vs dynamic.** A mesh is movable when the scene file says `movable = true` or `MoveBy`/`MoveTo` has been called. A light takes a dynamic tile only while a movable caster is in range. The static side is all-or-nothing (a tile with no caster writes nothing, so a partial re-bake would leave a stale tile); the dynamic side is per tile, capped at `settings.ShadowBakeBudget()` texels a frame in score order, a light that misses out keeping its old tile.
 
 ### Layout capacity
 
@@ -91,7 +91,7 @@ Capacity after a sun, everything at one tier:
 **Normal-offset**, not depth bias: `shadowLookup` pushes the receiver along its world-space normal before projecting (`NORMAL_OFFSET_2D = 0.08` scaled by the incidence angle, `NORMAL_OFFSET_CUBE = 0.10`), so the remaining depth bias is tiny and contact shadows stay attached. Tuned for the showcase's ~10-unit scale; `FrameUniforms.ShadowNormalScale` (`4096 / atlasSize`) grows it on a smaller atlas.
 
 - **Front-face culling was tried and rejected**: it bakes the far side of a closed mesh, so a sphere floats above a lit disc of its own size. Every tile bakes `CullBack`.
-- **`Mesh.CastsShadow`** (`<castsShadow>false</castsShadow>`, default true) keeps a mesh out of every bake. A single-sided ground plane needs it: with the whole scene above it, it can only shadow itself, and at grazing angles that is acne over the whole surface, which reads as a near-black scene.
+- **`Mesh.CastsShadow`** (`castsShadow = false`, default true) keeps a mesh out of every bake. A single-sided ground plane needs it: with the whole scene above it, it can only shadow itself, and at grazing angles that is acne over the whole surface, which reads as a near-black scene.
 - **Still missing**: slope-scaled depth bias (`vkCmdSetDepthBias`, not bound in `go-vulkan`), for a flat surface that must cast.
 
 ### PCF
@@ -103,8 +103,8 @@ A raw lookup answers lit or shadowed per texel, so edges are blocky. PCF compare
 
 ### Test scenes and reading the atlas
 
-- **`assets/showcase.xml`** (default) is the beauty shot: 9 lights all near the camera, so every one lands in the top tier. It never exercises variable resolution.
-- **`assets/stress.xml`** (`-scene stress.xml`) is the allocator's: 64 lights, intensities solved backwards from the tier each should land in. Measured: all 64 shadowed, 11 degraded a step, 259 tiles filling 91.8% of the atlas. `MaxLights`, not the atlas, stops it reaching 100%.
+- **`assets/showcase/showcase.toml`** (default) is the beauty shot: 9 lights all near the camera, so every one lands in the top tier. It never exercises variable resolution.
+- **`assets/stress.toml`** (`-scene stress.toml`, not in the tree at the moment) is the allocator's: 64 lights, intensities solved backwards from the tier each should land in. Measured: all 64 shadowed, 11 degraded a step, 259 tiles filling 91.8% of the atlas. `MaxLights`, not the atlas, stops it reaching 100%.
 - **The atlas is read in RenderDoc.** The three encodings need different contrast ranges (a range that shows the sun renders every spot tile white), and a wrong tile rect still looks plausible, so check tile positions against `AtlasCoords`.
 - **Lighting so a shadow is visible**: a light must be high and off to one side; a spot beats a point light (zero contribution outside its cone); with several lights per fragment Reinhard compresses hard, so shadows read by hue, hence near-primary spot colours.
 
@@ -138,11 +138,11 @@ Widget trees from [Gutter](https://github.com/Zephyr75/gutter) are rasterised on
 
 ```mermaid
 flowchart TD
-    X["assets/*.xml"] --> P["LoadScene<br/>encoding/xml"]
+    X["assets/*/*.toml"] --> P["LoadScene<br/>BurntSushi/toml"]
 
-    P --> CA["CameraXml.toCamera<br/>front derived from yaw/pitch"]
-    P --> ME["MeshXml.toMesh<br/>OBJ + MTL parsing"]
-    P --> LI["LightXml.toLight<br/>coordinate conversion"]
+    P --> CA["CameraToml.toCamera<br/>front derived from yaw/pitch"]
+    P --> ME["MeshToml.toMesh<br/>OBJ + MTL parsing"]
+    P --> LI["LightToml.toLight<br/>coordinate conversion"]
 
     ME --> FV["fillVertices<br/>flatten faces to interleaved vertices"]
     FV --> SU["Mesh.setup<br/>CreateBuffer + one CreateMesh per face group<br/>decode + CreateImage/UpdateImage/Slot per material"]
@@ -158,42 +158,46 @@ flowchart TD
 
 - **One vertex buffer, several meshes**: an OBJ with three materials is one buffer plus three index lists.
 - **Texture paths are portable**: `texturePath` keeps only the basename of Blender's absolute path and resolves it under `textures/` beside the scene file.
-- **Textures are mipmapped** on the CPU at load (`mipChain`, a 2×2 box filter) and uploaded a level at a time through `ImageData.Mip`. Roughness comes from `map_Pr` (or `map_Ns`, where Blender puts it without the PBR extension) and multiplies `Pr`, which the loader forces to 1 when a map exists.
+- **Textures are mipmapped** on the CPU at load (`mipChain`, a 2×2 box filter) and uploaded a level at a time through `ImageData.Mip`. Roughness comes from `map_Pr` (or `map_Ns`, where Blender puts it without the PBR extension) and metallic from `map_Pm`; each map's red channel multiplies its scalar (`Pr`, `Pm`), which the loader forces to 1 when a map exists, since Blender writes `Pm 0` or nothing once a texture drives the socket.
 
 ### Format
 
-Scenes are XML in a folder under `assets/`, referencing OBJ/MTL in `meshes/` and images in `textures/` beside the XML, written by the Blender add-on `xml_export.py` (**File → Export → Export Overdrive scene…**). The camera's direction comes from `<front>`; `<yaw>`/`<pitch>` are read only when it is absent.
+Scenes are TOML in a folder under `assets/`, referencing OBJ/MTL in `meshes/` and images in `textures/` beside the scene file, written by the Blender add-on `xml_export.py` (**File → Export → Overdrive (.toml)**). Vectors are arrays, angles are degrees, and the exporter rounds to 6 decimals (4 for angles), past float32's precision. An unknown key rejects the file, as in the settings loader, rather than being dropped in silence. The camera's direction comes from `front`; `yaw`/`pitch` are read only when it is absent.
 
-```xml
-<scene>
-  <camera name="Camera">
-    <type>persp</type>
-    <position>0.0,-9.5,3.5</position>
-    <yaw>0.0</yaw>
-    <pitch>14.0</pitch>
-    <fov>45.0</fov>
-  </camera>
+```toml
+[camera]
+name = "Camera"
+type = "persp"
+position = [0.0, -9.5, 3.5]
+yaw = 0.0
+pitch = 14.0
+fov = 45.0
 
-  <mesh name="Ground">
-    <position>0.0,0.0,0.0</position>
-    <obj>DemoGround.obj</obj>
-    <!-- <mtl> is optional: it defaults to the .obj basename -->
-    <!-- <castsShadow> is optional and defaults to true. False keeps the mesh
-         out of the shadow bake, which a single-sided ground plane wants: with
-         the whole scene above it, it can only occlude itself -->
-    <castsShadow>false</castsShadow>
-  </mesh>
+[environment]                 # optional: without it the sky is a flat grey
+file = "sky.hdr"              # in textures/, beside the cmgen maps baked from it
+strength = 1.0
+rotation = 0.0                # degrees about the vertical axis
 
-  <light name="Sun">
-    <type>sun</type>
-    <position>10,10,10</position>
-    <direction>-1,-1,-1</direction>
-    <color>1,1,1</color>
-    <diffuse>1.0</diffuse>
-    <specular>0.5</specular>
-    <intensity>5</intensity>
-  </light>
-</scene>
+[[mesh]]
+name = "Ground"
+position = [0.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 0.0]    # degrees; unread, the OBJ being in world space
+obj = "DemoGround.obj"
+mtl = "DemoGround.mtl"        # optional: defaults to the .obj basename
+# Optional, default true. False keeps the mesh out of the shadow bake, which a
+# single-sided ground plane wants: with the whole scene above it, it can only
+# occlude itself
+castsShadow = false
+
+[[light]]
+name = "Sun"
+type = "sun"                  # sun, point or spot
+position = [10.0, 10.0, 10.0]
+direction = [-1.0, -1.0, -1.0]
+color = [1.0, 1.0, 1.0]
+diffuse = 1.0
+intensity = 5.0
+# A spot adds cone (full angle, degrees) and coneBlend (0..1)
 ```
 
 Blender and OBJ disagree on the up axis, so import converts positions and (with sign flips) light directions:
@@ -203,7 +207,7 @@ Blender (x, y, z)  →  Overdrive (x, z, -y)
 ```
 
 - The camera's `front` is rebuilt from `yaw`/`pitch`, never read; `up` is world up.
-- **Static geometry is baked** into the OBJ in world space and drawn with an identity model matrix, so `<position>` matters only for meshes physics moves.
+- **Static geometry is baked** into the OBJ in world space and drawn with an identity model matrix, so `position` matters only for meshes physics moves.
 
 ### Physics
 
@@ -258,7 +262,7 @@ Every runtime knob is in the TOML file; a bad value rejects the file (`settings.
 
 ## 9. Roadmap and known gaps
 
-1. **Texture-driven PBR and real IBL.** Metallic/roughness/AO maps (`map_Pm`/`map_Pr` in `scene/mesh.go`), and the skybox prefiltered into an irradiance cubemap, a roughness-mip specular cubemap and a BRDF LUT (`cheatsheets/PBR.md` §9).
+1. **Texture-driven PBR and real IBL.** AO maps (metallic `map_Pm` and roughness `map_Pr` are done, `scene/mesh.go`), and the skybox prefiltered into an irradiance cubemap, a roughness-mip specular cubemap and a BRDF LUT (`cheatsheets/PBR.md` §9).
 2. **HDR, tonemapping, bloom.** Render the main pass into an `RGBA16F` image, then a post pass: bright-pass, separable blur, ACES/Reinhard, gamma. Nothing under `vulkan/` has to change, which is the test of the interface.
 3. **Ray-traced shadows** through `VK_KHR_ray_query` in `lighting.slang`'s shadow test, then AO, reflections, one-bounce GI (`cheatsheets/RAYTRACING.md` §5). Needs the acceleration-structure bindings in `go-vulkan`.
 4. **Clustered forward**: the per-cluster light list that removes the fixed 64-light cap and stops off-screen lights scoring high.

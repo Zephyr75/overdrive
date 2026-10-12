@@ -91,7 +91,7 @@ struct BakeUniforms {
   float farPlane;
 };
 
-// 104 bytes, renderer.DrawUniforms: transform and material, once per draw
+// 108 bytes, renderer.DrawUniforms: transform and material, once per draw
 struct DrawUniforms {
   float4x4 model;
   float3 matDiffuse;
@@ -102,6 +102,7 @@ struct DrawUniforms {
   int texNormalMap;
   int useNormalMap;
   int texRoughness;
+  int texMetallic;
 };
 
 // Four addresses in one push constant, in the order scene/pipelines.go fills them
@@ -131,6 +132,7 @@ Sampler2D hotTextures[4];
 #define TEX_DIFFUSE (textures2D[pushConstants.draw.texDiffuse])
 #define TEX_NORMAL (textures2D[pushConstants.draw.texNormalMap])
 #define TEX_ROUGHNESS (textures2D[pushConstants.draw.texRoughness])
+#define TEX_METALLIC (textures2D[pushConstants.draw.texMetallic])
 #define TEX_SKY (textures2D[pushConstants.frame.texSky])
 #define TEX_SPECULAR (textures2D[pushConstants.frame.texSpecular])
 #define TEX_IRRADIANCE (textures2D[pushConstants.frame.texIrradiance])

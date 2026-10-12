@@ -4,7 +4,7 @@ Overdrive is a game engine, not just a renderer. It is written in Go and its
 graphics layer runs on Vulkan 1.3, behind an abstraction that keeps every other
 package free of graphics calls.
 
-You build scenes in Blender and export them to the engine's XML format with a
+You build scenes in Blender and export them to the engine's TOML scene format with a
 custom add-on. The export covers meshes, camera, lights and materials.
 
 ![Overdrive showcase scene: three props under nine shadow-casting lights, their coloured shadows overlapping on the ground](demo.png)
@@ -39,7 +39,7 @@ custom add-on. The export covers meshes, camera, lights and materials.
   arrays.
 * Skybox that doubles as the ambient environment, so metals reflect it and
   dielectrics pick up a soft tint.
-* OBJ and MTL mesh loading with XML scene files.
+* OBJ and MTL mesh loading with TOML scene files.
 
 ### Engine and tools
 
@@ -47,7 +47,7 @@ custom add-on. The export covers meshes, camera, lights and materials.
 * Verlet particle physics.
 * Game and menu UI built on [Gutter](https://github.com/zephyr75/gutter),
   composited over the scene as a fullscreen pass.
-* A Blender add-on that turns a full Blender scene into a ready to use XML scene
+* A Blender add-on that turns a full Blender scene into a ready to use TOML scene
   with meshes, camera, lights and materials.
 
 ## Roadmap
@@ -187,7 +187,7 @@ No GPU needed. They check that the showcase scene loads and parses.
 | `src/vulkan/` | The backend. Every graphics call lives here. |
 | `src/shaders/slang/` | Shader sources, compiled to SPIR-V by `build_shaders.sh`. |
 | `src/scene/`, `src/ecs/`, `src/physics/` | Scene graph, entity component system, Verlet physics. No graphics calls. |
-| `src/plugin/` | The Blender add-on that exports a scene to XML. |
+| `src/plugin/` | The Blender add-on that exports a scene to TOML. |
 | `notes/` | Engine documentation and graphics cheatsheets — see [`notes/README.md`](notes/README.md). |
 
 ## Documentation

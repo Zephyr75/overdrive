@@ -14,18 +14,18 @@ The goal: build small games quickly on proper shadows, clean image quality, basi
 
 Today the OBJ is exported in world space, `<rotation>` is written but ignored, scale is not exported, and a move rebuilds and re-uploads every vertex on the CPU (`Mesh.updateVertices`).
 
-- [ ] Export each OBJ in **local space** (no object transform applied) and write position, rotation and scale to the XML
+- [ ] Export each OBJ in **local space** (no object transform applied) and write position, rotation and scale to the scene file
 - [ ] Give each mesh a model matrix built from position/rotation/scale, sent in `DrawUniforms.Model` (the shaders already multiply by it)
 - [ ] `MoveTo` / `MoveBy` (and a new rotate) update the matrix only, no vertex re-upload; drop `initialPosition` and the per-move buffer rewrite
 - [ ] Bake and cull shadows with the transformed bounds (`boundsCenter`, `casterInRange`), and keep a moved mesh dirtying its dynamic tiles
 - [ ] Check the normal matrix (`inverse3` in `surface.slang`'s `vsMain`) under rotation and non-uniform scale
-- [ ] Re-export `showcase.xml` and `stress.xml`, and compare with `-screenshot` before and after
+- [ ] Re-export `showcase.toml` and `stress.toml`, and compare with `-screenshot` before and after
 
 ### Physics
 
 - [ ] Build colliders from the mesh's bounds and transform instead of raw vertices (`NewSphereFromMesh` takes vertex 0's distance to the position)
 - [ ] Box colliders (only sphere and plane exist)
-- [ ] Mark a mesh's collider type and static/dynamic in Blender, exported to the XML
+- [ ] Mark a mesh's collider type and static/dynamic in Blender, exported to the scene file
 - [ ] Physics bodies drive the mesh's model matrix, rotation included
 - [ ] Verlet distance constraints
 
@@ -61,11 +61,11 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
 
 ### Rendering
 
-- [ ] Texture-driven PBR: metallic and AO maps (roughness is done, `map_Pr`)
+- [ ] Texture-driven PBR: an AO map, for crevice detail finer than SSAO (roughness `map_Pr` and metallic `map_Pm` are done)
 - [x] Real IBL: prefiltered specular mips and irradiance, as equirect maps; baked by Filament's `cmgen` in the exporter since 2026-10-10, before that in Go (`scene/ibl.go`)
 - [ ] **The HDRI's sun as a shadow-casting light.** The image-based light casts no shadow, so an HDRI sun lights the inside of every shadow. `<clamp>` was removed with the Go bake, so this now belongs in the exporter, before `cmgen` runs:
   - [ ] In `write_environment`, cap the image at a limit (about 20: outdoor skies stay below it; cedar_bridge peaks at 19.4 outside the sun) and sum `(L − limit)·dω` per channel over the texels above it, direction weighted by that energy
-  - [ ] Run `cmgen` on the capped image, and write the removed energy as a sun `<light>`: `Color` = irradiance / its largest channel, `Intensity` = that channel, `Pos` = mesh bounds centre + 25 m along `Dir` (the shadow camera is `Ortho(±10, 1, 50)` from `Pos`)
+  - [ ] Run `cmgen` on the capped image, and write the removed energy as a sun `[[light]]`: `Color` = irradiance / its largest channel, `Intensity` = that channel, `Pos` = mesh bounds centre + 25 m along `Dir` (the shadow camera is `Ortho(±10, 1, 50)` from `Pos`)
   - [ ] Then lower or drop `environmentLightScale` (`scene/skybox.go`), which partly compensates for this
 - [ ] **Material textures prepared by Filament's tools in the exporter** (in the release `install_cmgen.sh` downloads). Each writes one file per mip, so all of them first need `loadTexture` (`scene/mesh.go`) to load a precomputed chain instead of calling `createMipLevels`:
   - [ ] `roughness-prefilter`: raises roughness in the far mips where the normal map is bumpy, which stops highlights shimmering on distant normal-mapped surfaces; the reason to build the chain loading at all

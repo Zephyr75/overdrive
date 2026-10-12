@@ -6,7 +6,6 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/Zephyr75/overdrive/renderer"
-	"github.com/Zephyr75/overdrive/utils"
 )
 
 // The constant term of the falloff forward.slang implements, 1/(kConstant + d²)
@@ -25,18 +24,18 @@ const wattsToIntensity = float32(1 / (4 * math.Pi))
 // gamma lifts a linear 1/255 to roughly 21/255 on screen
 const lightCutoff = float32(1.0 / 255.0)
 
-type LightXml struct {
-	Name      string  `xml:"name,attr"`
-	Type      string  `xml:"type"`
-	Pos       string  `xml:"position"`
-	Dir       string  `xml:"direction"`
-	Color     string  `xml:"color"`
-	Diffuse   float32 `xml:"diffuse"`
-	Intensity float32 `xml:"intensity"`
+type LightToml struct {
+	Name      string     `toml:"name"`
+	Type      string     `toml:"type"`
+	Pos       mgl32.Vec3 `toml:"position"`
+	Dir       mgl32.Vec3 `toml:"direction"`
+	Color     mgl32.Vec3 `toml:"color"`
+	Diffuse   float32    `toml:"diffuse"`
+	Intensity float32    `toml:"intensity"`
 	// Blender's spot terms, kept in its units so the export round-trips: Cone is
 	// the full cone angle in degrees, ConeBlend the 0..1 soft-edge fraction
-	Cone      float32 `xml:"cone"`
-	ConeBlend float32 `xml:"coneBlend"`
+	Cone      float32 `toml:"cone"`
+	ConeBlend float32 `toml:"coneBlend"`
 }
 
 type Light struct {
@@ -67,13 +66,11 @@ func (light *Light) Move(x float32, y float32, z float32) {
 	light.Pos = light.Pos.Add(mgl32.Vec3{x, y, z})
 }
 
-// Converts a parsed XML light into engine coordinates and units
-func (light LightXml) toLight() Light { 
+// Converts a parsed light into engine coordinates and units
+func (light LightToml) toLight() Light { 
 	kind := renderer.LightSun
 	name := light.Name
-	pos := utils.ParseVec3(light.Pos)
-	dir := utils.ParseVec3(light.Dir)
-	color := utils.ParseVec3(light.Color)
+	pos, dir, color := light.Pos, light.Dir, light.Color
 
 	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 	dir = mgl32.Vec3{-dir[0], -dir[2], dir[1]}

@@ -74,7 +74,7 @@ func resolve(parts ...string) string {
 	return filepath.Join(append([]string{Root()}, parts...)...)
 }
 
-// Returns the path of a top-level asset, such as a scene XML or a font
+// Returns the path of a top-level asset, such as a scene file or a font
 func Asset(name string) string { return resolve(assetsDir, name) } 
 
 // Returns the path of a compiled shader module

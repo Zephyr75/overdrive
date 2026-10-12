@@ -12,19 +12,20 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/Zephyr75/overdrive/renderer"
-	"github.com/Zephyr75/overdrive/utils"
 )
 
-type MeshXml struct {
-	Name     string `xml:"name,attr"`
-	Position string `xml:"position"`
-	Obj      string `xml:"obj"`
-	Mtl      string `xml:"mtl"`
-	// A pointer so an absent element is distinguishable from an explicit false,
+type MeshToml struct {
+	Name     string     `toml:"name"`
+	Position mgl32.Vec3 `toml:"position"`
+	// Degrees, Blender's Euler XYZ; unread, since the OBJ is exported in world space
+	Rotation mgl32.Vec3 `toml:"rotation"`
+	Obj      string     `toml:"obj"`
+	Mtl      string     `toml:"mtl"`
+	// A pointer so an absent key is distinguishable from an explicit false,
 	// which is what lets the default be true
-	CastsShadow *bool `xml:"castsShadow"`
+	CastsShadow *bool `toml:"castsShadow"`
 	// Same pointer trick, but the default is false
-	Movable *bool `xml:"movable"`
+	Movable *bool `toml:"movable"`
 }
 
 type Mesh struct {
@@ -81,28 +82,28 @@ func (mesh *Mesh) Place(dest mgl32.Vec3, rotation mgl32.Quat) {
 	mesh.needsUpdate = true
 }
 
-// Parses the OBJ and MTL files an XML mesh names into geometry and materials
+// Parses the OBJ and MTL files a mesh entry names into geometry and materials
 //
 // Both live in meshes/ beside the scene file, so a scene folder is self-contained
-func (mXml MeshXml) toMesh(sceneDir string) (Mesh, error) { 
-	obj, err := parseOBJ(filepath.Join(sceneDir, "meshes", mXml.Obj))
+func (entry MeshToml) toMesh(sceneDir string) (Mesh, error) { 
+	obj, err := parseOBJ(filepath.Join(sceneDir, "meshes", entry.Obj))
 	if err != nil {
 		return Mesh{}, err
 	}
-	materials, err := parseMTL(filepath.Join(sceneDir, "meshes", mXml.mtlPath()), sceneDir)
+	materials, err := parseMTL(filepath.Join(sceneDir, "meshes", entry.mtlPath()), sceneDir)
 	if err != nil {
 		return Mesh{}, err
 	}
-	return mXml.assemble(obj, materials), nil
+	return entry.assemble(obj, materials), nil
 }
 
 // The MTL a mesh names, falling back to the .obj basename because an OBJ names
 // its own material library and it conventionally matches
-func (mXml MeshXml) mtlPath() string { 
-	if mXml.Mtl != "" {
-		return mXml.Mtl
+func (entry MeshToml) mtlPath() string { 
+	if entry.Mtl != "" {
+		return entry.Mtl
 	}
-	return strings.TrimSuffix(mXml.Obj, ".obj") + ".mtl"
+	return strings.TrimSuffix(entry.Obj, ".obj") + ".mtl"
 }
 
 // The i'th field of a line as a float32, 0 when the line is too short
@@ -232,6 +233,8 @@ func parseMTL(path string, sceneDir string) ([]Material, error) {
 		// image under map_Ns when the extension is off
 		case "map_Pr", "map_Ns":
 			material.RoughnessMapPath = texturePath(sceneDir, fields[len(fields)-1])
+		case "map_Pm":
+			material.MetallicMapPath = texturePath(sceneDir, fields[len(fields)-1])
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -242,13 +245,12 @@ func parseMTL(path string, sceneDir string) ([]Material, error) {
 	return materials[1:], nil
 }
 
-// Builds the mesh from the two parsed halves and the XML's own fields
-func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh { 
-	pos := utils.ParseVec3(mXml.Position)
-	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
+// Builds the mesh from the two parsed halves and the entry's own fields
+func (entry MeshToml) assemble(obj objData, materials []Material) Mesh { 
+	pos := mgl32.Vec3{entry.Position[0], entry.Position[2], -entry.Position[1]}
 
 	mesh := Mesh{
-		Name:            mXml.Name,
+		Name:            entry.Name,
 		Vertices:        obj.positions,
 		NormalCoords:    obj.normalCoords,
 		TextureCoords:   obj.textureCoords,
@@ -257,8 +259,8 @@ func (mXml MeshXml) assemble(obj objData, materials []Material) Mesh {
 		Position:        pos,
 		Rotation:        mgl32.QuatIdent(),
 		initialPosition: pos,
-		CastsShadow:     mXml.CastsShadow == nil || *mXml.CastsShadow,
-		Movable:         mXml.Movable != nil && *mXml.Movable,
+		CastsShadow:     entry.CastsShadow == nil || *entry.CastsShadow,
+		Movable:         entry.Movable != nil && *entry.Movable,
 	}
 	mesh.fillVertices()
 	mesh.prevCenter = mesh.boundsCenter
@@ -359,6 +361,9 @@ func (mesh *Mesh) setup(backend renderer.Backend) error {
 		if mat.RoughnessMap, mat.RoughnessMapSlot, err = loadTexture(backend, mat.RoughnessMapPath); err != nil {
 			return fmt.Errorf("roughness map %s: %w", mat.RoughnessMapPath, err)
 		}
+		if mat.MetallicMap, mat.MetallicMapSlot, err = loadTexture(backend, mat.MetallicMapPath); err != nil {
+			return fmt.Errorf("metallic map %s: %w", mat.MetallicMapPath, err)
+		}
 	}
 	return nil
 }
@@ -410,11 +415,15 @@ func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) {
 		if mat.NormalMap != 0 {
 			uniforms.UseNormalMap = 1
 		}
-		// The shader multiplies the two, so a mapped material's scalar must be 1,
-		// as Blender ignores a socket's own value once a texture drives it
+		// The shader multiplies map and scalar, so a mapped material's scalar must
+		// be 1, as Blender ignores a socket's own value once a texture drives it
 		uniforms.TexRoughness = mat.RoughnessMapSlot
 		if mat.RoughnessMap != 0 {
 			uniforms.MatRoughness = 1
+		}
+		uniforms.TexMetallic = mat.MetallicMapSlot
+		if mat.MetallicMap != 0 {
+			uniforms.MatMetallic = 1
 		}
 
 		ctx.draw(mesh.meshesPerMaterial[i], uniforms)

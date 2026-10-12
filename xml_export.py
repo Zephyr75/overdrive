@@ -1,8 +1,8 @@
+import json
 import math
 import os
 import shutil
 import subprocess
-from xml.dom.minidom import Document
 
 import bpy
 import bpy_extras
@@ -15,8 +15,8 @@ bl_info = {
     "author": "Zephyr",
     "version": (0, 1),
     "blender": (4, 0, 0),
-    "location": "File > Export > Overdrive scene [xml]",
-    "description": "Export scene using Overdrive format [xml]",
+    "location": "File > Export > Overdrive scene [toml]",
+    "description": "Export scene using Overdrive format [toml]",
     "warning": "",
     "wiki_url": "",
     "tracker_url": "",
@@ -37,47 +37,24 @@ class OverdriveWriter:
     CMGEN_FLAGS = ['--quiet', '--no-mirror', '--type=equirect', '--format=hdr',
                    '--size=256', '--ibl-min-lod-size=8']
 
+    # Where install_cmgen.sh puts it, which a sandboxed Blender's PATH leaves out:
+    # the flatpak's is only /app/bin:/usr/bin
+    INSTALLED_CMGEN = os.path.expanduser('~/.local/bin/cmgen')
+
     def __init__(self, context, filepath, cmgen='cmgen'):
         self.context = context
         self.filepath = filepath
         self.working_dir = os.path.dirname(self.filepath)
         self.textures_dir = os.path.join(self.working_dir, 'textures')
         self.cmgen = cmgen
+        if not shutil.which(cmgen) and shutil.which(self.INSTALLED_CMGEN):
+            self.cmgen = self.INSTALLED_CMGEN
         # Source path to exported name, so a texture shared by meshes is converted once
         self.exported_textures = {}
 
-    def create_xml_element(self, name, attr):
-        el = self.doc.createElement(name)
-        for k, v in attr.items():
-            el.setAttribute(k, v)
-        return el
-
-    # def create_xml_entry(self, t, name, value):
-    #     return self.create_xml_element(t, {"name": name, "value": value})
-
-    # def create_xml_transform(self, mat, el=None):
-    #     transform = self.create_xml_element("transform", {"name": "toWorld"})
-    #     if(el):
-    #         transform.appendChild(el)
-    #     value = ""
-    #     for j in range(4):
-    #         for i in range(4):
-    #             value += str(mat[j][i]) + ","
-    #     transform.appendChild(self.create_xml_element("matrix", {"value": value[:-1]}))
-    #     return transform
-
-    # def create_xml_mesh_entry(self, filename):
-    #     meshElement = self.create_xml_element("mesh", {"type": "obj"})
-    #     meshElement.appendChild(self.create_xml_element("string", {"name": "filename", "value": "meshes/"+filename}))
-    #     return meshElement
-
     def write(self):
-        """Main method to write the blender scene into xml format"""
-
-        # create xml document
-        self.doc = Document()
-        self.scene = self.doc.createElement("scene")
-        self.doc.appendChild(self.scene)
+        """Writes the Blender scene as an Overdrive TOML scene file"""
+        self.data = {'mesh': [], 'light': []}
 
         # 1) export one camera
         cameras = [cam for cam in self.context.scene.objects
@@ -87,7 +64,7 @@ class OverdriveWriter:
         else:
             if(len(cameras) > 1):
                 print("WARN: Does not handle multiple camera, only export the active one")
-            self.scene.appendChild(self.write_camera(self.context.scene.camera))  # export the active one
+            self.data['camera'] = self.write_camera(self.context.scene.camera)  # export the active one
 
         # 2) export all meshes
         if not os.path.exists(self.working_dir + "/meshes"):
@@ -108,72 +85,55 @@ class OverdriveWriter:
         # 4) export the world's environment texture
         self.write_environment()
 
-        # 5) write the xml file
-        self.doc.writexml(open(self.filepath, "w"), "", "\t", "\n")
+        # 5) write the scene file
+        with open(self.filepath, "w") as f:
+            f.write(self.write_toml())
 
-    def write_vector(self, vec):
-        return str(vec[0]) + "," + str(vec[1]) + "," + str(vec[2])
+    def write_toml(self):
+        """Formats self.data: the single tables first, as TOML requires them
+        before any [[array]] entry, then one block per mesh and light"""
+        lines = ["# Written by the Overdrive Blender add-on: positions in Blender's z-up",
+                 "# axes, angles in degrees", ""]
+        for key in ('camera', 'environment'):
+            if key in self.data:
+                lines.append(f"[{key}]")
+                lines += [f"{k} = {self.toml_value(v)}" for k, v in self.data[key].items()]
+                lines.append("")
+        for key in ('mesh', 'light'):
+            for entry in self.data[key]:
+                lines.append(f"[[{key}]]")
+                lines += [f"{k} = {self.toml_value(v)}" for k, v in entry.items()]
+                lines.append("")
+        return "\n".join(lines)
+
+    def toml_value(self, value):
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, str):
+            # TOML's basic strings take JSON's escapes
+            return json.dumps(value)
+        if isinstance(value, (int, float)):
+            # 6 decimals is past float32 precision at scene scale, and drops
+            # Blender's 1e-17 noise; adding 0.0 turns -0.0 into 0.0
+            return repr(round(float(value), 6) + 0.0)
+        return "[" + ", ".join(self.toml_value(v) for v in value) + "]"
+
+    def degrees(self, radians):
+        # 4 decimals, or float32 noise shows: Blender's 30 degrees reads 29.999997
+        return round(math.degrees(radians), 4)
 
     def write_camera(self, cam):
-        """convert the selected camera (cam) into xml format"""
-        camera = self.create_xml_element("camera", {"name": cam.name})
-        position = cam.location
-        front = cam.matrix_world.to_quaternion() @ Vector((0, 0, -1))
-        up = cam.matrix_world.to_quaternion() @ Vector((0, 1, 0))
-        yaw = cam.rotation_euler[2] * 180 / math.pi
-        pitch = cam.rotation_euler[0] * 180 / math.pi
-        fov = cam.data.angle * 180 / math.pi
-
-        type_element = self.create_xml_element("type", {})
-        type_element.appendChild(self.doc.createTextNode(cam.data.type.lower()))
-        camera.appendChild(type_element)
-
-        position_element = self.create_xml_element("position", {})
-        position_element.appendChild(self.doc.createTextNode(self.write_vector(position)))
-        camera.appendChild(position_element)
-
-        front_element = self.create_xml_element("front", {})
-        front_element.appendChild(self.doc.createTextNode(self.write_vector(front)))
-        camera.appendChild(front_element)
-
-        up_element = self.create_xml_element("up", {})
-        up_element.appendChild(self.doc.createTextNode(self.write_vector(up)))
-        camera.appendChild(up_element)
-
-        yaw_element = self.create_xml_element("yaw", {})
-        yaw_element.appendChild(self.doc.createTextNode(str(yaw)))
-        camera.appendChild(yaw_element)
-
-        pitch_element = self.create_xml_element("pitch", {})
-        pitch_element.appendChild(self.doc.createTextNode(str(pitch)))
-        camera.appendChild(pitch_element)
-
-        fov_element = self.create_xml_element("fov", {})
-        fov_element.appendChild(self.doc.createTextNode(str(fov)))
-        camera.appendChild(fov_element)
-
-        # mat = cam.matrix_world
-
-        # # Conversion to Y-up coordinate system
-        # coord_transf = bpy_extras.io_utils.axis_conversion(
-        #     from_forward='Y', from_up='Z', to_forward='-Z', to_up='Y').to_4x4()
-        # mat = coord_transf @ mat
-        # pos = mat.translation
-        # # Nori's camera needs this these coordinates to be flipped
-        # m = Matrix([[-1, 0, 0, 0], [0, 1, 0, 0], [0, 0, -1, 0], [0, 0, 0, 0]])
-        # t = mat.to_3x3() @ m.to_3x3()
-        # mat = Matrix([[t[0][0], t[0][1], t[0][2], pos[0]],
-        #               [t[1][0], t[1][1], t[1][2], pos[1]],
-        #               [t[2][0], t[2][1], t[2][2], pos[2]],
-        #               [0, 0, 0, 1]])
-        # value = ""
-        # for j in range(4):
-        #     for i in range(4):
-        #         value += str(mat[j][i]) + ","
-
-        # trans = self.create_xml_entry("matrix","toWorld", value[:-1])
-        # camera.appendChild(trans)
-        return camera
+        """The active camera as the [camera] table"""
+        return {
+            "name": cam.name,
+            "type": cam.data.type.lower(),
+            "position": cam.location,
+            "front": cam.matrix_world.to_quaternion() @ Vector((0, 0, -1)),
+            "up": cam.matrix_world.to_quaternion() @ Vector((0, 1, 0)),
+            "yaw": self.degrees(cam.rotation_euler[2]),
+            "pitch": self.degrees(cam.rotation_euler[0]),
+            "fov": self.degrees(cam.data.angle),
+        }
 
     def write_mesh(self, mesh):
         viewport_selection = self.context.selected_objects
@@ -192,34 +152,18 @@ class OverdriveWriter:
         mesh.select_set(False)
         self.localise_mtl(os.path.join(self.working_dir, 'meshes', mtl_name))
 
-        # Add the corresponding entry to the xml
-        mesh_element = self.create_xml_element("mesh", {"name": mesh.name})
-
-        pos_element = self.create_xml_element("position", {})
-        pos_element.appendChild(self.doc.createTextNode(self.write_vector(mesh.location)))
-        mesh_element.appendChild(pos_element)
-
-        rot_element = self.create_xml_element("rotation", {})
-        rot_element.appendChild(self.doc.createTextNode(self.write_vector(mesh.rotation_euler)))
-        mesh_element.appendChild(rot_element)
-
-        obj_element = self.create_xml_element("obj", {})
-        obj_element.appendChild(self.doc.createTextNode(obj_name))
-        mesh_element.appendChild(obj_element)
-
-        mtl_element = self.create_xml_element("mtl", {})
-        mtl_element.appendChild(self.doc.createTextNode(mtl_name))
-        mesh_element.appendChild(mtl_element)
-
+        entry = {
+            "name": mesh.name,
+            "position": mesh.location,
+            "rotation": [self.degrees(a) for a in mesh.rotation_euler],
+            "obj": obj_name,
+            "mtl": mtl_name,
+        }
         # Blender's own "Shadow" ray visibility. Written only when it is off, the
         # engine defaulting to true, so existing scenes keep meaning what they did
         if not mesh.visible_shadow:
-            casts_element = self.create_xml_element("castsShadow", {})
-            casts_element.appendChild(self.doc.createTextNode("false"))
-            mesh_element.appendChild(casts_element)
-
-        self.scene.appendChild(mesh_element)
-
+            entry["castsShadow"] = False
+        self.data['mesh'].append(entry)
 
         for ob in viewport_selection:
             ob.select_set(True)
@@ -270,15 +214,19 @@ class OverdriveWriter:
         try:
             if is_data:
                 img.colorspace_settings.name = 'Non-Color'
+            # Pixels load lazily, and file_format lives on the loaded pixels: set
+            # before they exist it is dropped, and save() writes the source format.
+            # Reading an element loads them; the bare array would not
+            img.size[0]
             img.file_format = file_format
-            img.filepath_raw = dst
-            img.save()
+            # Not by repointing filepath, which the lazy load would then read from
+            img.save(filepath=dst)
         finally:
             bpy.data.images.remove(img)
 
     def write_environment(self):
         """Writes the World's Environment Texture as a Radiance .hdr, the maps
-        cmgen bakes from it into textures/<name>/, and an <environment> element;
+        cmgen bakes from it into textures/<name>/, and the [environment] table;
         Strength and the Mapping Z rotation come along"""
         world = self.context.scene.world
         if world is None or not world.use_nodes:
@@ -307,69 +255,32 @@ class OverdriveWriter:
         except (OSError, subprocess.CalledProcessError) as e:
             raise RuntimeError(f"cmgen failed on {src}: {e}; set the cmgen path in the export options") from e
 
-        env_element = self.create_xml_element("environment", {})
-        values = [("file", name)]
+        environment = {"file": name}
         if background is not None:
-            values.append(("strength", str(background.inputs['Strength'].default_value)))
+            environment["strength"] = background.inputs['Strength'].default_value
         if mapping is not None:
-            values.append(("rotation", str(mapping.inputs['Rotation'].default_value[2])))
-        for tag, value in values:
-            element = self.create_xml_element(tag, {})
-            element.appendChild(self.doc.createTextNode(value))
-            env_element.appendChild(element)
-        self.scene.appendChild(env_element)
+            environment["rotation"] = self.degrees(mapping.inputs['Rotation'].default_value[2])
+        self.data['environment'] = environment
 
     def write_light(self, light):
-        light_element = self.create_xml_element("light", {"name": light.name})
-        pos = light.location
-        dir = light.rotation_euler
-        vec = Vector((0, 0, -1))
-        vec.rotate(light.rotation_euler)
-        dir = vec
-
-        color = light.data.color
-        diffuse = getattr(light.data, 'diffuse_factor', 1.0)
-        intensity = light.data.energy
-
-        type_element = self.create_xml_element("type", {})
-        type_element.appendChild(self.doc.createTextNode(light.data.type.lower()))
-        light_element.appendChild(type_element)
-
-        pos_element = self.create_xml_element("position", {})
-        pos_element.appendChild(self.doc.createTextNode(self.write_vector(pos)))
-        light_element.appendChild(pos_element)
-
-        dir_element = self.create_xml_element("direction", {})
-        dir_element.appendChild(self.doc.createTextNode(self.write_vector(dir)))
-        light_element.appendChild(dir_element)
-
-        ambient_element = self.create_xml_element("color", {})
-        ambient_element.appendChild(self.doc.createTextNode(self.write_vector(color)))
-        light_element.appendChild(ambient_element)
-
-        diffuse_element = self.create_xml_element("diffuse", {})
-        diffuse_element.appendChild(self.doc.createTextNode(str(diffuse)))
-        light_element.appendChild(diffuse_element)
-
+        direction = Vector((0, 0, -1))
+        direction.rotate(light.rotation_euler)
+        entry = {
+            "name": light.name,
+            "type": light.data.type.lower(),
+            "position": light.location,
+            "direction": direction,
+            "color": light.data.color,
+            "diffuse": getattr(light.data, 'diffuse_factor', 1.0),
+            "intensity": light.data.energy,
+        }
         # Spot cone, exported in Blender's own units so the scene round-trips:
         # the full angle in degrees and the 0..1 soft-edge fraction. toLight
         # turns them into the two cosines the shader compares against
         if light.data.type == 'SPOT':
-            cone_element = self.create_xml_element("cone", {})
-            cone_element.appendChild(self.doc.createTextNode(
-                str(math.degrees(light.data.spot_size))))
-            light_element.appendChild(cone_element)
-
-            blend_element = self.create_xml_element("coneBlend", {})
-            blend_element.appendChild(self.doc.createTextNode(
-                str(light.data.spot_blend)))
-            light_element.appendChild(blend_element)
-
-        intensity_element = self.create_xml_element("intensity", {})
-        intensity_element.appendChild(self.doc.createTextNode(str(intensity)))
-        light_element.appendChild(intensity_element)
-
-        self.scene.appendChild(light_element)
+            entry["cone"] = self.degrees(light.data.spot_size)
+            entry["coneBlend"] = light.data.spot_blend
+        self.data['light'].append(entry)
 
 
 class OverdriveExporter(bpy.types.Operator, ExportHelper):
@@ -379,11 +290,11 @@ class OverdriveExporter(bpy.types.Operator, ExportHelper):
     bl_idname = "export_scene.ovd"
     bl_label = "Export Overdrive scene"
 
-    filename_ext = ".xml"
-    filter_glob: StringProperty(default="*.xml", options={'HIDDEN'})
+    filename_ext = ".toml"
+    filter_glob: StringProperty(default="*.toml", options={'HIDDEN'})
 
     # Filament's cmgen, which bakes the environment's lighting maps; a bare name
-    # is looked up on PATH
+    # is looked up on PATH, then in ~/.local/bin
     cmgen_path: StringProperty(name="cmgen", default="cmgen", subtype='FILE_PATH')
 
     def execute(self, context):
@@ -396,7 +307,7 @@ class OverdriveExporter(bpy.types.Operator, ExportHelper):
         return {'FINISHED'}
 
 def menu_func_export(self, context):
-    self.layout.operator(OverdriveExporter.bl_idname, text="Export Overdrive scene...")
+    self.layout.operator(OverdriveExporter.bl_idname, text="Overdrive (.toml)")
 
 
 def register():

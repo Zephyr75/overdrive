@@ -1,7 +1,6 @@
 package scene
 
 import (
-	"github.com/Zephyr75/overdrive/utils"
 	"github.com/go-gl/mathgl/mgl32"
 	"math"
 )
@@ -17,15 +16,15 @@ type Camera struct {
 	Fov   float32
 }
 
-type CameraXml struct {
-	Name  string  `xml:"name,attr"`
-	Type  string  `xml:"type"`
-	Pos   string  `xml:"position"`
-	Front string  `xml:"front"`
-	Up    string  `xml:"up"`
-	Yaw   float32 `xml:"yaw"`
-	Pitch float32 `xml:"pitch"`
-	Fov   float32 `xml:"fov"`
+type CameraToml struct {
+	Name  string     `toml:"name"`
+	Type  string     `toml:"type"`
+	Pos   mgl32.Vec3 `toml:"position"`
+	Front mgl32.Vec3 `toml:"front"`
+	Up    mgl32.Vec3 `toml:"up"`
+	Yaw   float32    `toml:"yaw"`
+	Pitch float32    `toml:"pitch"`
+	Fov   float32    `toml:"fov"`
 }
 
 // Teleports the camera to a position
@@ -38,17 +37,15 @@ func (camera *Camera) LookAt(pos mgl32.Vec3) {
 	camera.Front = pos.Sub(camera.Pos).Normalize()
 }
 
-// Converts a parsed XML camera into engine coordinates, front from the exported vector or yaw and pitch
-func (camera CameraXml) toCamera() Camera { 
-	pos := utils.ParseVec3(camera.Pos)
-	front := utils.ParseVec3(camera.Front)
-	up := utils.ParseVec3(camera.Up)
+// Converts a parsed camera into engine coordinates, front from the exported vector or yaw and pitch
+func (camera CameraToml) toCamera() Camera { 
+	pos, front, up := camera.Pos, camera.Front, camera.Up
 	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 	// front = mgl32.Vec3{front[0], front[2], front[1]}
 	// up = mgl32.Vec3{up[0], up[2], up[1]}
 	up = mgl32.Vec3{0.0, 1.0, 0.0}
 
-	// Yaw and pitch from the exported front rather than the XML's own, which are
+	// Yaw and pitch from the exported front rather than the file's own, which are
 	// Blender Euler angles (90 degrees of X is level there): the inverse of the
 	// direction formula input.DefaultMouseCallback rebuilds front with
 	yaw, pitch := camera.Yaw, camera.Pitch

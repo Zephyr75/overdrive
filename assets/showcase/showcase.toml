@@ -1,0 +1,76 @@
+# Written by the Overdrive Blender add-on: positions in Blender's z-up
+# axes, angles in degrees
+
+[camera]
+name = "Camera"
+type = "persp"
+position = [-0.871226, -1.867218, 0.562457]
+front = [0.355964, 0.915348, -0.188224]
+up = [0.068222, 0.175426, 0.982126]
+yaw = -21.2503
+pitch = 79.1508
+fov = 39.5978
+
+[environment]
+file = "cedar_bridge_sunset_1_4k.hdr"
+strength = 1.0
+
+[[mesh]]
+name = "Football"
+position = [-0.21679, 0.117582, 0.353544]
+rotation = [0.0, 0.0, 0.0]
+obj = "Football.obj"
+mtl = "Football.mtl"
+
+[[mesh]]
+name = "Floor"
+position = [0.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 0.0]
+obj = "Floor.obj"
+mtl = "Floor.mtl"
+
+[[mesh]]
+name = "Wall"
+position = [0.0, 1.022184, 0.23588]
+rotation = [-90.0, 0.0, 0.0]
+obj = "Wall.obj"
+mtl = "Wall.mtl"
+
+[[mesh]]
+name = "Plank"
+position = [-0.231423, 0.115704, 0.133604]
+rotation = [0.0, 30.0, -30.0]
+obj = "Plank.obj"
+mtl = "Plank.mtl"
+
+[[mesh]]
+name = "Suzanne"
+position = [-0.412067, 0.118651, 0.06329]
+rotation = [-35.0, 0.0, 0.0]
+obj = "Suzanne.obj"
+mtl = "Suzanne.mtl"
+
+[[mesh]]
+name = "Suzanne.001"
+position = [0.772867, -0.295785, 0.06329]
+rotation = [-35.0, 0.0, -8.3349]
+obj = "Suzanne.001.obj"
+mtl = "Suzanne.001.mtl"
+
+[[light]]
+name = "Sun"
+type = "sun"
+position = [3.348594, -2.417038, 4.089954]
+direction = [-0.612281, 0.437783, -0.658375]
+color = [1.0, 1.0, 1.0]
+diffuse = 1.0
+intensity = 1.0
+
+[[light]]
+name = "Point"
+type = "point"
+position = [-0.904582, 0.67748, 0.358402]
+direction = [0.0, 0.0, -1.0]
+color = [1.0, 0.05005, 0.595197]
+diffuse = 1.0
+intensity = 10.0

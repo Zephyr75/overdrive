@@ -64,8 +64,8 @@ Surface loadSurface(VSOut i) {
   // sRGB texture linearised, tinted by matDiffuse
   float3 texColor = TEX_DIFFUSE.Sample(flippedTex).rgb;
   s.albedo = pow(texColor, float3(2.2)) * pushConstants.draw.matDiffuse;
-  s.metallic = pushConstants.draw.matMetallic;
-  // The map is the white pixel when there is none, so the scalar stands alone
+  // Each map is the white pixel when there is none, so the scalar stands alone
+  s.metallic = pushConstants.draw.matMetallic * TEX_METALLIC.Sample(flippedTex).r;
   float roughness = pushConstants.draw.matRoughness * TEX_ROUGHNESS.Sample(flippedTex).r;
   s.roughness = clamp(roughness, 0.04, 1.0);
   s.ao = pushConstants.draw.matAo;

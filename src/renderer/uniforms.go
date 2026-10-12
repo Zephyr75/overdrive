@@ -101,6 +101,7 @@ type DrawUniforms struct {
 	TexNormalMap int32
 	UseNormalMap int32
 	TexRoughness int32 // 2D slot, .r multiplies MatRoughness: 0 is the white pixel
+	TexMetallic  int32 // 2D slot, .r multiplies MatMetallic: 0 is the white pixel
 }
 
 // Guards the common.slang correspondence on every build
@@ -117,7 +118,7 @@ func init() {
 	if unsafe.Sizeof(ShadowTile{}) != 96 {
 		panic("renderer.ShadowTile no longer matches common.slang")
 	}
-	if unsafe.Sizeof(DrawUniforms{}) != 104 {
+	if unsafe.Sizeof(DrawUniforms{}) != 108 {
 		panic("renderer.DrawUniforms no longer matches common.slang")
 	}
 }

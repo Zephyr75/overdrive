@@ -21,14 +21,17 @@ type Material struct {
 	TexturePath      string
 	NormalMapPath    string
 	RoughnessMapPath string // sampled in .r and multiplied into Roughness
+	MetallicMapPath  string // sampled in .r and multiplied into Metallic
 	Texture          renderer.ImageHandle
 	NormalMap        renderer.ImageHandle
 	RoughnessMap     renderer.ImageHandle
-	// The shader-visible slots of the three, resolved once at load: a draw block
+	MetallicMap      renderer.ImageHandle
+	// The shader-visible slots of the four, resolved once at load: a draw block
 	// carries the slot, never the handle
 	TextureSlot      int32
 	NormalMapSlot    int32
 	RoughnessMapSlot int32
+	MetallicMapSlot  int32
 }
 
 // Returns the defaults a material carries before its MTL entry is parsed

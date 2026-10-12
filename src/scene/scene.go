@@ -1,23 +1,23 @@
 package scene
 
 import (
-	"encoding/xml"
 	"fmt"
-	"io"
-	"os"
 	"path/filepath"
 
+	"github.com/BurntSushi/toml"
 	"github.com/go-gl/mathgl/mgl32"
 
 	"github.com/Zephyr75/overdrive/renderer"
 	"github.com/Zephyr75/overdrive/settings"
 )
 
-type SceneXml struct {
-	CamXml    CameraXml  `xml:"camera"`
-	MeshesXml []MeshXml  `xml:"mesh"`
-	LightsXml []LightXml `xml:"light"`
-	EnvXml    *EnvironmentXml `xml:"environment"`
+// A scene file as the Blender add-on writes it: [camera], [environment], and a
+// [[mesh]] and [[light]] block per object, positions in Blender's z-up axes
+type SceneToml struct {
+	Camera      CameraToml       `toml:"camera"`
+	Meshes      []MeshToml       `toml:"mesh"`
+	Lights      []LightToml      `toml:"light"`
+	Environment *EnvironmentToml `toml:"environment"`
 }
 
 type Scene struct {
@@ -47,9 +47,9 @@ type Scene struct {
 	backend renderer.Backend
 }
 
-// Loads a scene from XML and uploads its meshes, shadow maps and skybox through the backend
+// Loads a scene file and uploads its meshes, shadow maps and skybox through the backend
 func NewScene(path string, backend renderer.Backend) (Scene, error) { 
-	// Parse the XML first: everything below needs the mesh and light counts
+	// Parse the file first: everything below needs the mesh and light counts
 	scene, err := LoadScene(path)
 	if err != nil {
 		return Scene{}, err
@@ -120,52 +120,46 @@ func (scene *Scene) Camera() *Camera {
 	return &scene.Cam
 }
 
-// Parses a scene XML file into meshes, lights and a camera, with no GPU work
-func LoadScene(path string) (Scene, error) { 
-	xmlFile, err := os.Open(path)
+// Parses a scene file into meshes, lights and a camera, with no GPU work
+func LoadScene(path string) (Scene, error) {
+	var file SceneToml
+	meta, err := toml.DecodeFile(path, &file)
 	if err != nil {
-		return Scene{}, fmt.Errorf("open scene: %w", err)
+		return Scene{}, fmt.Errorf("scene %s: %w", path, err)
 	}
-	defer xmlFile.Close()
-
-	xmlData, err := io.ReadAll(xmlFile)
-	if err != nil {
-		return Scene{}, fmt.Errorf("read scene: %w", err)
-	}
-
-	var sceneXml SceneXml
-	if err := xml.Unmarshal(xmlData, &sceneXml); err != nil {
-		return Scene{}, fmt.Errorf("parse scene XML: %w", err)
+	// A misspelt key would otherwise be dropped and its default used in silence
+	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
+		return Scene{}, fmt.Errorf("scene %s: unknown key %q", path, undecoded[0].String())
 	}
 
 	var scene Scene
 
-	scene.Meshes = make([]Mesh, len(sceneXml.MeshesXml))
-	scene.Lights = make([]Light, len(sceneXml.LightsXml))
+	scene.Meshes = make([]Mesh, len(file.Meshes))
+	scene.Lights = make([]Light, len(file.Lights))
 
-	scene.Cam = sceneXml.CamXml.toCamera()
+	scene.Cam = file.Camera.toCamera()
 
-	for i, meshXml := range sceneXml.MeshesXml {
-		scene.Meshes[i], err = meshXml.toMesh(filepath.Dir(path))
+	for i, entry := range file.Meshes {
+		scene.Meshes[i], err = entry.toMesh(filepath.Dir(path))
 		if err != nil {
-			return Scene{}, fmt.Errorf("mesh %s: %w", meshXml.Name, err)
+			return Scene{}, fmt.Errorf("mesh %s: %w", entry.Name, err)
 		}
 	}
 
-	for i, lightXml := range sceneXml.LightsXml {
-		scene.Lights[i] = lightXml.toLight()
+	for i, entry := range file.Lights {
+		scene.Lights[i] = entry.toLight()
 	}
 
-	// Without an element the sky is a flat grey, which Skybox.setup builds
+	// Without an [environment] the sky is a flat grey, which Skybox.setup builds
 	scene.Skybox.Strength = 1
-	if env := sceneXml.EnvXml; env != nil {
+	if env := file.Environment; env != nil {
 		if env.File != "" {
 			scene.Skybox.path = filepath.Join(filepath.Dir(path), "textures", env.File)
 		}
 		if env.Strength != 0 {
 			scene.Skybox.Strength = env.Strength
 		}
-		scene.Skybox.Rotation = env.Rotation
+		scene.Skybox.Rotation = mgl32.DegToRad(env.Rotation)
 	}
 
 	return scene, nil

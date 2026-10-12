@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Overdrive is a Go game engine whose graphics layer runs on **Vulkan 1.3**, behind
 an abstraction (`renderer/`) that keeps every other package free of graphics
 calls. It also carries an ECS, Verlet physics, a gutter-based UI overlay and a
-Blender XML export plugin.
+Blender export add-on writing TOML scenes.
 
 An OpenGL 4.1 backend existed until 2026-08-05 and was deleted; `notes/FEATURES.md` §9
 is the roadmap for what the engine grows into next.
@@ -54,7 +54,7 @@ go run .             # reads configs/vulkan.toml
 go run . -config configs/vulkan.toml     # the same, named explicitly
 go run . -config configs/low.toml        # the low quality tier: 2048 atlas, no
                                          # dynamic atlas, cheap PCF, no MSAA
-go run . -scene stress.xml               # 64 lights (MaxLights), all casting: the allocator scene
+go run . -scene stress.toml              # 64 lights (MaxLights), all casting: the allocator scene
 go run . -screenshot out.png             # write one PNG of frame 90, then quit
 
 go vet ./...         # two known unsafe.Pointer reports, see below
@@ -167,7 +167,7 @@ Four invariants hold the engine together. Breaking any of them is how it goes wr
    `renderer/uniforms.go` declares the blocks — `FrameUniforms` (4856 bytes,
    camera and lights, once per pass), `BakeUniforms` (80, the one tile a depth
    pass is baking, once per tile), `ShadowTile` (96, a variable-length array once
-   per frame) and `DrawUniforms` (104, once per draw) — and
+   per frame) and `DrawUniforms` (108, once per draw) — and
    `shaders/slang/common.slang` names which push slot is which.
 
    That works because Slang compiles with `-fvk-use-scalar-layout` and scalar layout is exactly Go's packing for `float32`/`int32` structs — so **keeping the field order in step is the whole requirement**. No 16-byte cells, no `vec3`-plus-scalar pairing, no vectors standing in for scalar arrays; that was std140's rule and it went with the OpenGL backend on 2026-08-05. Use only `float32`, `int32`, arrays of those, and `mgl32` matrices — anything with a wider alignment breaks the correspondence.
@@ -200,7 +200,7 @@ Conventions that would silently produce a mirrored or inside-out image: the scre
 - `notes/SYNCHRONIZATION.md` — recording vs executing, frames in flight, fences and semaphores, the barrier `use` table, and when a resource may be destroyed.
 - `notes/FEATURES.md` — every feature and _why it is built that way_ (lighting, the shadow atlas and its allocator, bias, PCF, prepass, MSAA, UI), the scene format and Blender add-on, the config tiers, the roadmap and known gaps (§9), and the performance history.
 - `notes/TODO.md` — the working list.
-- `notes/SHOWCASE_PBR.md` — how the showcase scene got PBR, mipmaps and HDR environment lighting: the scene-folder layout, `<environment>`, the CPU IBL bake, and what the exporter does now.
+- `notes/SHOWCASE_PBR.md` — how the showcase scene got PBR, mipmaps and HDR environment lighting: the scene-folder layout, the environment, the CPU IBL bake, and what the exporter does now.
 - `notes/AMBIENT_OCCLUSION.md` — the SSAO walked through change by change with the code inline: the depth resolve, the ssao pass, the blur in `ao.slang`.
 - `notes/cheatsheets/` — reference, all opening with a Scope / Not here / Source block: `GLOSSARY.md` (one-line definitions), `DESCRIPTORS.md` (the engine's descriptor set in depth), and engine-independent `VULKAN.md`, `OPENGL.md` (API reference, kept deliberately), `PBR.md`, `RAYTRACING.md`, `GRAPHICS.md` (techniques, procedural generation, physics, AI, compression, optimisation, GPGPU, emulation), `ALGEBRA.md`.
 
@@ -208,4 +208,4 @@ Conventions that would silently produce a mirrored or inside-out image: the scre
 
 Comments here are one-line, sentence-case, no trailing period, placed above the declaration and explaining _why_ or _what invariant_, not what the code literally does. Match that density — it is deliberate and consistent across the tree.
 
-Scenes are XML in a folder of their own (`assets/showcase/showcase.xml`, the default `-scene`), referencing OBJ/MTL in `meshes/` and textures and the `.hdr` environment in `textures/` beside the XML, produced by the Blender add-on `xml_export.py` at the repository root. The engine decodes PNG, JPEG and Radiance `.hdr` only; the exporter converts anything else. Static mesh geometry is baked into the OBJ vertices (identity model matrix), so `<position>` is unused for them.
+Scenes are TOML in a folder of their own (`assets/showcase/showcase.toml`, the default `-scene`; the format is in `notes/FEATURES.md`), referencing OBJ/MTL in `meshes/` and textures and the `.hdr` environment in `textures/` beside it, produced by the Blender add-on `xml_export.py` at the repository root. The engine decodes PNG, JPEG and Radiance `.hdr` only; the exporter converts anything else. Static mesh geometry is baked into the OBJ vertices (identity model matrix), so `position` is unused for them.

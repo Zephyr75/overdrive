@@ -11,22 +11,24 @@ import (
 	"github.com/Zephyr75/overdrive/settings"
 )
 
-// The scene's <environment>: an equirectangular .hdr in textures/ beside the
+// The scene's [environment]: an equirectangular .hdr in textures/ beside the
 // scene, with the maps cmgen baked from it in a folder of the same name
-type EnvironmentXml struct {
-	File string `xml:"file"`
+type EnvironmentToml struct {
+	File string `toml:"file"`
 	// Multiplies the whole environment, Blender's Background strength; 0 reads as 1
-	Strength float32 `xml:"strength"`
-	// Turn about the vertical axis in radians, Blender's Mapping Z rotation
-	Rotation float32 `xml:"rotation"`
+	Strength float32 `toml:"strength"`
+	// Turn about the vertical axis in degrees, Blender's Mapping Z rotation
+	Rotation float32 `toml:"rotation"`
 }
 
 // The sky behind the scene and the image-based light it gives, both from one environment
 type Skybox struct {
 	mesh renderer.MeshHandle
-	// Read from the XML before setup; an empty path lights the scene with a flat grey
-	path               string
-	Strength, Rotation float32
+	// Read from the scene file before setup; an empty path lights the scene with a flat grey
+	path     string
+	Strength float32
+	// Radians, converted from the file's degrees at load
+	Rotation float32
 	// The background, the prefiltered specular chain and the irradiance, all
 	// equirectangular RGBA16F; the shader samples them by these 2D slots
 	SkySlot, SpecularSlot, IrradianceSlot int32

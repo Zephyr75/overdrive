@@ -55,7 +55,7 @@ overdrive/
 ├── CLAUDE.md, README.md
 ├── notes/                 this documentation
 ├── configs/               vulkan.toml (default), low.toml (low tier)
-├── assets/                scene XML, meshes/ (OBJ+MTL), textures/
+├── assets/                scene TOML, meshes/ (OBJ+MTL), textures/
 ├── xml_export.py          the Blender add-on that writes the scene XML
 └── src/
     ├── main.go            builds an App, loads a Scene, adds its physics bodies
@@ -119,7 +119,7 @@ instance → surface → physical device → queue family → logical device
 ```
 
 - **Per-frame data** is one function creating command buffer, fence, semaphore and uniform arena, because they share a lifetime.
-- **`scene.NewScene`** parses the XML, uploads meshes and textures, creates the two shadow atlases and the skybox, and calls `Slot` on each so its descriptor is written once.
+- **`scene.NewScene`** parses the scene file, uploads meshes and textures, creates the two shadow atlases and the skybox, and calls `Slot` on each so its descriptor is written once.
 
 ## 4. One frame
 
@@ -208,7 +208,7 @@ The first three are OpenGL leftovers; building the projections Vulkan-native rem
 | Shadows missing on one light | `shadowAtlas.allocate`: score under the last tier or every pool full, so `ShadowIndex = -1` |
 | A shadow pops coarse/sharp as the camera moves | `nextTierThreshold`, the 20% band against tier flicker |
 | Two shadows flicker against each other | `slotStickiness`: they trade a contended pool's last slot |
-| Scene near black, bright with `[debug] noShadows` | a single-sided plane shadowing itself: `<castsShadow>false</castsShadow>` |
+| Scene near black, bright with `[debug] noShadows` | a single-sided plane shadowing itself: `castsShadow = false` |
 | A lit disc under a round object | peter-panning: the depth pipelines must keep `CullBack` |
 | Shadows from the wrong light, or a crack at a cube-face edge | `tileSample`'s one-texel clamp and `cubeFaceFov`'s `+2 texel` widening |
 | UI overlay lags a frame | expected: `UpdateImage` inside a pass is staged for the next frame |
