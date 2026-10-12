@@ -51,13 +51,26 @@ func createWorld(scene *scene.Scene) *physics.World {
 			world.Add(physics.NewBoxFromMesh(mesh))
 		}
 	}
-	if mesh := scene.FindMesh("Football"); mesh != nil {
+	mesh := scene.FindMesh("Football")
+	if mesh != nil {
 		ball := physics.NewSphereFromMesh(mesh)
 		// A football: a thin shell, on cobbles that roll like rough ground
 		ball.Restitution = 0.4
 		ball.Friction = 0.5
 		ball.Inertia = 2.0 / 3.0
 		ball.RollingResistance = 0.05
+		ball.Mass = 0.43
+		world.Add(ball)
+	}
+	mesh = scene.FindMesh("Suzanne.001")
+	if mesh != nil {
+		ball := physics.NewSphereFromMesh(mesh)
+		// A football: a thin shell, on cobbles that roll like rough ground
+		ball.Restitution = 0.4
+		ball.Friction = 0.1
+		ball.Inertia = 2.0 / 3.0
+		ball.RollingResistance = 0.01
+		ball.Mass = 0.1
 		world.Add(ball)
 	}
 	return &world

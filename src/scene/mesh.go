@@ -36,31 +36,37 @@ type Mesh struct {
 	Faces         [][]uint32 // one []uint32 per material group, pos/tex/norm indices interleaved in threes
 	Materials     []Material
 	Position      mgl32.Vec3
-	// Turn about Position since load; baked into the vertices like a move
+	// Turn about Position since load, carried by model like a move
 	Rotation mgl32.Quat
 	// Whether the shadow bake draws this mesh, default true; false is for a
 	// receiver that would contribute nothing but its own acne
 	CastsShadow bool
 	// Whether this mesh belongs in the dynamic shadow atlas rather than the
-	// static one; MoveBy/MoveTo also set it
+	// static one; Place also sets it
 	Movable bool
 
-	// World-space bounding sphere, rebuilt by fillVertices so it follows a move
+	// Takes the vertices from where the OBJ put them to where Place did:
+	// identity for a mesh that never moved, so static geometry is drawn exactly
+	// as exported
+	model mgl32.Mat4
+
+	// World-space bounding sphere, its centre carried by model so it follows a move
 	//
 	// prevCenter is where it was before: a caster leaving a light's range has to
 	// dirty the tile it left, which its new centre alone would not say
 	boundsCenter, prevCenter mgl32.Vec3
 	boundsRadius             float32
+	// boundsCenter at load, which model carries to the current one
+	loadCenter mgl32.Vec3
 
 	vertexData  []float32  // Faces flattened by fillVertices into pos/normal/uv triples, interleaved
 	indexGroups [][]uint32 // one index list per material group, indexing into vertexData
 
-	backend     renderer.Backend
-	vertexBuffer   renderer.BufferHandle
-	meshesPerMaterial         []renderer.MeshHandle // one handle per material face group
-	needsUpdate bool                  // MoveBy/MoveTo was called since the last upload
+	vertexBuffer      renderer.BufferHandle
+	meshesPerMaterial []renderer.MeshHandle // one handle per material face group
+	moved             bool                  // Place was called since UpdateMeshes last looked
 
-	initialPosition mgl32.Vec3 // Position at load, what MoveBy/MoveTo offsets are relative to
+	initialPosition mgl32.Vec3 // Position at load, where the OBJ's world-space vertices sit
 }
 
 // Offsets the mesh and rebuilds its vertex data for the next upload
@@ -73,13 +79,19 @@ type Mesh struct {
 // 	mesh.needsUpdate = true
 // }
 
-// Moves and turns the mesh in one rebuild, rotation being about its own Position
+// Moves and turns the mesh, rotation being about its own Position
+//
+// Only the model matrix changes: the vertices stay as uploaded, so a move costs
+// no rebuild and no upload whatever the triangle count
 func (mesh *Mesh) Place(dest mgl32.Vec3, rotation mgl32.Quat) {
 	mesh.Movable = true
 	mesh.Position = dest
 	mesh.Rotation = rotation
-	mesh.fillVertices()
-	mesh.needsUpdate = true
+	// Back from where the OBJ put the mesh to the origin, turned, then out to dest
+	toOrigin := mgl32.Translate3D(-mesh.initialPosition[0], -mesh.initialPosition[1], -mesh.initialPosition[2])
+	mesh.model = mgl32.Translate3D(dest[0], dest[1], dest[2]).Mul4(rotation.Mat4()).Mul4(toOrigin)
+	mesh.boundsCenter = mesh.model.Mul4x1(mesh.loadCenter.Vec4(1)).Vec3()
+	mesh.moved = true
 }
 
 // Parses the OBJ and MTL files a mesh entry names into geometry and materials
@@ -258,11 +270,13 @@ func (entry MeshToml) assemble(obj objData, materials []Material) Mesh {
 		Materials:       materials,
 		Position:        pos,
 		Rotation:        mgl32.QuatIdent(),
+		model:           mgl32.Ident4(),
 		initialPosition: pos,
 		CastsShadow:     entry.CastsShadow == nil || *entry.CastsShadow,
 		Movable:         entry.Movable != nil && *entry.Movable,
 	}
 	mesh.fillVertices()
+	mesh.loadCenter = mesh.boundsCenter
 	mesh.prevCenter = mesh.boundsCenter
 	return mesh
 }
@@ -290,14 +304,7 @@ func (mesh *Mesh) fillVertices() {
 			posIndex := mesh.Faces[i][j] - 1
 			texIndex := mesh.Faces[i][j+1] - 1
 			normIndex := mesh.Faces[i][j+2] - 1
-			// A mesh that never turned keeps the old arithmetic exactly, so its
-			// vertices are bit for bit what the OBJ holds
-			vertex, normal := mesh.Vertices[posIndex], mesh.NormalCoords[normIndex]
-			if mesh.Rotation != mgl32.QuatIdent() {
-				vertex = mesh.initialPosition.Add(mesh.Rotation.Rotate(vertex.Sub(mesh.initialPosition)))
-				normal = mesh.Rotation.Rotate(normal)
-			}
-			position := mesh.Position.Sub(mesh.initialPosition).Add(vertex)
+			position, normal := mesh.Vertices[posIndex], mesh.NormalCoords[normIndex]
 			if first {
 				lo, hi, first = position, position, false
 			}
@@ -333,8 +340,7 @@ func (mesh *Mesh) fillVertices() {
 }
 
 // Uploads the mesh's vertex buffer, one mesh handle per face group, and its material textures
-func (mesh *Mesh) setup(backend renderer.Backend) error { 
-	mesh.backend = backend
+func (mesh *Mesh) setup(backend renderer.Backend, textures map[string]*decodedTexture) error { 
 
 	// Share one vertex buffer across the face groups, each group owning only its index list
 	mesh.vertexBuffer, _ = backend.CreateBuffer(renderer.BufferSpec{
@@ -352,34 +358,38 @@ func (mesh *Mesh) setup(backend renderer.Backend) error {
 	for i := range mesh.Materials {
 		mat := &mesh.Materials[i]
 		var err error
-		if mat.Texture, mat.TextureSlot, err = loadTexture(backend, mat.TexturePath); err != nil {
+		mat.Texture, mat.TextureSlot, err = loadTexture(backend, textures, mat.TexturePath)
+		if err != nil {
 			return fmt.Errorf("texture %s: %w", mat.TexturePath, err)
 		}
-		if mat.NormalMap, mat.NormalMapSlot, err = loadTexture(backend, mat.NormalMapPath); err != nil {
+		mat.NormalMap, mat.NormalMapSlot, err = loadTexture(backend, textures, mat.NormalMapPath)
+		if err != nil {
 			return fmt.Errorf("normal map %s: %w", mat.NormalMapPath, err)
 		}
-		if mat.RoughnessMap, mat.RoughnessMapSlot, err = loadTexture(backend, mat.RoughnessMapPath); err != nil {
+		mat.RoughnessMap, mat.RoughnessMapSlot, err = loadTexture(backend, textures, mat.RoughnessMapPath)
+		if err != nil {
 			return fmt.Errorf("roughness map %s: %w", mat.RoughnessMapPath, err)
 		}
-		if mat.MetallicMap, mat.MetallicMapSlot, err = loadTexture(backend, mat.MetallicMapPath); err != nil {
+		mat.MetallicMap, mat.MetallicMapSlot, err = loadTexture(backend, textures, mat.MetallicMapPath)
+		if err != nil {
 			return fmt.Errorf("metallic map %s: %w", mat.MetallicMapPath, err)
 		}
 	}
 	return nil
 }
 
-// Decodes and uploads one material texture with its mip chain, slot 0 (the white pixel) when path is empty
-func loadTexture(backend renderer.Backend, path string) (renderer.ImageHandle, int32, error) {
+// Uploads one material texture decodeTextures prepared, slot 0 (the white pixel) when path is empty
+func loadTexture(backend renderer.Backend, textures map[string]*decodedTexture, path string) (renderer.ImageHandle, int32, error) {
 	if path == "" {
 		return 0, 0, nil
 	}
-	pixels, width, height, err := loadRGBA(path)
-	if err != nil {
-		return 0, 0, err
+	decoded := textures[path]
+	if decoded.err != nil {
+		return 0, 0, decoded.err
 	}
-	levels := createMipLevels(pixels, width, height)
+	levels := decoded.levels
 	img := backend.CreateImage(renderer.ImageSpec{
-		Name: path, Width: width, Height: height, Format: renderer.FormatRGBA8,
+		Name: path, Width: levels[0].width, Height: levels[0].height, Format: renderer.FormatRGBA8,
 		Usage: renderer.ImageSampled | renderer.ImageCopyDst, MipLevels: len(levels),
 	})
 	for mip, level := range levels {
@@ -388,17 +398,9 @@ func loadTexture(backend renderer.Backend, path string) (renderer.ImageHandle, i
 	return img, int32(backend.Slot(img)), nil
 }
 
-// Reuploads the vertex buffer when a Move marked it dirty
-func (mesh *Mesh) updateVertices() { 
-	if !mesh.needsUpdate {
-		return
-	}
-	mesh.backend.UpdateBuffer(mesh.vertexBuffer, 0, mesh.vertexData)
-	mesh.needsUpdate = false
-}
-
-// Draws every face group, writing its material fields into u first; the caller owns u.Model
-func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) { 
+// Draws every face group, writing its model matrix and material fields into uniforms first
+func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) {
+	uniforms.Model = mesh.model
 	for i := range mesh.indexGroups {
 		mat := mesh.Materials[i]
 

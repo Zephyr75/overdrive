@@ -64,7 +64,7 @@ Who holds a slot is decided **per frame** by `shadowAtlas.allocate`:
 - **Running out costs resolution, never frame time.** A light walks down a pool at a time and finally gets `ShadowIndex = -1`, lit unshadowed.
 - **Two hysteresis margins**: `nextTierThreshold` (20%) stops a boundary score changing a light's ceiling every frame; `slotStickiness` (20%) stops two near-equal lights trading a contended pool's last slot every frame. Both are deliberately not config knobs.
 
-**Static vs dynamic.** A mesh is movable when the scene file says `movable = true` or `MoveBy`/`MoveTo` has been called. A light takes a dynamic tile only while a movable caster is in range. The static side is all-or-nothing (a tile with no caster writes nothing, so a partial re-bake would leave a stale tile); the dynamic side is per tile, capped at `settings.ShadowBakeBudget()` texels a frame in score order, a light that misses out keeping its old tile.
+**Static vs dynamic.** A mesh is movable when the scene file says `movable = true` or `Mesh.Place` has been called. A light takes a dynamic tile only while a movable caster is in range. The static side is all-or-nothing (a tile with no caster writes nothing, so a partial re-bake would leave a stale tile); the dynamic side is per tile, capped at `settings.ShadowBakeBudget()` texels a frame in score order, a light that misses out keeping its old tile.
 
 ### Layout capacity
 
@@ -207,7 +207,7 @@ Blender (x, y, z)  →  Overdrive (x, z, -y)
 ```
 
 - The camera's `front` is rebuilt from `yaw`/`pitch`, never read; `up` is world up.
-- **Static geometry is baked** into the OBJ in world space and drawn with an identity model matrix, so `position` matters only for meshes physics moves.
+- **Static geometry is baked** into the OBJ in world space and drawn with an identity model matrix until something moves it, so `position` matters only for meshes physics moves: it is the point their model matrix turns them about.
 
 ### Physics
 
@@ -222,7 +222,8 @@ flowchart TD
     C --> SS["sphere ↔ sphere<br/>overlap → push apart"]
     C --> SP["sphere ↔ plane<br/>distance test → push out"]
     C --> SB["sphere ↔ box<br/>closest point → push out"]
-    C --> F["follow: turn Orientation by Spin,<br/>Mesh.Place(Pos, Orientation)"]
+    C --> F["turn Orientation by Spin"]
+    F -.->|"once a frame, World.PlaceMeshes"| PL["Mesh.Place(Pos, Orientation):<br/>the model matrix only"]
 ```
 
 ```go
@@ -242,7 +243,7 @@ Verlet stores the previous position instead of a velocity: stable and easy to co
 
 - **Contacts** (`Sphere.resolve`, called by every collision routine with the normal and the depth). The velocity is taken before the push out and `PrevPos` rebuilt behind the new position, or Verlet would read the push as speed. The speed into the surface is reflected, scaled by `Restitution`; a rebound under 5 mm a step is dropped so a resting ball does not hop. Friction then cancels the contact point's slip, the correction shared between speed and `Spin` by `Inertia` (2/3 for a thin shell like a football, 2/5 solid) and capped by `Friction` times the normal impulse: on a slope this alone gives the rolling acceleration g sin θ / (1 + Inertia). `RollingResistance` finally slows speed and spin in proportion, so the ball stays rolling as it stops.
 - **Boxes** (`physics.Box`, `NewBoxFromMesh`) take their axes from the mesh's face normals, not its edges: from a corner of a thin plank a face diagonal is shorter than the long edge. Sphere against box pushes out from the closest point on the box, which covers faces, edges and corners, so a ball rolls off the end of a plank; a centre already inside leaves by the nearest face.
-- **Meshes follow** through `Mesh.Place`, position and rotation together, called by `Verlet.follow` for every movable body with a mesh. It re-bakes the vertices on the CPU rather than send a model matrix, so the prepass and forward pass keep transforming every mesh identically; a mesh never turned keeps the original arithmetic bit for bit. `Scene.UpdateMeshes` re-uploads exactly those meshes next frame and marks them as moved for the shadow cache.
+- **Meshes follow** through `Mesh.Place`, position and rotation together, called by `World.PlaceMeshes` once a frame (not once a step: only the last step is drawn) for every movable body with a mesh, and skipped when the mesh is already there. Place only sets the mesh's model matrix, `translate(dest) · rotate · translate(−initialPosition)`, since the OBJ's vertices are in world space; the vertices are uploaded once at load, so a move costs the same for 12 triangles as for 63k. Every pass, the prepass and the shadow bakes included, sends that matrix in `DrawUniforms.Model`; a mesh never moved keeps the identity, so static geometry renders exactly as exported. `Scene.UpdateMeshes` records the moved meshes for the shadow cache, which re-bakes their dynamic tiles.
 - **The showcase** (`main.go` `createWorld`): `Floor`, `Plank` and `Wall` are fixed boxes; `Football` is a sphere with `Restitution` 0.4, `Friction` 0.5, `Inertia` 2/3 and `RollingResistance` 0.05. Once physics starts it drops 4 cm onto the plank, rolls down it at 2.5 m/s², and stops on the floor about 1.25 m from the plank 2.8 s later. Suzanne has no collider.
 
 ## 8. Configuration and quality tiers

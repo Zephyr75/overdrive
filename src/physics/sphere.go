@@ -43,7 +43,7 @@ func NewSphereFromMesh(mesh *scene.Mesh) *Sphere {
 func (sphere *Sphere) Collide(collider Collider) { 
 	switch collider := collider.(type) {
 	case *Sphere:
-		sphere.sphereCollide(*collider)
+		sphere.sphereCollide(collider)
 	case *Plane:
 		sphere.planeCollide(*collider)
 	case *Box:
@@ -52,16 +52,36 @@ func (sphere *Sphere) Collide(collider Collider) {
 
 }
 
-// Pushes this sphere half the overlap out along the axis between the two centres
-func (sphere *Sphere) sphereCollide(other Sphere) { 
-	colAxis := sphere.Pos.Sub(other.Pos)
-	colDist := colAxis.Len()
-	dist := sphere.Radius + other.Radius
-	if colDist < dist {
-		normal := colAxis.Mul(1.0 / colDist)
-		delta := (dist - colDist) * 0.5
-		sphere.resolve(normal, delta)
+// Separates two spheres and exchanges momentum along the line between them,
+// the lighter taking more of both
+//
+// Both bodies at once, not each its own half: the first half would bounce this
+// sphere away before the other saw it coming, and the other would get nothing.
+// Resolved here, the reverse call of the pair finds the two already apart
+func (sphere *Sphere) sphereCollide(other *Sphere) {
+	axis := sphere.Pos.Sub(other.Pos)
+	distance := axis.Len()
+	overlap := sphere.Radius + other.Radius - distance
+	weight, otherWeight := sphere.inverseMass(), other.inverseMass()
+	if overlap <= 0 || distance == 0 || weight+otherWeight == 0 {
+		return
 	}
+	normal := axis.Mul(1 / distance)
+
+	// Velocities taken before the push, which Verlet would otherwise read as speed
+	velocity := sphere.Pos.Sub(sphere.PrevPos)
+	otherVelocity := other.Pos.Sub(other.PrevPos)
+	sphere.Pos = sphere.Pos.Add(normal.Mul(overlap * weight / (weight + otherWeight)))
+	other.Pos = other.Pos.Sub(normal.Mul(overlap * otherWeight / (weight + otherWeight)))
+
+	if closing := velocity.Sub(otherVelocity).Dot(normal); closing < 0 {
+		restitution := min(sphere.Restitution, other.Restitution)
+		impulse := -(1 + restitution) * closing / (weight + otherWeight)
+		velocity = velocity.Add(normal.Mul(impulse * weight))
+		otherVelocity = otherVelocity.Sub(normal.Mul(impulse * otherWeight))
+	}
+	sphere.PrevPos = sphere.Pos.Sub(velocity)
+	other.PrevPos = other.Pos.Sub(otherVelocity)
 }
 
 // Lifts this sphere out of a plane, but only within the plane's finite extent

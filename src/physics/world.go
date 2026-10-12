@@ -13,11 +13,8 @@ func (world *World) Add(bodies ...Collider) {
 	world.bodies = append(world.bodies, bodies...)
 }
 
-// Advances the simulation by one fixed step
-//
-// Collisions after integrating and meshes placed last, so a mesh is always
-// drawn where its body was resolved to, never sunk a step's travel into what
-// it rests on
+// Advances the simulation by one fixed step, collisions after integrating so
+// a step always ends on resolved positions
 func (world *World) Step(seconds float32) {
 	for _, body := range world.bodies {
 		if verlet := body.Body(); !verlet.Fixed {
@@ -34,6 +31,16 @@ func (world *World) Step(seconds float32) {
 		}
 	}
 	for _, body := range world.bodies {
-		body.Body().follow()
+		body.Body().turn()
+	}
+}
+
+// Moves every movable body's mesh to where the last step left it
+//
+// Once a frame rather than once a step: only the last step is drawn, and
+// each Place dirties the mesh's shadow tiles
+func (world *World) PlaceMeshes() {
+	for _, body := range world.bodies {
+		body.Body().place()
 	}
 }

@@ -6,7 +6,49 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
+	"runtime"
+	"sync"
 )
+
+// A texture file decoded and mipped on the CPU, or why it could not be
+type decodedTexture struct {
+	levels []mipLevel
+	err    error
+}
+
+// Decodes and mips every material texture the meshes name, a core per file
+//
+// Decoding is CPU-bound and independent per file, and done one at a time it
+// was most of the startup: 16-bit PNGs take up to a second each. Capped at the
+// core count so a large scene does not hold every decoded image at once
+func decodeTextures(meshes []Mesh) map[string]*decodedTexture {
+	textures := map[string]*decodedTexture{}
+	for _, mesh := range meshes {
+		for _, mat := range mesh.Materials {
+			for _, path := range []string{mat.TexturePath, mat.NormalMapPath, mat.RoughnessMapPath, mat.MetallicMapPath} {
+				if path != "" {
+					textures[path] = &decodedTexture{}
+				}
+			}
+		}
+	}
+	var wg sync.WaitGroup
+	cores := make(chan struct{}, runtime.NumCPU())
+	for path, texture := range textures {
+		wg.Go(func() {
+			cores <- struct{}{}
+			defer func() { <-cores }()
+			pixels, width, height, err := loadRGBA(path)
+			if err != nil {
+				texture.err = err
+				return
+			}
+			texture.levels = createMipLevels(pixels, width, height)
+		})
+	}
+	wg.Wait()
+	return textures
+}
 
 // Decodes an image file into tightly packed RGBA8 pixels
 func loadRGBA(path string) (pixels []byte, width, height int, err error) { 

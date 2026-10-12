@@ -18,6 +18,8 @@ type Verlet struct {
 	PrevPos mgl32.Vec3 // last step's Pos; the gap between the two stands in for velocity
 	Accel   mgl32.Vec3 // accumulated this step by Accelerate, consumed and zeroed by UpdatePosition
 	Fixed   bool       // true skips integration, an immovable collider
+	// Kilograms; only the ratio between two bodies in contact matters
+	Mass float32
 	// Angular velocity in radians per step, the axis scaled by the angle, as Pos - PrevPos is velocity per step
 	Spin mgl32.Vec3
 	// Turned by Spin each step, for the mesh only: no collision reads it
@@ -28,7 +30,15 @@ type Verlet struct {
 
 // Creates a movable body at rest
 func NewVerlet(pos mgl32.Vec3) Verlet {
-	return Verlet{Pos: pos, PrevPos: pos, Orientation: mgl32.QuatIdent()}
+	return Verlet{Pos: pos, PrevPos: pos, Mass: 1, Orientation: mgl32.QuatIdent()}
+}
+
+// How much of a shared push or impulse this body takes: none when fixed
+func (verlet *Verlet) inverseMass() float32 {
+	if verlet.Fixed {
+		return 0
+	}
+	return 1 / verlet.Mass
 }
 
 // Runs one Verlet integration step, velocity being implied by the previous position
@@ -47,13 +57,22 @@ func (verlet *Verlet) Accelerate(accel mgl32.Vec3) {
 	verlet.Accel = verlet.Accel.Add(accel)
 }
 
-// Turns the body by its spin and moves its mesh to match
-func (verlet *Verlet) follow() {
+// Turns the body by one step of its spin
+func (verlet *Verlet) turn() {
+	if angle := verlet.Spin.Len(); angle > 0 {
+		verlet.Orientation = mgl32.QuatRotate(angle, verlet.Spin.Mul(1/angle)).Mul(verlet.Orientation).Normalize()
+	}
+}
+
+// Moves the mesh to the body, unless it is already there
+//
+// Place dirties the mesh's dynamic shadow tiles, so a body at rest must not
+func (verlet *Verlet) place() {
 	if verlet.Fixed || verlet.Mesh == nil {
 		return
 	}
-	if angle := verlet.Spin.Len(); angle > 0 {
-		verlet.Orientation = mgl32.QuatRotate(angle, verlet.Spin.Mul(1/angle)).Mul(verlet.Orientation).Normalize()
+	if verlet.Mesh.Position == verlet.Pos && verlet.Mesh.Rotation == verlet.Orientation {
+		return
 	}
 	verlet.Mesh.Place(verlet.Pos, verlet.Orientation)
 }

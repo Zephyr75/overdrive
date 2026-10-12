@@ -12,11 +12,11 @@ The goal: build small games quickly on proper shadows, clean image quality, basi
 
 ### Transforms and Blender export
 
-Today the OBJ is exported in world space, `<rotation>` is written but ignored, scale is not exported, and a move rebuilds and re-uploads every vertex on the CPU (`Mesh.updateVertices`).
+Today the OBJ is exported in world space, `<rotation>` is written but ignored, scale is not exported, and a move sets the mesh's model matrix (`Mesh.Place`), turning the world-space vertices about their load position.
 
 - [ ] Export each OBJ in **local space** (no object transform applied) and write position, rotation and scale to the scene file
-- [ ] Give each mesh a model matrix built from position/rotation/scale, sent in `DrawUniforms.Model` (the shaders already multiply by it)
-- [ ] `MoveTo` / `MoveBy` (and a new rotate) update the matrix only, no vertex re-upload; drop `initialPosition` and the per-move buffer rewrite
+- [~] Give each mesh a model matrix built from position/rotation/scale, sent in `DrawUniforms.Model`: done for position and rotation (`Mesh.Place`), scale and the exported transform still to come
+- [x] Moves update the matrix only, no vertex re-upload (`Mesh.Place`); `initialPosition` stays until the OBJ is exported in local space
 - [ ] Bake and cull shadows with the transformed bounds (`boundsCenter`, `casterInRange`), and keep a moved mesh dirtying its dynamic tiles
 - [ ] Check the normal matrix (`inverse3` in `surface.slang`'s `vsMain`) under rotation and non-uniform scale
 - [ ] Re-export `showcase.toml` and `stress.toml`, and compare with `-screenshot` before and after
@@ -26,7 +26,7 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
 - [ ] Build colliders from the mesh's bounds and transform instead of raw vertices (`NewSphereFromMesh` takes vertex 0's distance to the position)
 - [ ] Box colliders (only sphere and plane exist)
 - [ ] Mark a mesh's collider type and static/dynamic in Blender, exported to the scene file
-- [ ] Physics bodies drive the mesh's model matrix, rotation included
+- [x] Physics bodies drive the mesh's model matrix, rotation included (`World.PlaceMeshes`)
 - [ ] Verlet distance constraints
 
 ### UI

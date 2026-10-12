@@ -753,9 +753,8 @@ func sphereInFrustum(planes *[6]mgl32.Vec4, center mgl32.Vec3, radius float32) b
 func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
 	lightIdx int32, alloc *shadowAlloc, movable bool) int { 
 
-	// Static mesh geometry is baked into the OBJ vertices, so the depth passes
-	// draw everything with an identity model matrix and no material at all
-	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4()}
+	// Each mesh writes its model matrix; the depth passes read no material
+	var uniforms renderer.DrawUniforms
 	drawn := 0
 
 	light := &scene.Lights[lightIdx]

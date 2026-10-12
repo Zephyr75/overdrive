@@ -56,9 +56,11 @@ func NewScene(path string, backend renderer.Backend) (Scene, error) {
 	}
 	// Stored so later moves and uploads need no backend argument
 	scene.backend = backend
-	// Uploads each mesh's vertices, indices and material textures
+	// Uploads each mesh's vertices, indices and material textures, all decoded
+	// in parallel first, since the backend takes uploads from one thread only
+	textures := decodeTextures(scene.Meshes)
 	for i := range scene.Meshes {
-		if err := scene.Meshes[i].setup(backend); err != nil {
+		if err := scene.Meshes[i].setup(backend, textures); err != nil {
 			return Scene{}, fmt.Errorf("mesh %s: %w", scene.Meshes[i].Name, err)
 		}
 	}
@@ -82,16 +84,16 @@ func EmptyScene() Scene {
 	return scene
 }
 
-// Reuploads the vertices of every mesh a physics step moved this frame
-func (scene *Scene) UpdateMeshes() { 
+// Records every mesh Place moved this frame, for the shadow update to re-bake
+func (scene *Scene) UpdateMeshes() {
 	if scene == nil {
 		return
 	}
 	for i := range scene.Meshes {
-		if scene.Meshes[i].needsUpdate {
+		if scene.Meshes[i].moved {
 			scene.movedMeshes = append(scene.movedMeshes, i)
+			scene.Meshes[i].moved = false
 		}
-		scene.Meshes[i].updateVertices()
 	}
 }
 
@@ -221,7 +223,8 @@ func (scene *Scene) RenderDepth(frame renderer.Frame, pass renderer.Pass, pipes 
 	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Prepass}
 	ctx.push.frame = frameAddr
 
-	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4()}
+	// Each mesh writes its own model matrix, the same one the forward pass gets
+	var uniforms renderer.DrawUniforms
 	for i := range scene.Meshes {
 		scene.Meshes[i].draw(ctx, &uniforms)
 	}
@@ -235,9 +238,8 @@ func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes 
 	ctx.push.frame = frameAddr
 	ctx.push.records = recordAddr
 
-	// Static mesh geometry is baked into the OBJ vertices, so the model matrix
-	// is identity and only the material fields vary between draws
-	uniforms := renderer.DrawUniforms{Model: mgl32.Ident4()}
+	// Each mesh writes its model matrix and material fields
+	var uniforms renderer.DrawUniforms
 	for i := range scene.Meshes {
 		scene.Meshes[i].draw(ctx, &uniforms)
 	}

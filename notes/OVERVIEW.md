@@ -125,7 +125,7 @@ instance → surface → physical device → queue family → logical device
 
 ```mermaid
 graph TD
-    P["physics · mesh re-upload · input"] --> BF["Backend.Frame opens"]
+    P["physics · mesh placement · input"] --> BF["Backend.Frame opens"]
     BF --> AL["allocate tiles · build tiles · Upload them<br/><i>one tile per shadow</i>"]
     AL --> S1["shadow-atlas passes<br/><i>static bake · copy · dynamic bake</i>"]
     S1 --> DP["depth prepass"]
@@ -143,7 +143,7 @@ Every pass is opened in `core/app.go`, in order:
 ```
 entities.Update, bodies.Step     ECS then physics: 1/120 s steps on real time, at most 8 a frame,
                                   none for the first 5 s (2 a frame under -screenshot, so frame 90 is reproducible)
-s.UpdateMeshes                    re-upload the vertices a move dirtied
+s.UpdateMeshes                    record the meshes Place moved, for the shadow cache
 input                             camera, unless [debug] lockCamera
 
 Backend.Frame(func(f) {

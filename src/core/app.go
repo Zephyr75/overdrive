@@ -179,6 +179,9 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 			}
 			stepsRun = stepsDue
 		}
+		if bodies != nil {
+			bodies.PlaceMeshes()
+		}
 
 		loadedScene.UpdateMeshes()
 
