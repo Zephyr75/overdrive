@@ -141,8 +141,8 @@ graph TD
 Every pass is opened in `core/app.go`, in order:
 
 ```
-entities.Update, bodies.Step     ECS then physics: 1/120 s steps on real time, at most 8 a frame,
-                                  none for the first App.StartDelay s, 5 by default (2 a frame under -screenshot, so frame 90 is reproducible)
+entities.Update, bodies.Step     ECS then physics: fixed steps at World.Rate (120 by default) on real time, at most 8 a frame,
+                                  none for the first App.StartDelay s, 5 by default (1/60 s a frame under -screenshot, so frame 90 is reproducible)
 s.UpdateMeshes                    record the meshes Place moved, for the shadow cache
 input                             camera, unless [debug] lockCamera
 

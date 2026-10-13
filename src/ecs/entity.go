@@ -1,15 +1,8 @@
 package ecs
 
-import "time"
-
 type World struct {
 	entities []Entity
-	// Seconds the step being run covers, for an entity's Update to read
-	step float32
 }
-
-// Returns the length of the step being run, in seconds
-func (world *World) Step() float32 { return world.step }
 
 // Adds entities to the world
 func (world *World) AddEntities(entities ...Entity) {
@@ -23,9 +16,9 @@ func (world *World) Init() {
 	}
 }
 
-// Steps every entity's game logic, once per physics step and before it
-func (world *World) Update(timeInterval time.Duration) {
-	world.step = float32(timeInterval.Seconds())
+// Steps every entity's game logic, once per physics step and before it; an
+// entity reads the step's length from the physics world it holds
+func (world *World) Update() {
 	for _, entity := range world.entities {
 		entity.Update(world)
 	}

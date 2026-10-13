@@ -6,9 +6,15 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+// The step rate of a World that sets none
+const DefaultRate = 120
+
 // Every body the simulation steps, and the gravity that pulls the movable ones
 type World struct {
 	Gravity  mgl32.Vec3
+	// Steps per simulated second, DefaultRate when zero; fixed, so a faster
+	// display draws the world more often rather than running it faster
+	Rate     int
 	bodies   []Body
 	collisions []Collision
 }
@@ -36,6 +42,19 @@ func (world *World) Remove(bodies ...Body) {
 	world.bodies = kept
 }
 
+// Returns the steps per simulated second the world runs at
+func (world *World) StepRate() int {
+	if world.Rate == 0 {
+		return DefaultRate
+	}
+	return world.Rate
+}
+
+// Returns the seconds one step covers
+func (world *World) StepLength() float32 {
+	return 1 / float32(world.StepRate())
+}
+
 // Returns every contact of the last step, each pair once
 func (world *World) Contacts() []Collision {
 	return world.collisions
@@ -57,7 +76,8 @@ func (world *World) ContactsOf(body Body) []Collision {
 
 // Advances the simulation by one fixed step, collisions after integrating so
 // a step always ends on resolved positions
-func (world *World) Step(seconds float32) {
+func (world *World) Step() {
+	seconds := world.StepLength()
 	world.collisions = world.collisions[:0]
 	for _, body := range world.bodies {
 		verlet := body.GetVerlet(); 

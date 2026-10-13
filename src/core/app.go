@@ -3,7 +3,6 @@ package core
 import (
 	"fmt"
 	"runtime"
-	"time"
 
 	"github.com/go-gl/glfw/v3.3/glfw"
 
@@ -99,11 +98,8 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 	return app
 }
 
-// Physics runs in fixed steps, so a faster display draws the world more often
-// rather than running it faster
 const (
-	physicsRate = 120 // steps per simulated second
-	// The most one frame runs to catch up; a longer stall is skipped, not replayed
+	// The most steps one frame runs to catch up; a longer stall is skipped, not replayed
 	maxPhysicsSteps = 8
 	// StartDelay's default, so the scene can be seen before anything moves
 	physicsStartDelay = 5
@@ -144,8 +140,8 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 	// resolves out of. Rebuilt whenever the swapchain has resized under them
 	var targets screenTargets
 
-	// Late enough for the shadow allocator to have settled; physics counts two
-	// steps a frame meanwhile, so two runs photograph the same moment
+	// Late enough for the shadow allocator to have settled; physics counts
+	// 1/60 s a frame meanwhile, so two runs photograph the same moment
 	var shot *screenshot
 	if app.ScreenshotFile != "" {
 		shot = &screenshot{path: app.ScreenshotFile, frame: 90}
@@ -157,6 +153,11 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 	// includes the whole scene load
 	physicsStart := glfw.GetTime() + app.StartDelay
 	stepsRun := 0
+	// The world's own rate, which the entities are stepped at too
+	rate := physics.DefaultRate
+	if bodies != nil {
+		rate = bodies.StepRate()
+	}
 
 	// Run one iteration per frame until the window closes
 	for !app.Window.ShouldClose() {
@@ -166,19 +167,19 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 		targets.rebuildOnResize(backend)
 
 		// The steps that should have run by now, negative while waiting. A
-		// screenshot counts two a frame instead of the clock, so frame N is the
-		// same moment of the simulation on every run and every display
-		stepsDue := int((glfw.GetTime() - physicsStart) * physicsRate)
+		// screenshot counts 1/60 s a frame instead of the clock, so frame N is
+		// the same moment of the simulation on every run and every display
+		stepsDue := int((glfw.GetTime() - physicsStart) * float64(rate))
 		if shot != nil {
-			stepsDue = 2 * (frameNo - int(app.StartDelay*60))
+			stepsDue = (frameNo - int(app.StartDelay*60)) * rate / 60
 		}
 		if stepsDue > stepsRun {
 			for range min(stepsDue-stepsRun, maxPhysicsSteps) {
 				if entities != nil {
-					entities.Update(time.Second / physicsRate)
+					entities.Update()
 				}
 				if bodies != nil {
-					bodies.Step(1.0 / physicsRate)
+					bodies.Step()
 				}
 			}
 			stepsRun = stepsDue
