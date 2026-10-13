@@ -29,13 +29,6 @@ func (world *World) Update(timeInterval time.Duration) {
 	for _, entity := range world.entities {
 		entity.Update(world)
 	}
-
-	// for {
-	//   for _, entity := range w.entities {
-	//     entity.Update(w)
-	//   }
-	//   time.Sleep(timeInterval)
-	// }
 }
 
 // Returns every entity reporting a type

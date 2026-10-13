@@ -27,6 +27,8 @@ Today the OBJ is exported in world space, `<rotation>` is written but ignored, s
 - [ ] Box colliders (only sphere and plane exist)
 - [ ] Mark a mesh's collider type and static/dynamic in Blender, exported to the scene file
 - [x] Physics bodies drive the mesh's model matrix, rotation included (`World.PlaceMeshes`)
+- [x] Contacts reported to the game (`World.Contacts`, `ContactsOf`), bodies removable (`World.Remove`), velocity in m/s (`Velocity`, `SetVelocity`, `Teleport`)
+- [ ] Moving a fixed body (a paddle, a door) gives what it pushes no speed, and its mesh is placed by the game, not by `PlaceMeshes`
 - [ ] Verlet distance constraints
 
 ### UI

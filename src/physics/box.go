@@ -61,8 +61,8 @@ func NewBoxFromMesh(mesh *scene.Mesh) *Box {
 	return box
 }
 
-// Does nothing, the sphere side of the pair resolving box contacts
-func (box *Box) Collide(collider Collider) {}
+// Does nothing, the sphere side of the pair resolving and reporting box contacts
+func (box *Box) Collide(collider Body) (mgl32.Vec3, bool) { return mgl32.Vec3{}, false }
 
 // Returns the Verlet state the integrator steps
-func (box *Box) Body() *Verlet { return &box.Verlet }
+func (box *Box) GetVerlet() *Verlet { return &box.Verlet }

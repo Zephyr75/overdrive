@@ -117,7 +117,7 @@ no-op. Object names are *not* set: images and buffers show as raw handles.
 out.png` copies the swapchain image into a host buffer and writes a PNG of frame
 90. Physics then counts exactly 1/60 s a frame, so frame 90 is the same
 simulated moment on every run and display, and two runs can be diffed. It is
-also before physics starts (5 s, `physicsStartDelay` in `core/app.go`), so the
+also before physics starts (`App.StartDelay`, 5 s by default), so the
 showcase ball is photographed at its starting point. Use `lockCamera = true` too, or mouse-look moves the
 camera during the run. RenderDoc is still what shows the shadow atlases and the
 per-pass state.

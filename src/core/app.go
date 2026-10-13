@@ -27,6 +27,9 @@ type App struct {
 	ScreenshotFile string // when set, one frame is captured and saved to a file with the given name
 	InputHandler   func(window *glfw.Window, deltaTime float32)
 	MouseCallback  func(window *glfw.Window, x float64, y float64)
+	// Seconds physics and entities hold still after the first frame, so a
+	// showcase can be seen before it moves; a game sets 0
+	StartDelay float64
 }
 
 // Pins the package to the main OS thread, where GLFW event handling must run
@@ -47,6 +50,7 @@ func NewApp(name string, width int, height int, inputHandler func(window *glfw.W
 		Height:        height,
 		MouseCallback: mouseCallback,
 		InputHandler:  inputHandler,
+		StartDelay:    physicsStartDelay,
 	}
 
 	// Create the backend before the window, so it can set its own hints
@@ -101,7 +105,7 @@ const (
 	physicsRate = 120 // steps per simulated second
 	// The most one frame runs to catch up; a longer stall is skipped, not replayed
 	maxPhysicsSteps = 8
-	// Seconds the world holds still, so the scene can be seen before anything moves
+	// StartDelay's default, so the scene can be seen before anything moves
 	physicsStartDelay = 5
 )
 
@@ -151,7 +155,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 
 	// From the first frame rather than from startup, whose clock already
 	// includes the whole scene load
-	physicsStart := glfw.GetTime() + physicsStartDelay
+	physicsStart := glfw.GetTime() + app.StartDelay
 	stepsRun := 0
 
 	// Run one iteration per frame until the window closes
@@ -166,7 +170,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 		// same moment of the simulation on every run and every display
 		stepsDue := int((glfw.GetTime() - physicsStart) * physicsRate)
 		if shot != nil {
-			stepsDue = 2 * (frameNo - physicsStartDelay*60)
+			stepsDue = 2 * (frameNo - int(app.StartDelay*60))
 		}
 		if stepsDue > stepsRun {
 			for range min(stepsDue-stepsRun, maxPhysicsSteps) {
@@ -180,7 +184,7 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 			stepsRun = stepsDue
 		}
 		if bodies != nil {
-			bodies.PlaceMeshes()
+			bodies.PlaceAndRotateMeshes()
 		}
 
 		loadedScene.UpdateMeshes()

@@ -26,3 +26,4 @@ src/shaders/vk/
 how_to_vulkan.go
 src/out.png
 __pycache__/
+src/breakout/

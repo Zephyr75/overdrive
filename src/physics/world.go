@@ -1,46 +1,89 @@
 package physics
 
-import "github.com/go-gl/mathgl/mgl32"
+import (
+	"slices"
+
+	"github.com/go-gl/mathgl/mgl32"
+)
 
 // Every body the simulation steps, and the gravity that pulls the movable ones
 type World struct {
-	Gravity mgl32.Vec3
-	bodies  []Collider
+	Gravity  mgl32.Vec3
+	bodies   []Body
+	collisions []Collision
+}
+
+// Two bodies that touched in the last step: A was pushed off B along Normal
+type Collision struct {
+	A, B   Body
+	Normal mgl32.Vec3 // unit, pointing out of B into A
 }
 
 // Adds bodies to the simulation
-func (world *World) Add(bodies ...Collider) {
-	world.bodies = append(world.bodies, bodies...)
+func (world *World) Add(body ...Body) {
+	world.bodies = append(world.bodies, body...)
+}
+
+// Takes bodies out of the simulation; their meshes stay where they were
+func (world *World) Remove(bodies ...Body) {
+	kept := world.bodies[:0]
+	for _, body := range world.bodies {
+		if !slices.Contains(bodies, body) {
+			kept = append(kept, body)
+		}
+	}
+	clear(world.bodies[len(kept):])
+	world.bodies = kept
+}
+
+// Returns every contact of the last step, each pair once
+func (world *World) Contacts() []Collision {
+	return world.collisions
+}
+
+// Returns the last step's contacts involving body, turned so that A is body
+func (world *World) ContactsOf(body Body) []Collision {
+	var found []Collision
+	for _, contact := range world.collisions {
+		switch body {
+		case contact.A:
+			found = append(found, contact)
+		case contact.B:
+			found = append(found, Collision{A: body, B: contact.A, Normal: contact.Normal.Mul(-1)})
+		}
+	}
+	return found
 }
 
 // Advances the simulation by one fixed step, collisions after integrating so
 // a step always ends on resolved positions
 func (world *World) Step(seconds float32) {
+	world.collisions = world.collisions[:0]
 	for _, body := range world.bodies {
-		if verlet := body.Body(); !verlet.Fixed {
+		verlet := body.GetVerlet(); 
+		if !verlet.Fixed {
 			verlet.Accelerate(world.Gravity)
-			verlet.UpdatePosition(seconds)
+			verlet.Integrate(seconds)
 		}
 	}
-	// Every ordered pair, each collider resolving its own half
+	// Every ordered pair, each collider resolving its own half. A pair is
+	// reported once: whichever side resolves it leaves the reverse call nothing
 	for _, body := range world.bodies {
 		for _, other := range world.bodies {
-			if body != other {
-				body.Collide(other)
+			if body == other {
+				continue
+			}
+			normal, touched := body.Collide(other)
+			if touched {
+				world.collisions = append(world.collisions, Collision{A: body, B: other, Normal: normal})
 			}
 		}
-	}
-	for _, body := range world.bodies {
-		body.Body().turn()
 	}
 }
 
 // Moves every movable body's mesh to where the last step left it
-//
-// Once a frame rather than once a step: only the last step is drawn, and
-// each Place dirties the mesh's shadow tiles
-func (world *World) PlaceMeshes() {
+func (world *World) PlaceAndRotateMeshes() {
 	for _, body := range world.bodies {
-		body.Body().place()
+		body.GetVerlet().placeAndRotate()
 	}
 }

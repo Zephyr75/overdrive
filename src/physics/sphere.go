@@ -18,18 +18,23 @@ type Sphere struct {
 	Inertia float32
 	// Rolling speed lost per unit of speed into the surface, a few percent on hard ground
 	RollingResistance float32
+	// A rebound slower than this, in metres per step, is dropped, so a ball that
+	// barely falls settles rather than hopping on; 0 for a ball that must keep
+	// every bounce, such as one with no gravity grazing a wall
+	RestingSpeed float32
 }
 
-// A rebound slower than this, in metres per step, is dropped, so a ball that
-// barely falls settles rather than hopping on
+// RestingSpeed's default, a few millimetres a step: what gravity alone adds in one
 const restingSpeed = 0.005
 
 // Returns the Verlet state the integrator steps
-func (sphere *Sphere) Body() *Verlet { return &sphere.Verlet }
+func (sphere *Sphere) GetVerlet() *Verlet { return &sphere.Verlet }
 
 // Creates a movable sphere at a position; set Fixed for one that never moves
+//
+// Inertia starts solid rather than zero, which the spin update divides by
 func NewSphere(pos mgl32.Vec3, radius float32) *Sphere {
-	return &Sphere{Verlet: NewVerlet(pos), Radius: radius}
+	return &Sphere{Verlet: NewVerlet(pos), Radius: radius, Inertia: 2.0 / 5.0, RestingSpeed: restingSpeed}
 }
 
 // Fits a movable sphere to a mesh, which then follows it, its radius being the distance to the first vertex
@@ -40,16 +45,16 @@ func NewSphereFromMesh(mesh *scene.Mesh) *Sphere {
 }
 
 // Dispatches to the collision routine matching the other collider's shape
-func (sphere *Sphere) Collide(collider Collider) { 
+func (sphere *Sphere) Collide(collider Body) (mgl32.Vec3, bool) {
 	switch collider := collider.(type) {
 	case *Sphere:
-		sphere.sphereCollide(collider)
+		return sphere.sphereCollide(collider)
 	case *Plane:
-		sphere.planeCollide(*collider)
+		return sphere.planeCollide(*collider)
 	case *Box:
-		sphere.boxCollide(*collider)
+		return sphere.boxCollide(*collider)
 	}
-
+	return mgl32.Vec3{}, false
 }
 
 // Separates two spheres and exchanges momentum along the line between them,
@@ -58,13 +63,13 @@ func (sphere *Sphere) Collide(collider Collider) {
 // Both bodies at once, not each its own half: the first half would bounce this
 // sphere away before the other saw it coming, and the other would get nothing.
 // Resolved here, the reverse call of the pair finds the two already apart
-func (sphere *Sphere) sphereCollide(other *Sphere) {
+func (sphere *Sphere) sphereCollide(other *Sphere) (mgl32.Vec3, bool) {
 	axis := sphere.Pos.Sub(other.Pos)
 	distance := axis.Len()
 	overlap := sphere.Radius + other.Radius - distance
 	weight, otherWeight := sphere.inverseMass(), other.inverseMass()
 	if overlap <= 0 || distance == 0 || weight+otherWeight == 0 {
-		return
+		return mgl32.Vec3{}, false
 	}
 	normal := axis.Mul(1 / distance)
 
@@ -82,10 +87,11 @@ func (sphere *Sphere) sphereCollide(other *Sphere) {
 	}
 	sphere.PrevPos = sphere.Pos.Sub(velocity)
 	other.PrevPos = other.Pos.Sub(otherVelocity)
+	return normal, true
 }
 
 // Lifts this sphere out of a plane, but only within the plane's finite extent
-func (sphere *Sphere) planeCollide(plane Plane) { 
+func (sphere *Sphere) planeCollide(plane Plane) (mgl32.Vec3, bool) {
 	distNormal := sphere.Pos.Sub(plane.Pos).Dot(plane.Normal)
 	distMain := sphere.Pos.Sub(plane.Pos).Dot(plane.MainAxis)
 	distCross := sphere.Pos.Sub(plane.Pos).Dot(plane.CrossAxis)
@@ -94,9 +100,11 @@ func (sphere *Sphere) planeCollide(plane Plane) {
 		if distMain > -plane.MainHalf && distMain < plane.MainHalf {
 			if distCross > -plane.CrossHalf && distCross < plane.CrossHalf {
 				sphere.resolve(plane.Normal, sphere.Radius-distNormal)
+				return plane.Normal, true
 			}
 		}
 	}
+	return mgl32.Vec3{}, false
 }
 
 // Pushes this sphere out of a fixed box, along the line from its closest point
@@ -104,7 +112,7 @@ func (sphere *Sphere) planeCollide(plane Plane) {
 // The closest point covers faces, edges and corners alike, which is what lets a
 // ball roll off the end of a plank; a centre inside the box leaves by the
 // nearest face instead, there being no closest point outside to push from
-func (sphere *Sphere) boxCollide(box Box) {
+func (sphere *Sphere) boxCollide(box Box) (mgl32.Vec3, bool) {
 	local := sphere.Pos.Sub(box.Pos)
 	closest := box.Pos
 	inside := true
@@ -132,16 +140,17 @@ func (sphere *Sphere) boxCollide(box Box) {
 			normal = normal.Mul(-1)
 		}
 		sphere.resolve(normal, least+sphere.Radius)
-		return
+		return normal, true
 	}
 
 	offset := sphere.Pos.Sub(closest)
 	distance := offset.Len()
 	if distance >= sphere.Radius || distance == 0 {
-		return
+		return mgl32.Vec3{}, false
 	}
 	normal := offset.Mul(1 / distance)
 	sphere.resolve(normal, sphere.Radius-distance)
+	return normal, true
 }
 
 // Pushes the sphere out along a contact normal, bounces it off the surface,
@@ -160,7 +169,7 @@ func (sphere *Sphere) resolve(normal mgl32.Vec3, push float32) {
 	}
 	restitution := sphere.Restitution
 	// Kill momentum if bounce speed is below a threshold
-	if -into*restitution < restingSpeed {
+	if -into*restitution < sphere.RestingSpeed {
 		restitution = 0
 	}
 	// The normal impulse, per unit mass: a whole impact on landing, one step of gravity while resting
