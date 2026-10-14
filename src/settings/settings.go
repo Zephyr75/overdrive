@@ -48,7 +48,7 @@ type Config struct {
 		// Build the second atlas, so a moving object casts a moving shadow
 		DynamicAtlas bool
 		// Dynamic shadow texels a frame may re-bake, in units of 2^20
-		BakeBudgetMiB int
+		BakeBudgetMegatexels int
 		// Taps a shadow lookup spends
 		PCF PCFQuality
 		// The near and far planes every shadow projection is built with
@@ -101,7 +101,7 @@ func defaults() Config {
 	cfg.Shadows.SlotCounts = []int{1, 16, 64, 256}
 	cfg.Shadows.TierScores = []float32{0.50, 0.20, 0.08}
 	cfg.Shadows.DynamicAtlas = true
-	cfg.Shadows.BakeBudgetMiB = 8
+	cfg.Shadows.BakeBudgetMegatexels = 8
 	cfg.Shadows.PCF = PCFFull
 	cfg.Shadows.NearPlane, cfg.Shadows.FarPlane = 1.0, 50.0
 	cfg.AntiAliasing.Mode = AAMSAA
@@ -125,7 +125,7 @@ func IsMSAAEnabled() bool {
 
 // Returns the combined resolution of dynamic shadow tiles a frame may spend rebuilding
 func ShadowBakeBudget() int {
-	return Current.Shadows.BakeBudgetMiB << 20
+	return Current.Shadows.BakeBudgetMegatexels << 20
 }
 
 // Returns how much the shadow normal-offset bias must grow at this atlas size

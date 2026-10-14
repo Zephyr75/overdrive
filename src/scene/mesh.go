@@ -70,7 +70,7 @@ type Mesh struct {
 }
 
 // Offsets the mesh and rebuilds its vertex data for the next upload
-// func (mesh *Mesh) MoveBy(x float32, y float32, z float32) { 
+// func (mesh *Mesh) MoveBy(x float32, y float32, z float32) {
 // 	mesh.Movable = true
 // 	mesh.Position[0] += x
 // 	mesh.Position[1] += y
@@ -97,7 +97,7 @@ func (mesh *Mesh) Place(dest mgl32.Vec3, rotation mgl32.Quat) {
 // Parses the OBJ and MTL files a mesh entry names into geometry and materials
 //
 // Both live in meshes/ beside the scene file, so a scene folder is self-contained
-func (entry MeshToml) toMesh(sceneDir string) (Mesh, error) { 
+func (entry MeshToml) toMesh(sceneDir string) (Mesh, error) {
 	obj, err := parseOBJ(filepath.Join(sceneDir, "meshes", entry.Obj))
 	if err != nil {
 		return Mesh{}, err
@@ -111,7 +111,7 @@ func (entry MeshToml) toMesh(sceneDir string) (Mesh, error) {
 
 // The MTL a mesh names, falling back to the .obj basename because an OBJ names
 // its own material library and it conventionally matches
-func (entry MeshToml) mtlPath() string { 
+func (entry MeshToml) mtlPath() string {
 	if entry.Mtl != "" {
 		return entry.Mtl
 	}
@@ -119,7 +119,7 @@ func (entry MeshToml) mtlPath() string {
 }
 
 // The i'th field of a line as a float32, 0 when the line is too short
-func f32(fields []string, i int) float32 { 
+func f32(fields []string, i int) float32 {
 	if i >= len(fields) {
 		return 0
 	}
@@ -128,7 +128,7 @@ func f32(fields []string, i int) float32 {
 }
 
 // Fields 1 to 3 of a line as a vector, the form every OBJ and MTL triple takes
-func vec3(fields []string) mgl32.Vec3 { 
+func vec3(fields []string) mgl32.Vec3 {
 	return mgl32.Vec3{f32(fields, 1), f32(fields, 2), f32(fields, 3)}
 }
 
@@ -141,7 +141,7 @@ type objData struct {
 }
 
 // Reads an OBJ file's vertex streams and face groups
-func parseOBJ(path string) (objData, error) { 
+func parseOBJ(path string) (objData, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return objData{}, fmt.Errorf("open OBJ: %w", err)
@@ -187,7 +187,7 @@ func parseOBJ(path string) (objData, error) {
 //
 // Triangles carrying all three indices only, which is what the exporter writes;
 // anything else is dropped rather than left to break fillVertices' stride
-func triangleIndices(fields []string) []uint32 { 
+func triangleIndices(fields []string) []uint32 {
 	if len(fields) < 4 {
 		return nil
 	}
@@ -206,7 +206,7 @@ func triangleIndices(fields []string) []uint32 {
 }
 
 // Reads an MTL file's material definitions, in the order the OBJ's groups use them
-func parseMTL(path string, sceneDir string) ([]Material, error) { 
+func parseMTL(path string, sceneDir string) ([]Material, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open MTL: %w", err)
@@ -258,7 +258,7 @@ func parseMTL(path string, sceneDir string) ([]Material, error) {
 }
 
 // Builds the mesh from the two parsed halves and the entry's own fields
-func (entry MeshToml) assemble(obj objData, materials []Material) Mesh { 
+func (entry MeshToml) assemble(obj objData, materials []Material) Mesh {
 	pos := mgl32.Vec3{entry.Position[0], entry.Position[2], -entry.Position[1]}
 
 	mesh := Mesh{
@@ -285,13 +285,13 @@ func (entry MeshToml) assemble(obj objData, materials []Material) Mesh {
 //
 // Blender bakes the exporting machine's absolute path, so only the basename
 // survives — otherwise a scene loads nowhere but where it was authored.
-func texturePath(sceneDir, ref string) string { 
+func texturePath(sceneDir, ref string) string {
 	ref = strings.ReplaceAll(ref, "\\", "/")
 	return filepath.Join(sceneDir, "textures", path.Base(ref))
 }
 
 // Flattens the OBJ face lists into the interleaved vertex array and per-group index lists
-func (mesh *Mesh) fillVertices() { 
+func (mesh *Mesh) fillVertices() {
 	var value []float32
 	var faces [][]uint32
 	var index uint32
@@ -340,7 +340,7 @@ func (mesh *Mesh) fillVertices() {
 }
 
 // Uploads the mesh's vertex buffer, one mesh handle per face group, and its material textures
-func (mesh *Mesh) setup(backend renderer.Backend, textures map[string]*decodedTexture) error { 
+func (mesh *Mesh) setup(backend renderer.Backend, textures map[string]*decodedTexture) error {
 
 	// Share one vertex buffer across the face groups, each group owning only its index list
 	mesh.vertexBuffer, _ = backend.CreateBuffer(renderer.BufferSpec{

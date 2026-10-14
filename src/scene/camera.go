@@ -28,17 +28,17 @@ type CameraToml struct {
 }
 
 // Teleports the camera to a position
-func (camera *Camera) Move(pos mgl32.Vec3) { 
+func (camera *Camera) Move(pos mgl32.Vec3) {
 	camera.Pos = pos
 }
 
 // Points the camera's front vector at a position
-func (camera *Camera) LookAt(pos mgl32.Vec3) { 
+func (camera *Camera) LookAt(pos mgl32.Vec3) {
 	camera.Front = pos.Sub(camera.Pos).Normalize()
 }
 
 // Converts a parsed camera into engine coordinates, front from the exported vector or yaw and pitch
-func (camera CameraToml) toCamera() Camera { 
+func (camera CameraToml) toCamera() Camera {
 	pos, front, up := camera.Pos, camera.Front, camera.Up
 	pos = mgl32.Vec3{pos[0], pos[2], -pos[1]}
 	// front = mgl32.Vec3{front[0], front[2], front[1]}

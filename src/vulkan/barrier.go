@@ -38,18 +38,18 @@ type useInfo struct {
 }
 
 var useTable = [...]useInfo{
-	useNone:        {vk.ImageLayoutUndefined, vk.PipelineStage2None, vk.Access2None, false},
-	useSampled:     {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderSampledRead, false},
-	useShaderRead:  {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2VertexShader | vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderRead | vk.Access2ShaderStorageRead, false},
+	useNone:            {vk.ImageLayoutUndefined, vk.PipelineStage2None, vk.Access2None, false},
+	useSampled:         {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderSampledRead, false},
+	useShaderRead:      {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2VertexShader | vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderRead | vk.Access2ShaderStorageRead, false},
 	useColorAttachment: {vk.ImageLayoutColorAttachmentOptimal, vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite, true},
 	// Read as well as write: the depth test reads what a loaded attachment holds
 	useDepthAttachment: {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentRead | vk.Access2DepthStencilAttachmentWrite, true},
-	useDepthResolve: {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests | vk.PipelineStage2ColorAttachmentOutput, vk.Access2DepthStencilAttachmentWrite | vk.Access2ColorAttachmentWrite, true},
-	useCopySrc:     {vk.ImageLayoutTransferSrcOptimal, vk.PipelineStage2Transfer, vk.Access2TransferRead, false},
-	useCopyDst:     {vk.ImageLayoutTransferDstOptimal, vk.PipelineStage2Transfer, vk.Access2TransferWrite, true},
-	useStorage:     {vk.ImageLayoutGeneral, vk.PipelineStage2ComputeShader, vk.Access2ShaderStorageRead | vk.Access2ShaderStorageWrite, true},
-	useIndirect:    {vk.ImageLayoutUndefined, vk.PipelineStage2DrawIndirect, vk.Access2IndirectCommandRead, false},
-	usePresent:     {vk.ImageLayoutPresentSrcKHR, vk.PipelineStage2None, vk.Access2None, false},
+	useDepthResolve:    {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests | vk.PipelineStage2ColorAttachmentOutput, vk.Access2DepthStencilAttachmentWrite | vk.Access2ColorAttachmentWrite, true},
+	useCopySrc:         {vk.ImageLayoutTransferSrcOptimal, vk.PipelineStage2Transfer, vk.Access2TransferRead, false},
+	useCopyDst:         {vk.ImageLayoutTransferDstOptimal, vk.PipelineStage2Transfer, vk.Access2TransferWrite, true},
+	useStorage:         {vk.ImageLayoutGeneral, vk.PipelineStage2ComputeShader, vk.Access2ShaderStorageRead | vk.Access2ShaderStorageWrite, true},
+	useIndirect:        {vk.ImageLayoutUndefined, vk.PipelineStage2DrawIndirect, vk.Access2IndirectCommandRead, false},
+	usePresent:         {vk.ImageLayoutPresentSrcKHR, vk.PipelineStage2None, vk.Access2None, false},
 }
 
 // Transitions a whole image from current use to a new use
@@ -81,7 +81,7 @@ func (backend *VKBackend) recordUseImage(commandBuffer vk.CommandBuffer, image *
 }
 
 // Transitions a buffer, which is stage and access masks alone
-func (backend *VKBackend) recordUseBuffer(commandBuffer vk.CommandBuffer, info *bufferInfo, want use) { 
+func (backend *VKBackend) recordUseBuffer(commandBuffer vk.CommandBuffer, info *bufferInfo, want use) {
 	if info == nil || info.vkBuffer == 0 {
 		return
 	}

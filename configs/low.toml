@@ -17,7 +17,7 @@ tierScores = [0.50, 0.20, 0.08]
 
 # No moving shadows, so no per-frame shadow work
 dynamicAtlas = false
-bakeBudgetMiB = 0
+bakeBudgetMegatexels = 0
 
 pcf = "cheap"
 nearPlane = 1.0

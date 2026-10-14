@@ -19,7 +19,7 @@ import (
 	// "fmt"
 )
 
-func main() { 
+func main() {
 	// Must load before NewApp, which is where the window and backend read them
 	configName := flag.String("config", "vulkan.toml", "settings file: a bare name resolves under configs/, a path is used as given")
 	sceneName := flag.String("scene", "showcase/showcase.toml", "scene file, resolved under assets/")

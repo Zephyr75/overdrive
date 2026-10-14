@@ -199,6 +199,6 @@ func (sphere *Sphere) resolve(normal mgl32.Vec3, push float32) {
 	} else {
 		velocity = velocity.Sub(tangent.Mul(slow / speed))
 		sphere.Spin = sphere.Spin.Mul(1 - slow/speed)
-	}		
+	}
 	sphere.PrevPos = sphere.Pos.Sub(velocity)
 }

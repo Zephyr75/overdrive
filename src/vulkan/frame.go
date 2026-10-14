@@ -166,7 +166,7 @@ func (vkFrame *vkFrame) Upload(data any) renderer.Address {
 // Pass records a Vulkan render pass that may contain colour and/or depth
 // attachments. It transitions attachments, starts a dynamic rendering
 // block, invokes the supplied closure, and then ends the block.
-func (vkFrame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) { 
+func (vkFrame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass)) {
 	backend, commandBuffer := vkFrame.VKBackend, vkFrame.vkCommandBuffer
 	// Transition any images that will be read by this pass
 	backend.transitionReads(commandBuffer, spec.Reads)
@@ -232,7 +232,7 @@ func (vkFrame *vkFrame) Pass(spec renderer.PassSpec, record func(renderer.Pass))
 }
 
 // Runs one compute pass, outside any render pass
-func (vkFrame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Compute)) { 
+func (vkFrame *vkFrame) Compute(spec renderer.ComputeSpec, record func(renderer.Compute)) {
 	backend, commandBuffer := vkFrame.VKBackend, vkFrame.vkCommandBuffer
 	backend.transitionReads(commandBuffer, spec.Reads)
 	for _, height := range spec.Writes {
@@ -281,7 +281,7 @@ func (backend *VKBackend) transitionReads(commandBuffer vk.CommandBuffer, reads 
 
 // Builds one colour attachment, resolving the reserved backbuffer view into the
 // multisampled image plus its resolve target when the backend multisamples
-func (backend *VKBackend) buildColorAttachment(commandBuffer vk.CommandBuffer, attachment renderer.Attachment) (vk.RenderingAttachmentInfo, int, int) { 
+func (backend *VKBackend) buildColorAttachment(commandBuffer vk.CommandBuffer, attachment renderer.Attachment) (vk.RenderingAttachmentInfo, int, int) {
 	view, img, width, height, _ := backend.view(attachment.View)
 	if view == 0 {
 		return vk.RenderingAttachmentInfo{}, 0, 0
@@ -357,7 +357,7 @@ func (backend *VKBackend) buildDepthAttachment(commandBuffer vk.CommandBuffer, a
 	return vkAttachmentInfo, width, height
 }
 
-func storeOp(store bool) vk.AttachmentStoreOp { 
+func storeOp(store bool) vk.AttachmentStoreOp {
 	if store {
 		return vk.AttachmentStoreOpStore
 	}
@@ -439,14 +439,14 @@ func (vkFrame *vkFrame) Copy(spec renderer.CopySpec) {
 
 // Whether a rect fits inside an image, an out-of-bounds copy being a device loss
 // rather than a clipped one
-func (backend *VKBackend) inBounds(entry *image, off [3]int, ext [3]int) bool { 
+func (backend *VKBackend) inBounds(entry *image, off [3]int, ext [3]int) bool {
 	return ext[0] > 0 && ext[1] > 0 &&
 		off[0] >= 0 && off[1] >= 0 &&
 		off[0]+ext[0] <= entry.width && off[1]+ext[1] <= entry.height
 }
 
 // Clears a colour image outside any pass
-func (vkFrame *vkFrame) Clear(spec renderer.ClearSpec) { 
+func (vkFrame *vkFrame) Clear(spec renderer.ClearSpec) {
 	entry := vkFrame.VKBackend.image(spec.Image)
 	if entry == nil {
 		return
@@ -475,7 +475,7 @@ func (pass *vkPass) Viewport(x, y, width, height int) {
 	})
 }
 
-func (pass *vkPass) Draw(call renderer.DrawCall) { 
+func (pass *vkPass) Draw(call renderer.DrawCall) {
 	backend := pass.VKBackend
 	pipeline := backend.pipeline(call.Pipeline)
 	mesh := backend.mesh(call.Mesh)
@@ -517,7 +517,7 @@ func (pass *vkPass) Draw(call renderer.DrawCall) {
 
 // --- Compute -----------------------------------------------------------------
 
-func (compute *vkCompute) Dispatch(call renderer.DispatchCall) { 
+func (compute *vkCompute) Dispatch(call renderer.DispatchCall) {
 	backend := compute.VKBackend
 	pipeline := backend.pipeline(call.Pipeline)
 	if pipeline == nil {
@@ -538,7 +538,7 @@ func (compute *vkCompute) Dispatch(call renderer.DispatchCall) {
 }
 
 // A dispatch of zero groups is a no-op the caller never means
-func max1(value int) int { 
+func max1(value int) int {
 	if value < 1 {
 		return 1
 	}
@@ -548,7 +548,7 @@ func max1(value int) int {
 // --- shared recording helpers ------------------------------------------------
 
 // Binds a pipeline, skipping the call when it is already bound
-func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelineInfo) { 
+func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelineInfo) {
 	if pipeline.pipeline == backend.vkBoundPipeline {
 		return
 	}
@@ -557,20 +557,20 @@ func (backend *VKBackend) bind(commandBuffer vk.CommandBuffer, pipeline *pipelin
 }
 
 // Pushes the four opaque addresses a draw or dispatch carries
-func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer.Address) { 
+func (backend *VKBackend) push(commandBuffer vk.CommandBuffer, addrs [4]renderer.Address) {
 	vk.CmdPushConstants(commandBuffer, backend.vkPipelineLayout, pushStages, 0, pushConstantSize, unsafe.Pointer(&addrs))
 }
 
 // --- capture labels ----------------------------------------------------------
 
 // Opens a labelled region, which is what groups a RenderDoc capture by pass
-func (backend *VKBackend) beginLabel(commandBuffer vk.CommandBuffer, name string) { 
+func (backend *VKBackend) beginLabel(commandBuffer vk.CommandBuffer, name string) {
 	if backend.hasLabels && name != "" {
 		vk.CmdBeginDebugLabel(commandBuffer, name)
 	}
 }
 
-func (backend *VKBackend) endLabel(commandBuffer vk.CommandBuffer, name string) { 
+func (backend *VKBackend) endLabel(commandBuffer vk.CommandBuffer, name string) {
 	if backend.hasLabels && name != "" {
 		vk.CmdEndDebugLabel(commandBuffer)
 	}

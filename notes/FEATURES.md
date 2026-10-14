@@ -254,7 +254,7 @@ Every runtime knob is in the TOML file; a bad value rejects the file (`settings.
 | --- | --- |
 | `[window]` | `width`, `height` |
 | `[renderer]` | `backend` (only `"vulkan"`) |
-| `[shadows]` | `atlasSize`, `slotDivisors`/`slotCounts`, `tierScores`, `dynamicAtlas`, `bakeBudgetMiB`, `pcf`, `nearPlane`/`farPlane` |
+| `[shadows]` | `atlasSize`, `slotDivisors`/`slotCounts`, `tierScores`, `dynamicAtlas`, `bakeBudgetMegatexels`, `pcf`, `nearPlane`/`farPlane` |
 | `[antialiasing]` | `mode`, `samples` |
 | `[textures]` | `anisotropy` (does almost nothing until textures have mips) |
 | `[debug]` | `validation`, `lockCamera` (reproducible captures), `noShadows` (tells "too dark" from "wrongly shadowed"), `noPrepass` (checks the prepass renders like plain depth testing) |

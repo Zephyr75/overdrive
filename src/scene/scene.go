@@ -27,7 +27,7 @@ type Scene struct {
 	Cam    Camera
 
 	// The one depth texture every shadow in the scene is a sub-rect of
-	atlas       shadowAtlas
+	atlas shadowAtlas
 	// The records describing the tiles handed out this frame
 	shadowTiles []renderer.ShadowTile
 
@@ -48,7 +48,7 @@ type Scene struct {
 }
 
 // Loads a scene file and uploads its meshes, shadow maps and skybox through the backend
-func NewScene(path string, backend renderer.Backend) (Scene, error) { 
+func NewScene(path string, backend renderer.Backend) (Scene, error) {
 	// Parse the file first: everything below needs the mesh and light counts
 	scene, err := LoadScene(path)
 	if err != nil {
@@ -75,7 +75,7 @@ func NewScene(path string, backend renderer.Backend) (Scene, error) {
 }
 
 // Returns a scene with nothing in it, for running the app with UI only
-func EmptyScene() Scene { 
+func EmptyScene() Scene {
 	var scene Scene
 	scene.Meshes = make([]Mesh, 0)
 	scene.Lights = make([]Light, 0)
@@ -98,7 +98,7 @@ func (scene *Scene) UpdateMeshes() {
 }
 
 // Finds a mesh by name, returning nil when the scene has none
-func (scene *Scene) FindMesh(name string) *Mesh { 
+func (scene *Scene) FindMesh(name string) *Mesh {
 	for i, mesh := range scene.Meshes {
 		if mesh.Name == name {
 			return &scene.Meshes[i]
@@ -108,7 +108,7 @@ func (scene *Scene) FindMesh(name string) *Mesh {
 }
 
 // Finds a light by name, returning nil when the scene has none
-func (scene *Scene) Light(name string) *Light { 
+func (scene *Scene) Light(name string) *Light {
 	for i, light := range scene.Lights {
 		if light.Name == name {
 			return &scene.Lights[i]
@@ -118,7 +118,7 @@ func (scene *Scene) Light(name string) *Light {
 }
 
 // Returns the scene's camera
-func (scene *Scene) Camera() *Camera { 
+func (scene *Scene) Camera() *Camera {
 	return &scene.Cam
 }
 
@@ -168,7 +168,7 @@ func LoadScene(path string) (Scene, error) {
 }
 
 // Writes the per-frame values into u: camera matrices, the light array, and the scene-wide texture handles
-func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) { 
+func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) {
 	uniforms.View = mgl32.LookAtV(scene.Cam.Pos, scene.Cam.Pos.Add(scene.Cam.Front), scene.Cam.Up)
 	uniforms.Projection = mgl32.Perspective(mgl32.DegToRad(scene.Cam.Fov),
 		float32(settings.Current.Window.Width)/float32(settings.Current.Window.Height), 0.1, 100.0)
@@ -218,7 +218,7 @@ func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) {
 
 // Draws every mesh of the scene depth-only, inside the depth prepass
 func (scene *Scene) RenderDepth(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
-	frameAddr renderer.Address) { 
+	frameAddr renderer.Address) {
 
 	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Prepass}
 	ctx.push.frame = frameAddr
@@ -232,7 +232,7 @@ func (scene *Scene) RenderDepth(frame renderer.Frame, pass renderer.Pass, pipes 
 
 // Draws every mesh of the scene with the forward pipeline, inside the main pass
 func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
-	frameAddr, recordAddr renderer.Address) { 
+	frameAddr, recordAddr renderer.Address) {
 
 	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Forward}
 	ctx.push.frame = frameAddr
@@ -247,6 +247,6 @@ func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes 
 
 // The images the main pass samples, which it must declare so they are
 // transitioned out of the layout the bake left them in
-func (scene *Scene) ShadowImages() []renderer.Handle { 
+func (scene *Scene) ShadowImages() []renderer.Handle {
 	return []renderer.Handle{scene.atlas.staticImage, scene.atlas.dynamicImage}
 }

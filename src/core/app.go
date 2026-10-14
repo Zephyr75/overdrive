@@ -32,7 +32,7 @@ type App struct {
 }
 
 // Pins the package to the main OS thread, where GLFW event handling must run
-func init() { 
+func init() {
 	runtime.LockOSThread()
 }
 
@@ -42,7 +42,7 @@ func (app App) Quit() {
 }
 
 // Creates the backend, the window and its input callbacks, then initialises the backend on that window
-func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App { 
+func NewApp(name string, width int, height int, inputHandler func(window *glfw.Window, deltaTime float32), mouseCallback func(window *glfw.Window, x float64, y float64)) App {
 	app := App{
 		Name:          name,
 		Width:         width,

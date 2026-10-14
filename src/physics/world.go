@@ -11,11 +11,11 @@ const DefaultRate = 120
 
 // Every body the simulation steps, and the gravity that pulls the movable ones
 type World struct {
-	Gravity  mgl32.Vec3
+	Gravity mgl32.Vec3
 	// Steps per simulated second, DefaultRate when zero; fixed, so a faster
 	// display draws the world more often rather than running it faster
-	Rate     int
-	bodies   []Body
+	Rate       int
+	bodies     []Body
 	collisions []Collision
 }
 
@@ -80,7 +80,7 @@ func (world *World) Step() {
 	seconds := world.StepLength()
 	world.collisions = world.collisions[:0]
 	for _, body := range world.bodies {
-		verlet := body.GetVerlet(); 
+		verlet := body.GetVerlet()
 		if !verlet.Fixed {
 			verlet.Accelerate(world.Gravity)
 			verlet.Integrate(seconds)

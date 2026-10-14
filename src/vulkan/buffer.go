@@ -10,31 +10,31 @@ import (
 
 // One buffer, its allocation and its persistent mapping when it has one
 type bufferInfo struct {
-	name   string
-	vkBuffer vk.Buffer
-	vmaAlloc  vk.VmaAllocation
+	name       string
+	vkBuffer   vk.Buffer
+	vmaAlloc   vk.VmaAllocation
 	mappedData unsafe.Pointer
-	size   uint64
-	addr   uint64
-	use    use
-	valid  bool
+	size       uint64
+	addr       uint64
+	use        use
+	valid      bool
 }
 
 // One drawable: a shared vertex buffer, this face group's indices, and
 // everything a draw needs. Several meshes may name one vertex buffer, which is
 // how a multi-material OBJ loads
 type meshInfo struct {
-	name        string
-	vertices    renderer.BufferHandle
+	name          string
+	vertices      renderer.BufferHandle
 	vkIndexBuffer vk.Buffer
-	vmaIndexAlloc  vk.VmaAllocation
-	count       uint32
-	indexed     bool
-	valid       bool
+	vmaIndexAlloc vk.VmaAllocation
+	count         uint32
+	indexed       bool
+	valid         bool
 }
 
 // Creates a buffer and returns its device address
-func (backend *VKBackend) CreateBuffer(bufferSpec renderer.BufferSpec) (renderer.BufferHandle, renderer.Address) { 
+func (backend *VKBackend) CreateBuffer(bufferSpec renderer.BufferSpec) (renderer.BufferHandle, renderer.Address) {
 	// Determine the buffer size: use spec.Size unless data is larger
 	size := bufferSpec.Size
 	var initialData unsafe.Pointer
@@ -48,7 +48,7 @@ func (backend *VKBackend) CreateBuffer(bufferSpec renderer.BufferSpec) (renderer
 	if size == 0 {
 		size = 4 // a zero-sized buffer is not allowed
 	}
-	
+
 	// Build Vulkan usage flags and always request ShaderDeviceAddress so the CPU can read the buffer address directly
 	usage := toVkBufferUsageFlags(bufferSpec.Usage) | vk.BufferUsageShaderDeviceAddress
 	vmaAllocCI := vk.VmaAllocationCreateInfo{Usage: vk.VmaMemoryUsageAuto}
@@ -62,7 +62,7 @@ func (backend *VKBackend) CreateBuffer(bufferSpec renderer.BufferSpec) (renderer
 		if bufferSpec.Usage&renderer.BufferCopyDst != 0 {
 			vmaAllocCI.Flags = vk.VmaAllocationCreateHostAccessRandom | vk.VmaAllocationCreateMapped
 		}
-	} else { 
+	} else {
 		// If it lives fully in VRAM and does not need to be accessed by CPU
 		// Mark it as a TransferDst so it can receive data from a staging buffer (temporary storage to transfer data from CPU to GPU)
 		usage |= vk.BufferUsageTransferDst
@@ -74,7 +74,12 @@ func (backend *VKBackend) CreateBuffer(bufferSpec renderer.BufferSpec) (renderer
 
 	// If the buffer is host‑mapped, copy initial data directly
 	if initialData != nil && vmaAllocInfo.MappedData != nil {
-		n := func(a, b uint64) uint64 { if a < b { return a }; return b }(size, initialDataLen)
+		n := func(a, b uint64) uint64 {
+			if a < b {
+				return a
+			}
+			return b
+		}(size, initialDataLen)
 		memoryCopy(vmaAllocInfo.MappedData, initialData, n)
 	}
 
@@ -111,9 +116,9 @@ func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offse
 		memoryCopy(unsafe.Add(bufferInfo.mappedData, offset), src, n)
 		return
 	}
-	
+
 	// ----- device‑only path -------------------------------------------
-    // Create a temporary staging buffer (CPU‑visible) to hold the new data
+	// Create a temporary staging buffer (CPU‑visible) to hold the new data
 	staging, alloc, info, err := backend.vmaAllocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: n, Usage: vk.BufferUsageTransferSrc},
 		vk.VmaAllocationCreateInfo{
@@ -121,7 +126,7 @@ func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offse
 			Usage: vk.VmaMemoryUsageAuto,
 		})
 	fatalVk(err, "create buffer staging")
-	
+
 	// Copy the new data into the staging buffer
 	memoryCopy(info.MappedData, src, n)
 	backend.immediateSubmit(func(commandBuffer vk.CommandBuffer) {
@@ -136,7 +141,7 @@ func (backend *VKBackend) UpdateBuffer(bufferHandle renderer.BufferHandle, offse
 //
 // Stalls on the frames in flight before mapping. Right for a screenshot or an
 // image test, wrong inside a frame loop — that is the intended trade TODO check
-func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte { 
+func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte {
 	entry := backend.buffer(handle)
 	if entry == nil {
 		return nil
@@ -167,7 +172,7 @@ func (backend *VKBackend) ReadBuffer(handle renderer.BufferHandle) []byte {
 }
 
 // Resolves a buffer handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufferInfo { 
+func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufferInfo {
 	if handle == 0 || int(handle) >= len(backend.buffers) || !backend.buffers[handle].valid {
 		return nil
 	}
@@ -175,7 +180,7 @@ func (backend *VKBackend) buffer(handle renderer.BufferHandle) *bufferInfo {
 }
 
 // Pairs a shared vertex buffer with one face group's index list
-func (backend *VKBackend) CreateMesh(spec renderer.MeshSpec) renderer.MeshHandle { 
+func (backend *VKBackend) CreateMesh(spec renderer.MeshSpec) renderer.MeshHandle {
 	// Resolve the vertex buffer that holds all vertices shared by this mesh
 	vertexBuffer := backend.buffer(spec.Vertices)
 
@@ -186,11 +191,11 @@ func (backend *VKBackend) CreateMesh(spec renderer.MeshSpec) renderer.MeshHandle
 		count = uint32(spec.Count) // fallback to a draw count
 		if count == 0 && vertexBuffer != nil && spec.Stride > 0 {
 			// If the vertex buffer has a stride (bytes per vertex),
-            // the count can be inferred from the buffer size
+			// the count can be inferred from the buffer size
 			count = uint32(vertexBuffer.size) / uint32(spec.Stride)
 		}
 	}
-	
+
 	// Allocate a small, host‑mapped index buffer of the right size
 	size := uint64(len(spec.Indices) * 4) // 4 bytes per uint32 index
 	if size == 0 {
@@ -218,7 +223,7 @@ func (backend *VKBackend) CreateMesh(spec renderer.MeshSpec) renderer.MeshHandle
 }
 
 // Resolves a mesh handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) mesh(handle renderer.MeshHandle) *meshInfo { 
+func (backend *VKBackend) mesh(handle renderer.MeshHandle) *meshInfo {
 	if handle == 0 || int(handle) >= len(backend.meshes) || !backend.meshes[handle].valid {
 		return nil
 	}

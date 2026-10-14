@@ -13,7 +13,7 @@ import (
 // and rebuilt when that changes.
 
 // Builds the swapchain, its image entries and the per-image render semaphores
-func (backend *VKBackend) createSwapchain() error { 
+func (backend *VKBackend) createSwapchain() error {
 	capabilities, err := vk.GetPhysicalDeviceSurfaceCapabilitiesKHR(backend.vkPhysDevice, backend.vkSurface)
 	if err != nil {
 		return err
@@ -125,7 +125,7 @@ func (backend *VKBackend) pickSampleCount(wanted int) vk.SampleCountFlags {
 }
 
 // Destroys the swapchain and the objects that belong to it
-func (backend *VKBackend) destroySwapchain() { 
+func (backend *VKBackend) destroySwapchain() {
 	for i := range backend.swapchainImages {
 		vk.DestroyImageView(backend.vkDevice, backend.swapchainImages[i].vkView)
 	}
@@ -142,7 +142,7 @@ func (backend *VKBackend) destroySwapchain() {
 
 // Rebuilds everything sized to the window, after acquire or present reports the
 // surface out of date, which is how a resize reaches a Vulkan app
-func (backend *VKBackend) recreateSwapchain() { 
+func (backend *VKBackend) recreateSwapchain() {
 	// Wait for the window to have a non‑zero size (minimised windows have 0×0)
 	// and keep polling the event queue so the user can restore the window
 	width, height := backend.window.GetSize()
@@ -150,12 +150,12 @@ func (backend *VKBackend) recreateSwapchain() {
 		glfw.WaitEvents()
 		width, height = backend.window.GetSize()
 	}
-	
-	// Ensure the GPU is idle before destroying the swapchain: 
+
+	// Ensure the GPU is idle before destroying the swapchain:
 	// all queued work must finish, otherwise destroying the swapchain
 	// would leave dangling references and cause validation errors
 	fatalVk(vk.DeviceWaitIdle(backend.vkDevice), "wait idle before swapchain recreate")
-	
+
 	// Destroy old swapchain and create a new one that matches the new size
 	backend.destroySwapchain()
 	fatalVk(backend.createSwapchain(), "recreate swapchain")

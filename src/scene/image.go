@@ -51,7 +51,7 @@ func decodeTextures(meshes []Mesh) map[string]*decodedTexture {
 }
 
 // Decodes an image file into tightly packed RGBA8 pixels
-func loadRGBA(path string) (pixels []byte, width, height int, err error) { 
+func loadRGBA(path string) (pixels []byte, width, height int, err error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, 0, 0, err

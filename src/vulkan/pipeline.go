@@ -21,7 +21,7 @@ type pipelineInfo struct {
 
 // Builds a pipeline from its whole state: shaders, vertex layout, raster, depth,
 // blend and the attachment formats it is compatible with
-func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.PipelineHandle, error) { 
+func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.PipelineHandle, error) {
 	info := &pipelineInfo{spec: spec, valid: true}
 	if err := backend.buildPipeline(info); err != nil {
 		return 0, err
@@ -33,7 +33,7 @@ func (backend *VKBackend) CreatePipeline(spec renderer.PipelineSpec) (renderer.P
 // Rebuilds every live pipeline, re-reading the SPIR-V modules first.
 // The old objects are retired rather than destroyed: a frame in flight may still
 // reference them
-func (backend *VKBackend) ReloadPipelines() error { 
+func (backend *VKBackend) ReloadPipelines() error {
 	_ = vk.DeviceWaitIdle(backend.vkDevice)
 	for name, module := range backend.vkShaderModules {
 		vk.DestroyShaderModule(backend.vkDevice, module)
@@ -54,99 +54,106 @@ func (backend *VKBackend) ReloadPipelines() error {
 }
 
 // Create the Vulkan pipeline described by `info.spec`
-func (backend *VKBackend) buildPipeline(info *pipelineInfo) error { 
-    // Grab the spec that defines the pipeline layout, stages, etc.
-    spec := info.spec
-    stages := spec.Stages
+func (backend *VKBackend) buildPipeline(info *pipelineInfo) error {
+	// Grab the spec that defines the pipeline layout, stages, etc.
+	spec := info.spec
+	stages := spec.Stages
 
-    // If no explicit stages are supplied, infer them from the pipeline kind
-    if len(stages) == 0 {
-        if spec.Kind == renderer.PipelineCompute {
-            stages = []renderer.ShaderStage{renderer.StageCompute}
-        } else {
-            stages = []renderer.ShaderStage{renderer.StageVertex, renderer.StageFragment}
-        }
-    }
+	// If no explicit stages are supplied, infer them from the pipeline kind
+	if len(stages) == 0 {
+		if spec.Kind == renderer.PipelineCompute {
+			stages = []renderer.ShaderStage{renderer.StageCompute}
+		} else {
+			stages = []renderer.ShaderStage{renderer.StageVertex, renderer.StageFragment}
+		}
+	}
 
 	// ---- compute pipeline ------------------------------------------------
-    if spec.Kind == renderer.PipelineCompute {
-        // Load the compute shader module.
-        module, err := backend.module(spec.Shader, renderer.StageCompute)
-        if err != nil { return err }
+	if spec.Kind == renderer.PipelineCompute {
+		// Load the compute shader module.
+		module, err := backend.module(spec.Shader, renderer.StageCompute)
+		if err != nil {
+			return err
+		}
 
-        // Create the compute pipeline object.
-        pipeline, err := vk.CreateComputePipeline(backend.vkDevice, vk.ComputePipelineCreateInfo{
-            Layout: backend.vkPipelineLayout,
-            Stage: vk.PipelineShaderStageCreateInfo{
-                Stage: vk.ShaderStageCompute, Module: module, Name: "main",
-            },
-        })
-        if err != nil { return err }
+		// Create the compute pipeline object.
+		pipeline, err := vk.CreateComputePipeline(backend.vkDevice, vk.ComputePipelineCreateInfo{
+			Layout: backend.vkPipelineLayout,
+			Stage: vk.PipelineShaderStageCreateInfo{
+				Stage: vk.ShaderStageCompute, Module: module, Name: "main",
+			},
+		})
+		if err != nil {
+			return err
+		}
 
-        info.pipeline, info.bindPoint = pipeline, vk.PipelineBindPointCompute
-        return nil
-    }
+		info.pipeline, info.bindPoint = pipeline, vk.PipelineBindPointCompute
+		return nil
+	}
 
 	// ---- graphics pipeline -----------------------------------------------
-    // Assemble stage info
-    stageInfos := make([]vk.PipelineShaderStageCreateInfo, 0, len(stages))
-    for _, stage := range stages {
-        // Load the shader module for the given stage.
-        module, err := backend.module(spec.Shader, stage)
-        if err != nil { return err }
+	// Assemble stage info
+	stageInfos := make([]vk.PipelineShaderStageCreateInfo, 0, len(stages))
+	for _, stage := range stages {
+		// Load the shader module for the given stage.
+		module, err := backend.module(spec.Shader, stage)
+		if err != nil {
+			return err
+		}
 
-        stageInfos = append(stageInfos, vk.PipelineShaderStageCreateInfo{
-            Stage: toVkShaderStageFlags(stage), Module: module, Name: "main",
-        })
-    }
+		stageInfos = append(stageInfos, vk.PipelineShaderStageCreateInfo{
+			Stage: toVkShaderStageFlags(stage), Module: module, Name: "main",
+		})
+	}
 
-    // Convert output formats and blend state to Vulkan structures
-    colorFormats := make([]vk.Format, len(spec.ColorFormats))
-    blends := make([]vk.PipelineColorBlendAttachmentState, len(spec.ColorFormats))
-    for i, format := range spec.ColorFormats {
-        colorFormats[i] = backend.toVkFormat(format)
-        blends[i] = toVkBlendAttachment(spec.Blend)
-    }
+	// Convert output formats and blend state to Vulkan structures
+	colorFormats := make([]vk.Format, len(spec.ColorFormats))
+	blends := make([]vk.PipelineColorBlendAttachmentState, len(spec.ColorFormats))
+	for i, format := range spec.ColorFormats {
+		colorFormats[i] = backend.toVkFormat(format)
+		blends[i] = toVkBlendAttachment(spec.Blend)
+	}
 
-    // Create the full graphics pipeline
-    pipeline, err := vk.CreateGraphicsPipeline(backend.vkDevice, vk.GraphicsPipelineCreateInfo{
-        Layout:             backend.vkPipelineLayout,
-        Stages:             stageInfos,
-        VertexInputState:   backend.vertexInput(spec.Vertex),
-        InputAssemblyState: &vk.PipelineInputAssemblyStateCreateInfo{Topology: vk.PrimitiveTopologyTriangleList},
-        ViewportState:      &vk.PipelineViewportStateCreateInfo{ViewportCount: 1, ScissorCount: 1},
-        RasterizationState: &vk.PipelineRasterizationStateCreateInfo{
-            PolygonMode: vk.PolygonModeFill,
-            CullMode:    toVkCullModeFlags(spec.Cull),
-            FrontFace:   toVkFrontFace(spec.FrontFace),
-            LineWidth:   1,
-        },
-        MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: toVkSampleCountFlags(spec.Samples)},
-        DepthStencilState: &vk.PipelineDepthStencilStateCreateInfo{
-            DepthTestEnable:  spec.DepthCompare != renderer.CompareNone,
-            DepthWriteEnable: spec.DepthWrite,
-            DepthCompareOp:   toVkCompareOp(spec.DepthCompare),
-        },
-        ColorBlendState: &vk.PipelineColorBlendStateCreateInfo{Attachments: blends},
-        DynamicState: &vk.PipelineDynamicStateCreateInfo{
-            DynamicStates: []vk.DynamicState{vk.DynamicStateViewport, vk.DynamicStateScissor},
-        },
-        // Use the rendering‑info instead of a render‑pass when using dynamic rendering.
-        Rendering: &vk.PipelineRenderingCreateInfo{
-            DepthAttachmentFormat:  backend.toVkFormat(spec.DepthFormat),
-            ColorAttachmentFormats: colorFormats,
-        },
-    })
-    if err != nil { return err }
+	// Create the full graphics pipeline
+	pipeline, err := vk.CreateGraphicsPipeline(backend.vkDevice, vk.GraphicsPipelineCreateInfo{
+		Layout:             backend.vkPipelineLayout,
+		Stages:             stageInfos,
+		VertexInputState:   backend.vertexInput(spec.Vertex),
+		InputAssemblyState: &vk.PipelineInputAssemblyStateCreateInfo{Topology: vk.PrimitiveTopologyTriangleList},
+		ViewportState:      &vk.PipelineViewportStateCreateInfo{ViewportCount: 1, ScissorCount: 1},
+		RasterizationState: &vk.PipelineRasterizationStateCreateInfo{
+			PolygonMode: vk.PolygonModeFill,
+			CullMode:    toVkCullModeFlags(spec.Cull),
+			FrontFace:   toVkFrontFace(spec.FrontFace),
+			LineWidth:   1,
+		},
+		MultisampleState: &vk.PipelineMultisampleStateCreateInfo{RasterizationSamples: toVkSampleCountFlags(spec.Samples)},
+		DepthStencilState: &vk.PipelineDepthStencilStateCreateInfo{
+			DepthTestEnable:  spec.DepthCompare != renderer.CompareNone,
+			DepthWriteEnable: spec.DepthWrite,
+			DepthCompareOp:   toVkCompareOp(spec.DepthCompare),
+		},
+		ColorBlendState: &vk.PipelineColorBlendStateCreateInfo{Attachments: blends},
+		DynamicState: &vk.PipelineDynamicStateCreateInfo{
+			DynamicStates: []vk.DynamicState{vk.DynamicStateViewport, vk.DynamicStateScissor},
+		},
+		// Use the rendering‑info instead of a render‑pass when using dynamic rendering.
+		Rendering: &vk.PipelineRenderingCreateInfo{
+			DepthAttachmentFormat:  backend.toVkFormat(spec.DepthFormat),
+			ColorAttachmentFormats: colorFormats,
+		},
+	})
+	if err != nil {
+		return err
+	}
 
-    info.pipeline, info.bindPoint = pipeline, vk.PipelineBindPointGraphics
-    return nil
+	info.pipeline, info.bindPoint = pipeline, vk.PipelineBindPointGraphics
+	return nil
 }
-
 
 // Builds the vertex input state a layout describes, or none when it has no
 // attributes — a fullscreen pass generating its own positions has no stream
-func (backend *VKBackend) vertexInput(layout renderer.VertexLayout) *vk.PipelineVertexInputStateCreateInfo { 
+func (backend *VKBackend) vertexInput(layout renderer.VertexLayout) *vk.PipelineVertexInputStateCreateInfo {
 	if len(layout.Attrs) == 0 {
 		return &vk.PipelineVertexInputStateCreateInfo{}
 	}
@@ -190,7 +197,7 @@ func (backend *VKBackend) module(name string, stage renderer.ShaderStage) (vk.Sh
 }
 
 // Resolves a pipeline handle, nil for 0, out-of-range or destroyed entries
-func (backend *VKBackend) pipeline(handle renderer.PipelineHandle) *pipelineInfo { 
+func (backend *VKBackend) pipeline(handle renderer.PipelineHandle) *pipelineInfo {
 	if handle == 0 || int(handle) > len(backend.pipelines) || !backend.pipelines[handle-1].valid {
 		return nil
 	}

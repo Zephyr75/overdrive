@@ -60,20 +60,19 @@ go run . -screenshot out.png             # write one PNG of frame 90, then quit
 go vet ./...         # two known unsafe.Pointer reports, see below
 ```
 
-**There are no tests.** `go test ./...` reports `[no test files]` for every
-package — there is not one `_test.go` in the tree. So a change is verified by
-`go build ./...`, `gofmt -l`, and **looking at the scene** — which
-`-screenshot out.png` now makes possible without a compositor screen grab, since
-it goes through `Frame.Copy` and `Backend.ReadBuffer`. The `init()` size
-guards in `renderer/uniforms.go` fire when the engine *runs*, not when it builds.
-`notes/TODO.md` carries the item, and nominates `shadowAtlas.allocate` as the
-first thing worth a unit test — it is pure CPU logic over `[]Light` and needs no
-GPU.
+**Tests cover the CPU-only logic, nothing that needs a GPU.** `go test ./...`
+runs `scene/shadowatlas_test.go` (the slot layout and the allocator's invariants)
+and `physics/world_test.go`; every other package reports `[no test files]`. So
+beyond those a change is verified by `go build ./...`, `gofmt -l`, and **looking
+at the scene** — which `-screenshot out.png` makes possible without a compositor
+screen grab, since it goes through `Frame.Copy` and `Backend.ReadBuffer`. The
+`init()` size guards in `renderer/uniforms.go` fire when the engine *runs*, not
+when it builds.
 
 **Every runtime knob is in the TOML file, including the debug ones.** The shadow
 system in particular is fully configured — `[shadows]` carries `atlasSize`, the
 `slotDivisors`/`slotCounts` layout, `tierScores`, `dynamicAtlas`,
-`bakeBudgetMiB`, `pcf` and the projection planes — and a bad value **rejects the
+`bakeBudgetMegatexels`, `pcf` and the projection planes — and a bad value **rejects the
 file** rather than being clamped, in `settings.checkShadowAtlas`. A layout that
 cannot be carved is silent everywhere else: allocation refuses, every light gets
 `ShadowIndex = -1`, and the scene renders unshadowed with nothing logged. There are
@@ -183,7 +182,7 @@ Four invariants hold the engine together. Breaking any of them is how it goes wr
 
 Frame shape (`core/App.Run`): physics + mesh placement (a model matrix, no vertex upload) → input → `Backend.Frame` opens → tile allocation, dirty tracking and records → one `Upload` of `FrameUniforms` and one of the tile array → the static atlas pass when allocation moved → a `Frame.Copy` per dirty dynamic tile → the dynamic atlas pass (both depth-only, one viewport per tile) → depth prepass on the backbuffer (depth attachment only, no colour; under MSAA it resolves sample 0 into a single-sample `sceneDepth`) → `ssao`, one full-screen pass reading that depth and writing occlusion and view distance, which the forward shader blurs as it reads (`core/ao.go`, `[ambientOcclusion]`; skipped without the prepass) → main backbuffer pass, keeping that depth (skybox with LEQUAL, scene forward with **EQUAL**, UI fullscreen quad) → the closure returns and the frame is submitted. The prepass and the forward pass are handed the *same uploaded address*, so they read the same bytes rather than two rebuilt copies. The prepass is always on; `[debug] noPrepass = true` turns it off, which is the A/B that checks the two passes agree — **`prepass.slang` and every style's `vsMain` must build their position through `worldPosition` and `clipPosition` in `common.slang`**, since EQUAL rejects a difference in the last bit and shows it as speckle rather than as an error. **A settled scene runs neither bake pass**, which is what the `bakes:` counter beside the FPS is for.
 
-**Every shadow in the scene is a sub-rect of a 4096² depth texture** — of two of them, since Part E: `staticAtlas` holds the casters that cannot move and is re-baked only when allocation moves, `dynamicAtlas` is a `Frame.Copy` of that plus the movable casters drawn on top, and `ShadowTile.Flags` bit 0 is which one a light samples. The two are the only images created with `ImageSpec.Hot`, which puts them in the four dedicated descriptors `lighting.slang` indexes by a literal — a measured 1.7x win over a dynamically indexed bindless descriptor, and the reason binding 3 exists at all. A mesh is movable when the scene says `<movable>` or `Mesh.Place` has been called on it, and a light takes a dynamic tile only while a movable caster is inside its radius. The static side is all-or-nothing (a tile whose frustum holds no caster writes nothing, so baking only the changed slots would leave one wearing its last owner's depth); the dynamic side is per-tile and capped at `settings.ShadowBakeBudget()` a frame (`[shadows] bakeBudgetMiB`), spent in score order, a light that misses out keeping the tile it has. Both atlases carve the same `slotLayout`, so a tile's rect is identical in the two and the copy needs no remap.
+**Every shadow in the scene is a sub-rect of a 4096² depth texture** — of two of them, since Part E: `staticAtlas` holds the casters that cannot move and is re-baked only when allocation moves, `dynamicAtlas` is a `Frame.Copy` of that plus the movable casters drawn on top, and `ShadowTile.Flags` bit 0 is which one a light samples. The two are the only images created with `ImageSpec.Hot`, which puts them in the four dedicated descriptors `lighting.slang` indexes by a literal — a measured 1.7x win over a dynamically indexed bindless descriptor, and the reason binding 3 exists at all. A mesh is movable when the scene says `<movable>` or `Mesh.Place` has been called on it, and a light takes a dynamic tile only while a movable caster is inside its radius. The static side is all-or-nothing (a tile whose frustum holds no caster writes nothing, so baking only the changed slots would leave one wearing its last owner's depth); the dynamic side is per-tile and capped at `settings.ShadowBakeBudget()` a frame (`[shadows] bakeBudgetMegatexels`), spent in score order, a light that misses out keeping the tile it has. Both atlases carve the same `slotLayout`, so a tile's rect is identical in the two and the copy needs no remap.
 
 Below that split the tiling is unchanged — a sun or spot takes one tile, a point light six 90° tiles rather than a cubemap — so the pass count does not grow with the light count. Each tile is described by a `ShadowTile` whose `WorldToTile` matrix both bakes it and samples it. Two rules are silent corruption if broken: **clamp every PCF tap to the tile inset by one texel** (an atlas has no border; the neighbour is another light's shadow), and **widen each cube face to `90° + 2 texels`** (no cross-face filtering, so the kernel must stay inside its own tile). The atlas is carved into a **fixed slot layout** at load (`slotLayout` / `buildLayout` in `scene/shadowatlas.go`) — so many slots at 2048, 512, 256 and 128 — and those rects never move again, which is what lets Part E cache a baked tile. Every size is a division of `atlasSize` rather than a pixel count, so the atlas size buys sharpness and the slot counts buy light budget: two separate knobs, both `[shadows]` keys.
 A smaller atlas also scales `lighting.slang`'s world-space normal-offset bias

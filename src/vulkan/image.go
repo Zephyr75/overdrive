@@ -41,7 +41,7 @@ type image struct {
 
 	// Only on images the CPU rewrites while a frame is recording: a
 	// persistently mapped stagingBuffer buffer plus the deferred copy it feeds
-	stagingBuffer       vk.Buffer
+	stagingBuffer vk.Buffer
 	stagingAlloc  vk.VmaAllocation
 	stagingMapped unsafe.Pointer
 	stagingSize   uint64
@@ -56,7 +56,7 @@ type view struct {
 	vkView vk.ImageView
 	// Extent of the mip this view covers, which is a pass's render area
 	width, height int
-	layerCount        uint32
+	layerCount    uint32
 	valid         bool
 }
 
@@ -123,7 +123,7 @@ func (backend *VKBackend) CreateImage(imageSpec renderer.ImageSpec) renderer.Ima
 }
 
 // Creates a view over one slice and one aspect
-func (backend *VKBackend) CreateView(imageHandle renderer.ImageHandle, spec renderer.ViewSpec) renderer.ViewHandle { 
+func (backend *VKBackend) CreateView(imageHandle renderer.ImageHandle, spec renderer.ViewSpec) renderer.ViewHandle {
 	info := backend.image(imageHandle)
 	if info == nil {
 		return renderer.NoView
@@ -164,7 +164,7 @@ func (backend *VKBackend) makeView(imageInfo *image, spec renderer.ViewSpec) vk.
 }
 
 // Uploads CPU pixels into an image, whole or a region of it
-func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer.ImageData) { 
+func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer.ImageData) {
 	// A dead handle or an empty slice means no operation
 	image := backend.image(handle)
 	if image == nil || len(data.Pixels) == 0 {
@@ -218,7 +218,7 @@ func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer
 		fatalVk(err, "create image staging buffer")
 		image.stagingBuffer, image.stagingAlloc, image.stagingMapped, image.stagingSize = vkBuffer, vmaAlloc, vmaAllocInfo.MappedData, size
 	}
-	
+
 	// Write pixels to the staging buffer
 	memoryCopy(image.stagingMapped, unsafe.Pointer(&data.Pixels[0]), size)
 
@@ -231,7 +231,7 @@ func (backend *VKBackend) UpdateImage(handle renderer.ImageHandle, data renderer
 }
 
 // Stages pixels and submits the copy immediately, the load-time path
-func (backend *VKBackend) uploadNow(info *image, pixels []byte, copyRegion vk.BufferImageCopy) { 
+func (backend *VKBackend) uploadNow(info *image, pixels []byte, copyRegion vk.BufferImageCopy) {
 	vkStagingBuffer, vmaAlloc, vmaAllocInfo, err := backend.vmaAllocator.VmaCreateBuffer(
 		vk.BufferCreateInfo{Size: uint64(len(pixels)), Usage: vk.BufferUsageTransferSrc},
 		vk.VmaAllocationCreateInfo{
@@ -248,7 +248,7 @@ func (backend *VKBackend) uploadNow(info *image, pixels []byte, copyRegion vk.Bu
 }
 
 // Records one staged copy into an image, between the two transitions it needs
-func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, image *image, stagingBuffer vk.Buffer, copyRegion vk.BufferImageCopy) { 
+func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, image *image, stagingBuffer vk.Buffer, copyRegion vk.BufferImageCopy) {
 	// Record barrier to move the image to a state it can be copied to
 	backend.recordUseImage(commandBuffer, image, useCopyDst)
 	// The copy itself, naming the layout the barrier above just put the image in
@@ -258,7 +258,7 @@ func (backend *VKBackend) recordImageCopy(commandBuffer vk.CommandBuffer, image 
 }
 
 // Records the copies staged during the previous frame, from the top of this one.
-func (backend *VKBackend) executePendingUploads(commandBuffer vk.CommandBuffer) { 
+func (backend *VKBackend) executePendingUploads(commandBuffer vk.CommandBuffer) {
 	for _, handle := range backend.pendingUploads {
 		image := backend.image(handle)
 		if image == nil {
@@ -308,7 +308,7 @@ func (backend *VKBackend) view(handle renderer.ViewHandle) (vk.ImageView, *image
 }
 
 // Destroys an image's view and allocation once the frames in flight have retired
-func (backend *VKBackend) destroyImage(handle renderer.ImageHandle) { 
+func (backend *VKBackend) destroyImage(handle renderer.ImageHandle) {
 	// The backbuffer is the swapchain's, not the caller's
 	if handle == renderer.BackbufferImage {
 		return

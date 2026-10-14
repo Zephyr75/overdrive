@@ -41,7 +41,7 @@ func (shot *screenshot) record(backend renderer.Backend, frame renderer.Frame, n
 
 // Reads the captured buffer back and writes it as a PNG, after the frame that
 // recorded the copy has been submitted
-func (shot *screenshot) write(backend renderer.Backend) error { 
+func (shot *screenshot) write(backend renderer.Backend) error {
 	width, height := settings.Current.Window.Width, settings.Current.Window.Height
 	pixels := backend.ReadBuffer(shot.buffer)
 	if len(pixels) < width*height*4 {

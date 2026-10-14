@@ -39,6 +39,6 @@ type Material struct {
 // Roughness and Ao must not start at zero, or a material with no PBR keys reads
 // as a perfect mirror with no ambient light. Nor Diffuse, which tints map_Kd:
 // Blender writes no Kd when a texture drives the base colour.
-func newMaterial() Material { 
+func newMaterial() Material {
 	return Material{Diffuse: mgl32.Vec3{1, 1, 1}, Metallic: 0, Roughness: 1, Ao: 1, Alpha: 1}
 }

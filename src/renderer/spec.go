@@ -124,11 +124,11 @@ const (
 )
 
 type BufferSpec struct {
-	Name     string
-	Size     uint64
-	Usage    BufferUsage
-	Location BufferLocation
-	InitialData     any // optional initial contents: a pointer to a value, or a slice
+	Name        string
+	Size        uint64
+	Usage       BufferUsage
+	Location    BufferLocation
+	InitialData any // optional initial contents: a pointer to a value, or a slice
 }
 
 // --- meshes ------------------------------------------------------------------
@@ -232,7 +232,7 @@ const (
 )
 
 // The file suffix build_shaders.sh writes for a stage
-func (spec ShaderStage) Suffix() string { 
+func (spec ShaderStage) Suffix() string {
 	switch spec {
 	case StageFragment:
 		return "frag"

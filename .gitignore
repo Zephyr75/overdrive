@@ -27,3 +27,6 @@ how_to_vulkan.go
 src/out.png
 __pycache__/
 src/breakout/
+# Binaries go build drops beside the source
+src/main
+src/breakout/breakout

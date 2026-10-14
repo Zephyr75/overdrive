@@ -84,7 +84,7 @@ type Pipelines struct {
 
 // Builds all rendering pipelines: the sample count comes from the swapchain and is
 // applied to every pipeline that writes to the backbuffer
-func NewPipelines(backend renderer.Backend) (Pipelines, error) { 
+func NewPipelines(backend renderer.Backend) (Pipelines, error) {
 	// Number of samples the swapchain renders with (0 = no MSAA).
 	samples := backend.Capacities().BackbufferSamples
 	var pipes Pipelines
@@ -166,7 +166,6 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) {
 
 	return pipes, nil
 }
-
 
 // What a run of draws shares: the pass they record into, the pipeline they use,
 // and the three block addresses that do not change between them

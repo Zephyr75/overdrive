@@ -124,8 +124,8 @@ func checkShadowAtlas(cfg *Config) error {
 			return fmt.Errorf("shadows.tierScores must descend; %v follows %v", score, cfg.Shadows.TierScores[i-1])
 		}
 	}
-	if cfg.Shadows.BakeBudgetMiB < 0 {
-		return fmt.Errorf("shadows.bakeBudgetMiB must not be negative, got %d", cfg.Shadows.BakeBudgetMiB)
+	if cfg.Shadows.BakeBudgetMegatexels < 0 {
+		return fmt.Errorf("shadows.bakeBudgetMegatexels must not be negative, got %d", cfg.Shadows.BakeBudgetMegatexels)
 	}
 	if cfg.Shadows.NearPlane <= 0 || cfg.Shadows.FarPlane <= cfg.Shadows.NearPlane {
 		return fmt.Errorf("shadows.farPlane must exceed nearPlane and both must be positive, got %v and %v",
@@ -135,7 +135,7 @@ func checkShadowAtlas(cfg *Config) error {
 }
 
 // Accepts the backend names
-func normaliseBackend(name string) (string, error) { 
+func normaliseBackend(name string) (string, error) {
 	switch name {
 	case "", "vulkan", "vk":
 		return "vulkan", nil
@@ -153,7 +153,7 @@ func checkAAMode(mode AAMode) error {
 }
 
 // Rejects sample counts not supported by the backend
-func checkSamples(samples int) error { 
+func checkSamples(samples int) error {
 	switch samples {
 	case 1, 2, 4, 8:
 		return nil
@@ -162,7 +162,7 @@ func checkSamples(samples int) error {
 }
 
 // Accepts the anisotropy levels, 1 meaning off; the device limit is clamped later in createSamplers
-func checkAnisotropy(level int) error { 
+func checkAnisotropy(level int) error {
 	switch level {
 	case 1, 2, 4, 8, 16:
 		return nil

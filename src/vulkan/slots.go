@@ -57,7 +57,7 @@ type retired struct {
 }
 
 // Creates the descriptor set layout, pool and set, once
-func (backend *VKBackend) createDescriptors() { 
+func (backend *VKBackend) createDescriptors() {
 	// PartiallyBound allows empty slots, UpdateAfterBind lets Slot fill one mid-frame
 	const flags = vk.DescriptorBindingPartiallyBound | vk.DescriptorBindingUpdateAfterBind
 	// The four arrays a shader sees, in binding order: sampled 2D, cubemaps, storage images, hot
@@ -103,13 +103,13 @@ func (backend *VKBackend) createDescriptors() {
 }
 
 // The shader-visible index of an image, allocated and written on first call
-func (backend *VKBackend) Slot(handle renderer.Handle) uint32 { 
+func (backend *VKBackend) Slot(handle renderer.Handle) uint32 {
 	// Slots are only defined for images
 	if renderer.Kind(handle) != renderer.KindImage {
 		return 0
 	}
-	
-	// The swapchain image is not a regular texture, it's a render-target that can't be bound to a descriptor set 
+
+	// The swapchain image is not a regular texture, it's a render-target that can't be bound to a descriptor set
 	if renderer.ImageHandle(renderer.Index(handle)) == renderer.BackbufferImage {
 		return 0
 	}
@@ -152,10 +152,10 @@ func (backend *VKBackend) Slot(handle renderer.Handle) uint32 {
 }
 
 // Gets a freed slot of a binding or gets a new unused one
-func (backend *VKBackend) findSlot(binding int) uint32 { 
+func (backend *VKBackend) findSlot(binding int) uint32 {
 	// Look for a freed slot that the engine has already returned by drainRetired
 	// Re-using slots keeps the descriptor array size bounded and avoids a memory leak
-	freeCount := len(backend.slotFree[binding]) 
+	freeCount := len(backend.slotFree[binding])
 	if freeCount > 0 {
 		slot := backend.slotFree[binding][freeCount-1]
 		// Remove slot from the list of free slots
@@ -172,7 +172,7 @@ func (backend *VKBackend) findSlot(binding int) uint32 {
 }
 
 // Writes an image's descriptor into the array it was given a slot in
-func (backend *VKBackend) writeSlot(info *image) { 
+func (backend *VKBackend) writeSlot(info *image) {
 	descriptorInfo := vk.DescriptorImageInfo{
 		Sampler: info.vkSampler, ImageView: info.vkView,
 		ImageLayout: vk.ImageLayoutShaderReadOnlyOptimal,
@@ -192,7 +192,7 @@ func (backend *VKBackend) writeSlot(info *image) {
 }
 
 // Destroys a resource once the frames that could reference it have retired
-func (backend *VKBackend) Destroy(handle renderer.Handle) { 
+func (backend *VKBackend) Destroy(handle renderer.Handle) {
 	switch renderer.Kind(handle) {
 	case renderer.KindImage:
 		backend.destroyImage(renderer.ImageHandle(renderer.Index(handle)))
@@ -223,7 +223,7 @@ func (backend *VKBackend) Destroy(handle renderer.Handle) {
 }
 
 // Queues GPU objects for destruction once every frame that could reference them has completed
-func (backend *VKBackend) retire(resource retired) { 
+func (backend *VKBackend) retire(resource retired) {
 	backend.retired = append(backend.retired, resource)
 }
 
@@ -231,7 +231,7 @@ func (backend *VKBackend) retire(resource retired) {
 // gives its descriptor slot back:
 // an item retired in frame F is referenced by F's command buffer at the latest,
 // which has certainly completed once framesInFlight further frames have begun
-func (backend *VKBackend) drainRetired() { 
+func (backend *VKBackend) drainRetired() {
 	kept := backend.retired[:0]
 	for _, resource := range backend.retired {
 		if backend.frameCounter-resource.frame <= framesInFlight {

@@ -134,7 +134,7 @@ func fatalVk(err error, what string) {
 // --- lifecycle ---------------------------------------------------------------
 
 // Brings up the whole device stack
-func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error { 
+func (backend *VKBackend) Init(window *glfw.Window, req renderer.Request) error {
 	backend.window = window
 
 	if err := backend.createInstance(); err != nil {
@@ -336,7 +336,7 @@ func (backend *VKBackend) createFrames() error {
 
 // Creates the sampler handle 0 names, which every image gets unless it asks for
 // another
-func (backend *VKBackend) createDefaultSampler() { 
+func (backend *VKBackend) createDefaultSampler() {
 	anisotropy := float32(0)
 	if settings.AnisotropyEnabled() {
 		anisotropy = float32(settings.Current.Textures.Anisotropy)
@@ -348,14 +348,19 @@ func (backend *VKBackend) createDefaultSampler() {
 		AddressModeV:     vk.SamplerAddressModeRepeat,
 		AddressModeW:     vk.SamplerAddressModeRepeat,
 		AnisotropyEnable: anisotropy > 1,
-		MaxAnisotropy: func(a, b float32) float32 { if a < b { return a }; return b }(anisotropy, backend.vkPhysDeviceProps.MaxSamplerAnisotropy),
-		MaxLod:           16,
+		MaxAnisotropy: func(a, b float32) float32 {
+			if a < b {
+				return a
+			}
+			return b
+		}(anisotropy, backend.vkPhysDeviceProps.MaxSamplerAnisotropy),
+		MaxLod: 16,
 	})
 	fatalVk(err, "create default sampler")
 	backend.vkSamplers = append(backend.vkSamplers, sampler)
 }
 
-func (backend *VKBackend) createGlobalPipelineLayout() { 
+func (backend *VKBackend) createGlobalPipelineLayout() {
 	layout, err := vk.CreatePipelineLayout(backend.vkDevice, vk.PipelineLayoutCreateInfo{
 		SetLayouts:         []vk.DescriptorSetLayout{backend.vkSetLayout},
 		PushConstantRanges: []vk.PushConstantRange{{StageFlags: pushStages, Size: pushConstantSize}},
@@ -395,7 +400,7 @@ func (backend *VKBackend) createDefaultImages() {
 }
 
 // Records what the device can do and what the request actually got
-func (backend *VKBackend) buildCaps(req renderer.Request) { 
+func (backend *VKBackend) buildCaps(req renderer.Request) {
 	// Initialize the feature set with default Compute support
 	features := renderer.Features{
 		renderer.FeatureCompute: true,
@@ -429,7 +434,7 @@ func (backend *VKBackend) BackbufferSize() (int, int) {
 
 // Waits for the GPU to go idle, then destroys every Vulkan object the backend
 // owns, in reverse creation order
-func (backend *VKBackend) Shutdown() { 
+func (backend *VKBackend) Shutdown() {
 	if backend.vkDevice == 0 {
 		return
 	}
@@ -497,9 +502,9 @@ func (backend *VKBackend) Shutdown() {
 
 // --- one-off submits ---------------------------------------------------------
 
-// Records a one-off command buffer and blocks until the GPU has run it, 
+// Records a one-off command buffer and blocks until the GPU has run it,
 // which is what the load-time upload paths use
-func (backend *VKBackend) immediateSubmit(record func(commandBuffer vk.CommandBuffer)) { 
+func (backend *VKBackend) immediateSubmit(record func(commandBuffer vk.CommandBuffer)) {
 	commandBuffers, err := vk.AllocateCommandBuffers(backend.vkDevice, backend.vkCommandPool, 1)
 	fatalVk(err, "allocate one-time command buffer")
 	commandBuffer := commandBuffers[0]
@@ -515,7 +520,7 @@ func (backend *VKBackend) immediateSubmit(record func(commandBuffer vk.CommandBu
 // Blocks until all frames except the one that is currently
 // being recorded are finished: this guarantees that no GPU command is
 // still reading from a buffer that the CPU is about to modify
-func (backend *VKBackend) waitAllFrames() { 
+func (backend *VKBackend) waitAllFrames() {
 	fences := make([]vk.Fence, 0, framesInFlight)
 	for i := range backend.frames {
 		// Skip the frame that is currently being recorded

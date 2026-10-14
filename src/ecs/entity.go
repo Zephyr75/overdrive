@@ -10,7 +10,7 @@ func (world *World) AddEntities(entities ...Entity) {
 }
 
 // Runs every entity's Init once, before the first frame
-func (world *World) Init() { 
+func (world *World) Init() {
 	for _, entity := range world.entities {
 		entity.Init(world)
 	}
@@ -25,7 +25,7 @@ func (world *World) Update() {
 }
 
 // Returns every entity reporting a type
-func (world *World) Entities(entityType string) []Entity { 
+func (world *World) Entities(entityType string) []Entity {
 	var entities []Entity
 	for _, entity := range world.entities {
 		if entity.Type() == entityType {
@@ -36,7 +36,7 @@ func (world *World) Entities(entityType string) []Entity {
 }
 
 // Returns the first entity reporting a type, or nil
-func (world *World) FirstEntity(entityType string) Entity { 
+func (world *World) FirstEntity(entityType string) Entity {
 	for _, entity := range world.entities {
 		if entity.Type() == entityType {
 			return entity
