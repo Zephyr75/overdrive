@@ -33,6 +33,10 @@ pcf = "full"
 nearPlane = 1.0
 farPlane = 50.0
 
+# Half the side of the sun's shadow box in metres, which follows the camera:
+# larger reaches further, smaller is sharper
+sunHalfExtent = 10.0
+
 [antialiasing]
 mode = "msaa"         # or "none"
 samples = 4           # 1, 2, 4 or 8

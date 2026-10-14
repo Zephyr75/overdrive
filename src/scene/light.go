@@ -59,11 +59,51 @@ type Light struct {
 	// -1 and 0 when the allocator gave it none, which lights it unshadowed
 	shadowIndex int32
 	shadowCount int32
+
+	// Where a sun's shadow box is centred, which followCamera moves in steps;
+	// shadowCentred is false until the first frame has placed it
+	shadowCentre  mgl32.Vec3
+	shadowCentered bool
 }
 
-// Offsets the light's position
+// Offsets the light's position; its shadow follows on the next frame, like any change to Pos or Dir
 func (light *Light) Move(x float32, y float32, z float32) {
 	light.Pos = light.Pos.Add(mgl32.Vec3{x, y, z})
+}
+
+// What a light's tiles are projected from: when any of it changes, every tile it holds is stale
+type shadowPose struct {
+	pos, dir    mgl32.Vec3
+	outerCutoff float32
+}
+
+// The fields of the light its shadow tiles depend on, so a light the game
+// moved or turned is re-baked whether it went through Move or set Pos directly
+func (light *Light) shadowPose() shadowPose {
+	switch light.Type {
+	case renderer.LightSun:
+		// A sun's position means nothing to its shadow: the box sits on the camera
+		return shadowPose{pos: light.shadowCentre, dir: light.Dir}
+	case renderer.LightPoint:
+		return shadowPose{pos: light.Pos}
+	}
+	return shadowPose{light.Pos, light.Dir, light.OuterCutoff}
+}
+
+// Re-centres a sun's shadow box on the camera, in whole steps of half the box,
+// and only once the camera is three quarters of a step from the centre
+//
+// A box sliding with the camera would re-bake the static atlas every frame,
+// and one snapping at the midpoint would flip back and forth across it. This
+// way the camera stays within 0.375 half-extents of the centre on each axis
+func (light *Light) followCamera(camPos mgl32.Vec3, halfExtent float32) {
+	step := halfExtent / 2
+	for k := range 3 {
+		if !light.shadowCentered || math.Abs(float64(camPos[k]-light.shadowCentre[k])) > 0.75*float64(step) {
+			light.shadowCentre[k] = float32(math.Round(float64(camPos[k]/step))) * step
+		}
+	}
+	light.shadowCentered = true
 }
 
 // Converts a parsed light into engine coordinates and units

@@ -22,6 +22,7 @@ bakeBudgetMegatexels = 0
 pcf = "cheap"
 nearPlane = 1.0
 farPlane = 50.0
+sunHalfExtent = 10.0
 
 [antialiasing]
 mode = "none"

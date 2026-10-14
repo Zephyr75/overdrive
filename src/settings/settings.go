@@ -54,6 +54,9 @@ type Config struct {
 		// The near and far planes every shadow projection is built with
 		NearPlane float32
 		FarPlane  float32
+		// Half the side of a sun's shadow box in metres: the box follows the
+		// camera, so this trades the sun's sharpness for how far its shadows reach
+		SunHalfExtent float32
 	}
 	AntiAliasing struct {
 		Mode AAMode
@@ -104,6 +107,7 @@ func defaults() Config {
 	cfg.Shadows.BakeBudgetMegatexels = 8
 	cfg.Shadows.PCF = PCFFull
 	cfg.Shadows.NearPlane, cfg.Shadows.FarPlane = 1.0, 50.0
+	cfg.Shadows.SunHalfExtent = 10
 	cfg.AntiAliasing.Mode = AAMSAA
 	cfg.AntiAliasing.Samples = 4
 	cfg.Textures.Anisotropy = 8

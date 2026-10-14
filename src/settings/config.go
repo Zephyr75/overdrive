@@ -127,6 +127,9 @@ func checkShadowAtlas(cfg *Config) error {
 	if cfg.Shadows.BakeBudgetMegatexels < 0 {
 		return fmt.Errorf("shadows.bakeBudgetMegatexels must not be negative, got %d", cfg.Shadows.BakeBudgetMegatexels)
 	}
+	if cfg.Shadows.SunHalfExtent <= 0 {
+		return fmt.Errorf("shadows.sunHalfExtent must be positive, got %v", cfg.Shadows.SunHalfExtent)
+	}
 	if cfg.Shadows.NearPlane <= 0 || cfg.Shadows.FarPlane <= cfg.Shadows.NearPlane {
 		return fmt.Errorf("shadows.farPlane must exceed nearPlane and both must be positive, got %v and %v",
 			cfg.Shadows.NearPlane, cfg.Shadows.FarPlane)

@@ -65,6 +65,11 @@ type Mesh struct {
 	vertexBuffer      renderer.BufferHandle
 	meshesPerMaterial []renderer.MeshHandle // one handle per material face group
 	moved             bool                  // Place was called since UpdateMeshes last looked
+	// A change the static atlas holds baked in: a static mesh made movable,
+	// hidden or shown. Its tiles are not tracked, so the whole atlas re-bakes
+	staticChanged bool
+	// Skipped by every draw and every bake, SetVisible being the only writer
+	hidden bool
 
 	initialPosition mgl32.Vec3 // Position at load, where the OBJ's world-space vertices sit
 }
@@ -84,6 +89,10 @@ type Mesh struct {
 // Only the model matrix changes: the vertices stay as uploaded, so a move costs
 // no rebuild and no upload whatever the triangle count
 func (mesh *Mesh) Place(dest mgl32.Vec3, rotation mgl32.Quat) {
+	// Leaving the static atlas, where it is still baked at its old place
+	if !mesh.Movable {
+		mesh.staticChanged = true
+	}
 	mesh.Movable = true
 	mesh.Position = dest
 	mesh.Rotation = rotation
@@ -92,6 +101,37 @@ func (mesh *Mesh) Place(dest mgl32.Vec3, rotation mgl32.Quat) {
 	mesh.model = mgl32.Translate3D(dest[0], dest[1], dest[2]).Mul4(rotation.Mat4()).Mul4(toOrigin)
 	mesh.boundsCenter = mesh.model.Mul4x1(mesh.loadCenter.Vec4(1)).Vec3()
 	mesh.moved = true
+}
+
+// Shows or hides the mesh in every pass, its shadow included, from the next frame
+func (mesh *Mesh) SetVisible(visible bool) {
+	if visible == !mesh.hidden {
+		return
+	}
+	mesh.hidden = !visible
+	// Dirties the dynamic tiles it is in, like a move
+	mesh.moved = true
+	if !mesh.Movable {
+		mesh.staticChanged = true
+	}
+}
+
+// Whether the mesh is drawn, true unless SetVisible hid it
+func (mesh *Mesh) Visible() bool { return !mesh.hidden }
+
+// The corners of the box around the vertices as loaded, before any Place
+func (mesh *Mesh) Bounds() (lo, hi mgl32.Vec3) {
+	if len(mesh.Vertices) == 0 {
+		return lo, hi
+	}
+	lo, hi = mesh.Vertices[0], mesh.Vertices[0]
+	for _, v := range mesh.Vertices {
+		for k := range 3 {
+			lo[k] = min(lo[k], v[k])
+			hi[k] = max(hi[k], v[k])
+		}
+	}
+	return lo, hi
 }
 
 // Parses the OBJ and MTL files a mesh entry names into geometry and materials
@@ -400,6 +440,9 @@ func loadTexture(backend renderer.Backend, textures map[string]*decodedTexture, 
 
 // Draws every face group, writing its model matrix and material fields into uniforms first
 func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) {
+	if mesh.hidden {
+		return
+	}
 	uniforms.Model = mesh.model
 	for i := range mesh.indexGroups {
 		mat := mesh.Materials[i]

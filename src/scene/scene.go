@@ -43,6 +43,8 @@ type Scene struct {
 	// Filled by UpdateMeshes and consumed by UpdateShadows, rather than a second
 	// mechanism watching the same thing.
 	movedMeshes []int
+	// A static caster changed this frame, so the whole static atlas re-bakes
+	staticDirty bool
 
 	backend renderer.Backend
 }
@@ -84,7 +86,7 @@ func EmptyScene() Scene {
 	return scene
 }
 
-// Records every mesh Place moved this frame, for the shadow update to re-bake
+// Records every mesh Place moved or SetVisible toggled this frame, for the shadow update to re-bake
 func (scene *Scene) UpdateMeshes() {
 	if scene == nil {
 		return
@@ -93,6 +95,10 @@ func (scene *Scene) UpdateMeshes() {
 		if scene.Meshes[i].moved {
 			scene.movedMeshes = append(scene.movedMeshes, i)
 			scene.Meshes[i].moved = false
+		}
+		if scene.Meshes[i].staticChanged {
+			scene.staticDirty = true
+			scene.Meshes[i].staticChanged = false
 		}
 	}
 }

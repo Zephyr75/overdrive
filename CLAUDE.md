@@ -60,19 +60,19 @@ go run . -screenshot out.png             # write one PNG of frame 90, then quit
 go vet ./...         # two known unsafe.Pointer reports, see below
 ```
 
-**Tests cover the CPU-only logic, nothing that needs a GPU.** `go test ./...`
-runs `scene/shadowatlas_test.go` (the slot layout and the allocator's invariants)
-and `physics/world_test.go`; every other package reports `[no test files]`. So
-beyond those a change is verified by `go build ./...`, `gofmt -l`, and **looking
+**There are no tests.** `go test ./...` reports `[no test files]` for every
+package. So a change is verified by `go build ./...`, `gofmt -l`, and **looking
 at the scene** — which `-screenshot out.png` makes possible without a compositor
 screen grab, since it goes through `Frame.Copy` and `Backend.ReadBuffer`. The
 `init()` size guards in `renderer/uniforms.go` fire when the engine *runs*, not
-when it builds.
+when it builds. `notes/TODO.md` carries the item, and nominates
+`shadowAtlas.allocateAtlas` as the first thing worth a unit test — it is pure CPU
+logic over `[]Light` and needs no GPU.
 
 **Every runtime knob is in the TOML file, including the debug ones.** The shadow
 system in particular is fully configured — `[shadows]` carries `atlasSize`, the
 `slotDivisors`/`slotCounts` layout, `tierScores`, `dynamicAtlas`,
-`bakeBudgetMegatexels`, `pcf` and the projection planes — and a bad value **rejects the
+`bakeBudgetMegatexels`, `pcf`, the projection planes and `sunHalfExtent` — and a bad value **rejects the
 file** rather than being clamped, in `settings.checkShadowAtlas`. A layout that
 cannot be carved is silent everywhere else: allocation refuses, every light gets
 `ShadowIndex = -1`, and the scene renders unshadowed with nothing logged. There are

@@ -11,6 +11,10 @@ type use int
 
 const (
 	useNone use = iota
+	// A swapchain image just acquired: undefined like useNone, but its stage is
+	// the one the acquire semaphore is waited at, so the first transition chains
+	// after the wait instead of racing the presentation engine's read
+	useAcquired
 	useSampled
 	// A buffer read through a device address: no layout, every shader stage
 	useShaderRead
@@ -38,10 +42,12 @@ type useInfo struct {
 }
 
 var useTable = [...]useInfo{
-	useNone:            {vk.ImageLayoutUndefined, vk.PipelineStage2None, vk.Access2None, false},
-	useSampled:         {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderSampledRead, false},
-	useShaderRead:      {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2VertexShader | vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderRead | vk.Access2ShaderStorageRead, false},
-	useColorAttachment: {vk.ImageLayoutColorAttachmentOptimal, vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentWrite, true},
+	useNone:       {vk.ImageLayoutUndefined, vk.PipelineStage2None, vk.Access2None, false},
+	useAcquired:   {vk.ImageLayoutUndefined, vk.PipelineStage2ColorAttachmentOutput, vk.Access2None, false},
+	useSampled:    {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderSampledRead, false},
+	useShaderRead: {vk.ImageLayoutShaderReadOnlyOptimal, vk.PipelineStage2VertexShader | vk.PipelineStage2FragmentShader | vk.PipelineStage2ComputeShader, vk.Access2ShaderRead | vk.Access2ShaderStorageRead, false},
+	// Read as well as write: a loaded attachment and a blend both read what it holds
+	useColorAttachment: {vk.ImageLayoutColorAttachmentOptimal, vk.PipelineStage2ColorAttachmentOutput, vk.Access2ColorAttachmentRead | vk.Access2ColorAttachmentWrite, true},
 	// Read as well as write: the depth test reads what a loaded attachment holds
 	useDepthAttachment: {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests, vk.Access2DepthStencilAttachmentRead | vk.Access2DepthStencilAttachmentWrite, true},
 	useDepthResolve:    {vk.ImageLayoutDepthAttachmentOptimal, vk.PipelineStage2EarlyFragmentTests | vk.PipelineStage2LateFragmentTests | vk.PipelineStage2ColorAttachmentOutput, vk.Access2DepthStencilAttachmentWrite | vk.Access2ColorAttachmentWrite, true},

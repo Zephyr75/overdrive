@@ -17,7 +17,7 @@ type Plane struct {
 // Fits a fixed plane collider to a mesh's first quad
 func NewPlaneFromMesh(mesh *scene.Mesh) *Plane {
 	plane := NewPlane(mesh.Vertices[0], mesh.Vertices[1], mesh.Vertices[3], mesh.Vertices[2])
-	plane.Mesh = mesh
+	plane.attach(mesh)
 	return plane
 }
 

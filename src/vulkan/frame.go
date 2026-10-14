@@ -93,8 +93,8 @@ func (backend *VKBackend) Frame(record func(renderer.Frame)) {
 	vk.CmdBindDescriptorSets(frame.vkCommandBuffer, vk.PipelineBindPointCompute,
 		backend.vkPipelineLayout, 0, []vk.DescriptorSet{backend.vkDescriptorSet})
 
-	// Mark the swapchain image as unused
-	backend.swapchainImages[backend.imageIndex].use = useNone
+	// Its contents are undefined, and its first use must wait on the acquire
+	backend.swapchainImages[backend.imageIndex].use = useAcquired
 
 	// Record copies of all pending uploads
 	// Example: shadow map has been updated mid-frame but is still being read,

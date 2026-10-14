@@ -37,10 +37,13 @@ func NewSphere(pos mgl32.Vec3, radius float32) *Sphere {
 	return &Sphere{Verlet: NewVerlet(pos), Radius: radius, Inertia: 2.0 / 5.0, RestingSpeed: restingSpeed}
 }
 
-// Fits a movable sphere to a mesh, which then follows it, its radius being the distance to the first vertex
+// Fits a movable sphere to a mesh, which then follows it: centred on the
+// mesh's Position, its radius half the largest side of the mesh's bounds
 func NewSphereFromMesh(mesh *scene.Mesh) *Sphere {
-	sphere := NewSphere(mesh.Position, mesh.Vertices[0].Sub(mesh.Position).Len())
-	sphere.Mesh = mesh
+	lo, hi := mesh.Bounds()
+	size := hi.Sub(lo)
+	sphere := NewSphere(mesh.Position, max(size[0], size[1], size[2])/2)
+	sphere.attach(mesh)
 	return sphere
 }
 
@@ -99,7 +102,7 @@ func (sphere *Sphere) planeCollide(plane Plane) (mgl32.Vec3, bool) {
 	if distNormal > -sphere.Radius && distNormal < sphere.Radius {
 		if distMain > -plane.MainHalf && distMain < plane.MainHalf {
 			if distCross > -plane.CrossHalf && distCross < plane.CrossHalf {
-				sphere.resolve(plane.Normal, sphere.Radius-distNormal)
+				sphere.resolve(plane.Normal, sphere.Radius-distNormal, plane.Pos.Sub(plane.PrevPos))
 				return plane.Normal, true
 			}
 		}
@@ -139,7 +142,7 @@ func (sphere *Sphere) boxCollide(box Box) (mgl32.Vec3, bool) {
 		if depth[face] < 0 {
 			normal = normal.Mul(-1)
 		}
-		sphere.resolve(normal, least+sphere.Radius)
+		sphere.resolve(normal, least+sphere.Radius, box.Pos.Sub(box.PrevPos))
 		return normal, true
 	}
 
@@ -149,7 +152,7 @@ func (sphere *Sphere) boxCollide(box Box) (mgl32.Vec3, bool) {
 		return mgl32.Vec3{}, false
 	}
 	normal := offset.Mul(1 / distance)
-	sphere.resolve(normal, sphere.Radius-distance)
+	sphere.resolve(normal, sphere.Radius-distance, box.Pos.Sub(box.PrevPos))
 	return normal, true
 }
 
@@ -158,13 +161,17 @@ func (sphere *Sphere) boxCollide(box Box) (mgl32.Vec3, bool) {
 // the push moves Pos without PrevPos, which Verlet would read as velocity and
 // launch the ball by its penetration; so the velocity is taken before the push
 // and PrevPos rebuilt behind the new Pos from the resolved velocity
-func (sphere *Sphere) resolve(normal mgl32.Vec3, push float32) {
-	velocity := sphere.Pos.Sub(sphere.PrevPos)
+//
+// surface is the other body's velocity per step, zero unless the game drives
+// it. Everything is worked out relative to it, so a moving paddle bounces the
+// ball off at its own speed and a lift carries what rests on it
+func (sphere *Sphere) resolve(normal mgl32.Vec3, push float32, surface mgl32.Vec3) {
+	velocity := sphere.Pos.Sub(sphere.PrevPos).Sub(surface)
 	sphere.Pos = sphere.Pos.Add(normal.Mul(push))
 
 	into := velocity.Dot(normal)
 	if into >= 0 {
-		sphere.PrevPos = sphere.Pos.Sub(velocity)
+		sphere.PrevPos = sphere.Pos.Sub(velocity.Add(surface))
 		return
 	}
 	restitution := sphere.Restitution
@@ -200,5 +207,5 @@ func (sphere *Sphere) resolve(normal mgl32.Vec3, push float32) {
 		velocity = velocity.Sub(tangent.Mul(slow / speed))
 		sphere.Spin = sphere.Spin.Mul(1 - slow/speed)
 	}
-	sphere.PrevPos = sphere.Pos.Sub(velocity)
+	sphere.PrevPos = sphere.Pos.Sub(velocity.Add(surface))
 }

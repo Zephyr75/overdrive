@@ -18,7 +18,10 @@ type Verlet struct {
 	Pos     mgl32.Vec3
 	PrevPos mgl32.Vec3 // last step's Pos; the gap between the two stands in for velocity
 	Accel   mgl32.Vec3 // accumulated this step by Accelerate, consumed and zeroed by Integrate
-	Fixed   bool       // true skips integration, an immovable collider
+	// True skips integration: an immovable collider, or one the game drives (a
+	// paddle, a door) by setting Pos before a step, the distance moved in that
+	// step being the speed it hits with. Teleport moves one without that speed
+	Fixed bool
 	// Kilograms: only the ratio between two bodies in contact matters
 	Mass float32
 	// Angular velocity in radians per step, the axis scaled by the angle, as Pos - PrevPos is velocity per step
@@ -27,11 +30,25 @@ type Verlet struct {
 	Orientation mgl32.Quat
 	// Placed where the body is after every step; nil for a body nothing draws
 	Mesh *scene.Mesh
+
+	// Mesh.Position less Pos at creation: a box's centre is not its mesh's pivot
+	meshOffset mgl32.Vec3
+	// Where the mesh was last placed, so a body that has not moved never calls
+	// Place, which would dirty its shadow tiles
+	placedPos mgl32.Vec3
+	placedRot mgl32.Quat
 }
 
 // Creates a movable body at rest
 func NewVerlet(pos mgl32.Vec3) Verlet {
-	return Verlet{Pos: pos, PrevPos: pos, Mass: 1, Orientation: mgl32.QuatIdent()}
+	return Verlet{Pos: pos, PrevPos: pos, Mass: 1, Orientation: mgl32.QuatIdent(),
+		placedPos: pos, placedRot: mgl32.QuatIdent()}
+}
+
+// Attaches the mesh the body moves, keeping the offset between the body's centre and the mesh's pivot
+func (verlet *Verlet) attach(mesh *scene.Mesh) {
+	verlet.Mesh = mesh
+	verlet.meshOffset = mesh.Position.Sub(verlet.Pos)
 }
 
 // How much of a shared push or impulse this body takes: none when fixed
@@ -79,15 +96,13 @@ func (verlet *Verlet) Accelerate(accel mgl32.Vec3) {
 	verlet.Accel = verlet.Accel.Add(accel)
 }
 
-// Moves the mesh to the body, unless it is already there
+// Moves the mesh to the body, unless the body has not moved since the last time
 //
 // Place dirties the mesh's dynamic shadow tiles, so a body at rest must not
 func (verlet *Verlet) placeAndRotate() {
-	if verlet.Fixed || verlet.Mesh == nil {
+	if verlet.Mesh == nil || (verlet.Pos == verlet.placedPos && verlet.Orientation == verlet.placedRot) {
 		return
 	}
-	if verlet.Mesh.Position == verlet.Pos && verlet.Mesh.Rotation == verlet.Orientation {
-		return
-	}
-	verlet.Mesh.Place(verlet.Pos, verlet.Orientation)
+	verlet.Mesh.Place(verlet.Pos.Add(verlet.Orientation.Rotate(verlet.meshOffset)), verlet.Orientation)
+	verlet.placedPos, verlet.placedRot = verlet.Pos, verlet.Orientation
 }

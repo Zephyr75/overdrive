@@ -57,7 +57,8 @@ func NewBoxFromMesh(mesh *scene.Mesh) *Box {
 		centre = centre.Add(axis.Mul((hi + lo) * 0.5))
 	}
 	box := &Box{NewVerlet(centre), axes, half}
-	box.Fixed, box.Mesh = true, mesh
+	box.Fixed = true
+	box.attach(mesh)
 	return box
 }
 

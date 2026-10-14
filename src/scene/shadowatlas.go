@@ -111,6 +111,8 @@ type shadowAlloc struct {
 	// Whether a movable caster is in range at all, and what this frame queued
 	dynamicStudy                bool
 	staticQueued, dynamicQueued bool
+	// The light's pose when its tiles were last baked
+	bakedPose shadowPose
 	// Where this light's tiles start in Scene.shadowTiles
 	tilesIndex int
 }
@@ -485,10 +487,10 @@ func (scene *Scene) casterInRange(light *Light, mesh *Mesh, center mgl32.Vec3) b
 }
 
 // Whether any movable caster is in range, which is what earns a dynamic tile
-func (scene *Scene) movableCasterInRange(light *Light) bool { // TODO check if moving lights are supported
+func (scene *Scene) movableCasterInRange(light *Light) bool {
 	for i := range scene.Meshes {
 		mesh := &scene.Meshes[i]
-		if mesh.Movable && mesh.CastsShadow && scene.casterInRange(light, mesh, mesh.boundsCenter) {
+		if mesh.Movable && mesh.CastsShadow && !mesh.hidden && scene.casterInRange(light, mesh, mesh.boundsCenter) {
 			return true
 		}
 	}
@@ -521,6 +523,12 @@ type dynamicUpdate struct {
 // Allocates a tile per casting light, decides this frame's bake work and builds
 // the shadow records
 func (scene *Scene) UpdateShadows(nearPlane, farPlane float32) {
+	// Before anything compares poses: a sun's shadow box moves with the camera
+	for i := range scene.Lights {
+		if scene.Lights[i].Type == renderer.LightSun {
+			scene.Lights[i].followCamera(scene.Cam.Pos, settings.Current.Shadows.SunHalfExtent)
+		}
+	}
 	// Allocate a slot (or 6) in an atlas pool for each light
 	scene.atlas.allocateAtlas(scene.Lights, scene.Cam.Pos)
 	// Empties shadow tiles and bake lists
@@ -550,7 +558,9 @@ func (scene *Scene) resetQueues() {
 // rebuilding and reports if any static tile must be re‑baked
 func (scene *Scene) markDirtyTiles() ([]dynamicUpdate, bool) {
 	dynamicUpdates := make([]dynamicUpdate, 0, len(scene.Lights))
-	runStatic := false
+	// A static caster that was hidden, shown or made movable is baked into
+	// every static tile it falls in, and which those are is not tracked
+	runStatic := scene.staticDirty
 
 	for i := range scene.Lights {
 		alloc, ok := scene.atlas.shadowAllocs[int32(i)]
@@ -560,6 +570,13 @@ func (scene *Scene) markDirtyTiles() ([]dynamicUpdate, bool) {
 
 		light := &scene.Lights[i]
 		alloc.staticQueued, alloc.dynamicQueued = false, false
+
+		// A light that moved or turned holds tiles projected from where it was
+		pose := light.shadowPose()
+		if pose != alloc.bakedPose {
+			alloc.staticValid = false
+			alloc.bakedPose = pose
+		}
 
 		// Flag that the dynamic tile should be baked if the caster is moving
 		alloc.dynamicStudy = settings.Current.Shadows.DynamicAtlas && scene.movableCasterInRange(light)
@@ -652,6 +669,7 @@ func (scene *Scene) commitBakes() {
 	for _, idx := range scene.dynamicQueue {
 		scene.atlas.shadowAllocs[idx].dynamicValid = true
 	}
+	scene.staticDirty = false
 	// Remember where moved casters were to keep tiles that moved out dirty
 	for _, i := range scene.movedMeshes {
 		scene.Meshes[i].prevCenter = scene.Meshes[i].boundsCenter
@@ -702,9 +720,12 @@ func (light *Light) shadowTile(slot slot, size int, face, faces int, dynamic boo
 		return tile
 	}
 
-	// A sun's ortho box, unchanged from the per-light target it replaces
-	proj := mgl32.Ortho(-10, 10, -10, 10, nearPlane, farPlane)
-	tile.WorldToTile = proj.Mul4(mgl32.LookAtV(light.Pos, light.Pos.Sub(light.Dir), mgl32.Vec3{0, 1, 0}))
+	// A sun's box around the centre followCamera chose, the eye backed off
+	// along the light so the centre sits midway between the near and far planes
+	extent := settings.Current.Shadows.SunHalfExtent
+	eye := light.shadowCentre.Add(light.Dir.Normalize().Mul((nearPlane + farPlane) / 2))
+	proj := mgl32.Ortho(-extent, extent, -extent, extent, nearPlane, farPlane)
+	tile.WorldToTile = proj.Mul4(mgl32.LookAtV(eye, eye.Sub(light.Dir), spotUp(light.Dir)))
 	return tile
 }
 
@@ -773,7 +794,7 @@ func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pi
 		var ctx *drawContext
 		for meshIdx := range scene.Meshes {
 			mesh := &scene.Meshes[meshIdx]
-			if !mesh.CastsShadow || mesh.Movable != movable {
+			if !mesh.CastsShadow || mesh.hidden || mesh.Movable != movable {
 				continue
 			}
 			if !sphereInFrustum(&planes, mesh.boundsCenter, mesh.boundsRadius) {

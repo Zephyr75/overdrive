@@ -99,6 +99,13 @@ func (world *World) Step() {
 			}
 		}
 	}
+	// A driven body's speed is what the game moved it this step, and no more:
+	// one it stops moving must stop pushing
+	for _, body := range world.bodies {
+		if verlet := body.GetVerlet(); verlet.Fixed {
+			verlet.PrevPos = verlet.Pos
+		}
+	}
 }
 
 // Moves every movable body's mesh to where the last step left it

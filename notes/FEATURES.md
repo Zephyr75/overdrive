@@ -60,11 +60,13 @@ Who holds a slot is decided **per frame** by `shadowAtlas.allocate`:
 - **Score** = `radius / distance to camera`, a rough screen footprint. Lights sort by score.
 - **Rank picks the slot, the tier caps it.** Each takes the best free slot no larger than its ceiling: 512 above 0.50, 256 above 0.20, 128 above 0.08, nothing below. A sun skips scoring and is capped at 2048.
 - **A point light takes six slots at its tier's size**, all or nothing (five faces would leave a lit wedge). Slots are typeless, so the six need not be adjacent.
-- **Phase 1b** re-offers spare slots to lights that ended under their ceiling, so a layout tuned for one light mix does not waste sizes on another.
+- **Phase 1b** re-offers spare slots to lights that ended under their ceiling, so a layout tuned for one light mix does not waste sizes on another. The spare may be larger than the ceiling: phase 1 already took the best slot within it, so leftovers above it are all this phase can give. The ceiling orders who is served first; it does not bound what is left over.
 - **Running out costs resolution, never frame time.** A light walks down a pool at a time and finally gets `ShadowIndex = -1`, lit unshadowed.
 - **Two hysteresis margins**: `nextTierThreshold` (20%) stops a boundary score changing a light's ceiling every frame; `slotStickiness` (20%) stops two near-equal lights trading a contended pool's last slot every frame. Both are deliberately not config knobs.
 
 **Static vs dynamic.** A mesh is movable when the scene file says `movable = true` or `Mesh.Place` has been called. A light takes a dynamic tile only while a movable caster is in range. The static side is all-or-nothing (a tile with no caster writes nothing, so a partial re-bake would leave a stale tile); the dynamic side is per tile, capped at `settings.ShadowBakeBudget()` texels a frame in score order, a light that misses out keeping its old tile.
+
+**What re-bakes.** A static tile is re-baked when allocation moves, when its light's `shadowPose` (position, direction, cone) differs from the one it was baked with, and when a static mesh is hidden, shown or made movable (`Scene.staticDirty`) — all three re-bake the whole static atlas, which is all-or-nothing. A sun's pose is the centre of its box, which follows the camera in steps of half `sunHalfExtent` (`Light.followCamera`), with a quarter-step of hysteresis so the camera hovering on a boundary does not re-bake every frame. A dynamic tile re-bakes when a movable caster in range moved or was hidden, as before.
 
 ### Layout capacity
 
@@ -254,7 +256,7 @@ Every runtime knob is in the TOML file; a bad value rejects the file (`settings.
 | --- | --- |
 | `[window]` | `width`, `height` |
 | `[renderer]` | `backend` (only `"vulkan"`) |
-| `[shadows]` | `atlasSize`, `slotDivisors`/`slotCounts`, `tierScores`, `dynamicAtlas`, `bakeBudgetMegatexels`, `pcf`, `nearPlane`/`farPlane` |
+| `[shadows]` | `atlasSize`, `slotDivisors`/`slotCounts`, `tierScores`, `dynamicAtlas`, `bakeBudgetMegatexels`, `pcf`, `nearPlane`/`farPlane`, `sunHalfExtent` |
 | `[antialiasing]` | `mode`, `samples` |
 | `[textures]` | `anisotropy` (does almost nothing until textures have mips) |
 | `[debug]` | `validation`, `lockCamera` (reproducible captures), `noShadows` (tells "too dark" from "wrongly shadowed"), `noPrepass` (checks the prepass renders like plain depth testing) |
