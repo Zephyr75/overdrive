@@ -62,7 +62,7 @@ type Light struct {
 
 	// Where a sun's shadow box is centred, which followCamera moves in steps;
 	// shadowCentred is false until the first frame has placed it
-	shadowCentre  mgl32.Vec3
+	shadowCentre   mgl32.Vec3
 	shadowCentered bool
 }
 

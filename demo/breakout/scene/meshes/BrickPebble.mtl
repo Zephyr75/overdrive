@@ -1,0 +1,4 @@
+newmtl brick
+map_Kd multicolored_pebble_floor_diff_4k.jpg
+map_Pr multicolored_pebble_floor_rough_4k.png
+map_Bump -bm 1.000000 multicolored_pebble_floor_nor_gl_4k.png

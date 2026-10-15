@@ -1,0 +1,4 @@
+newmtl stacked_brick_wall
+map_Kd stacked_brick_wall_diff_4k.jpg
+map_Pr stacked_brick_wall_rough_4k.png
+map_Bump -bm 1.000000 stacked_brick_wall_nor_gl_4k.png

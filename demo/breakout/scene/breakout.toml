@@ -1,0 +1,257 @@
+# The breakout scene, written by hand in the Blender add-on's format: positions
+# in Blender's z-up axes, angles in degrees. The game places everything marked
+# movable itself, so those sit at the origin here
+
+[camera]
+name = "Camera"
+type = "persp"
+position = [0.0, -3.4, 3.3]
+front = [0.0, 0.750726, -0.660617]
+up = [0.0, 0.660617, 0.750726]
+fov = 45.0
+
+[environment]
+file = "cedar_bridge_sunset_1_4k.hdr"
+# Above 1 so the polished bricks have a sky bright enough to mirror
+strength = 1.5
+
+[[mesh]]
+name = "Floor"
+obj = "Floor.obj"
+mtl = "Floor.mtl"
+# Only receives: the floor shadows nothing a camera above it can see
+castsShadow = false
+
+[[mesh]]
+name = "WallLeft"
+obj = "WallLeft.obj"
+mtl = "Wall.mtl"
+
+[[mesh]]
+name = "WallRight"
+obj = "WallRight.obj"
+mtl = "Wall.mtl"
+
+[[mesh]]
+name = "WallBack"
+obj = "WallBack.obj"
+mtl = "Wall.mtl"
+
+# Where the showcase exported it, which is where its OBJ's vertices are
+[[mesh]]
+name = "Ball"
+position = [-0.21679, 0.117582, 0.353544]
+obj = "Football.obj"
+mtl = "Football.mtl"
+movable = true
+
+[[mesh]]
+name = "Paddle"
+obj = "Paddle.obj"
+mtl = "Paddle.mtl"
+movable = true
+
+# Six to a row, back row first; the game lays them out in this order
+
+[[mesh]]
+name = "Brick.0.0"
+obj = "Brick.obj"
+mtl = "BrickRust.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.0.1"
+obj = "Brick.obj"
+mtl = "BrickRust.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.0.2"
+obj = "Brick.obj"
+mtl = "BrickRust.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.0.3"
+obj = "Brick.obj"
+mtl = "BrickRust.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.0.4"
+obj = "Brick.obj"
+mtl = "BrickRust.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.0.5"
+obj = "Brick.obj"
+mtl = "BrickRust.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.1.0"
+obj = "Brick.obj"
+mtl = "BrickGold.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.1.1"
+obj = "Brick.obj"
+mtl = "BrickChrome.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.1.2"
+obj = "Brick.obj"
+mtl = "BrickGold.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.1.3"
+obj = "Brick.obj"
+mtl = "BrickChrome.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.1.4"
+obj = "Brick.obj"
+mtl = "BrickGold.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.1.5"
+obj = "Brick.obj"
+mtl = "BrickChrome.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.2.0"
+obj = "Brick.obj"
+mtl = "BrickWall.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.2.1"
+obj = "Brick.obj"
+mtl = "BrickWall.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.2.2"
+obj = "Brick.obj"
+mtl = "BrickWall.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.2.3"
+obj = "Brick.obj"
+mtl = "BrickWall.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.2.4"
+obj = "Brick.obj"
+mtl = "BrickWall.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.2.5"
+obj = "Brick.obj"
+mtl = "BrickWall.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.3.0"
+obj = "Brick.obj"
+mtl = "BrickPebble.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.3.1"
+obj = "Brick.obj"
+mtl = "BrickPebble.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.3.2"
+obj = "Brick.obj"
+mtl = "BrickPebble.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.3.3"
+obj = "Brick.obj"
+mtl = "BrickPebble.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.3.4"
+obj = "Brick.obj"
+mtl = "BrickPebble.mtl"
+movable = true
+
+[[mesh]]
+name = "Brick.3.5"
+obj = "Brick.obj"
+mtl = "BrickPebble.mtl"
+movable = true
+
+[[light]]
+name = "Sun"
+type = "sun"
+position = [3.348594, -2.417038, 4.089954]
+direction = [-0.612281, 0.437783, -0.658375]
+color = [1.0, 0.92, 0.8]
+diffuse = 1.0
+intensity = 4.0
+
+[[light]]
+name = "Left"
+type = "point"
+position = [-1.8, 2.4, 0.8]
+color = [1.0, 0.45, 0.1]
+diffuse = 1.0
+intensity = 40.0
+
+[[light]]
+name = "Right"
+type = "point"
+position = [1.8, 2.4, 0.8]
+color = [0.1, 0.55, 1.0]
+diffuse = 1.0
+intensity = 40.0
+
+# Low behind the bricks and the paddle: a flat top mirrors these into the
+# camera, which is what shows the metals' specular
+[[light]]
+name = "GlintLeft"
+type = "point"
+position = [-0.8, 2.3, 0.6]
+color = [1.0, 0.2, 0.7]
+diffuse = 1.0
+intensity = 25.0
+
+[[light]]
+name = "GlintCentre"
+type = "point"
+position = [0.0, 2.3, 0.6]
+color = [1.0, 0.7, 0.2]
+diffuse = 1.0
+intensity = 25.0
+
+[[light]]
+name = "GlintRight"
+type = "point"
+position = [0.8, 2.3, 0.6]
+color = [0.1, 0.8, 1.0]
+diffuse = 1.0
+intensity = 25.0
+
+[[light]]
+name = "GlintPaddle"
+type = "point"
+position = [0.0, -0.95, 0.6]
+color = [0.6, 0.4, 1.0]
+diffuse = 1.0
+intensity = 10.0

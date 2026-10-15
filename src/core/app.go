@@ -7,7 +7,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 
 	"github.com/Zephyr75/gutter/ui"
-	"github.com/Zephyr75/overdrive/ecs"
+	"github.com/Zephyr75/overdrive/gameobject"
 	"github.com/Zephyr75/overdrive/input"
 	"github.com/Zephyr75/overdrive/physics"
 	"github.com/Zephyr75/overdrive/renderer"
@@ -26,7 +26,7 @@ type App struct {
 	ScreenshotFile string // when set, one frame is captured and saved to a file with the given name
 	InputHandler   func(window *glfw.Window, deltaTime float32)
 	MouseCallback  func(window *glfw.Window, x float64, y float64)
-	// Seconds physics and entities hold still after the first frame, so a
+	// Seconds physics and game objects hold still after the first frame, so a
 	// showcase can be seen before it moves; a game sets 0
 	StartDelay float64
 }
@@ -106,8 +106,8 @@ const (
 )
 
 // Builds the pipelines and runs the frame loop until the window closes; the
-// physics world and the entities are optional, either may be nil
-func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, bodies *physics.World, entities *ecs.World) {
+// physics world and the game objects are optional, either may be nil
+func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, bodies *physics.World, objects *gameobject.Game) {
 	backend := app.Backend
 
 	pipelines, err := scene.NewPipelines(backend)
@@ -153,10 +153,14 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 	// includes the whole scene load
 	physicsStart := glfw.GetTime() + app.StartDelay
 	stepsRun := 0
-	// The world's own rate, which the entities are stepped at too
+	// The world's own rate, which the game objects are stepped at too
 	rate := physics.DefaultRate
 	if bodies != nil {
 		rate = bodies.StepRate()
+	}
+	// Before the first frame, so it draws every object where its Start put it
+	if objects != nil {
+		objects.Start()
 	}
 
 	// Run one iteration per frame until the window closes
@@ -175,8 +179,8 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 		}
 		if stepsDue > stepsRun {
 			for range min(stepsDue-stepsRun, maxPhysicsSteps) {
-				if entities != nil {
-					entities.Update()
+				if objects != nil {
+					objects.Step()
 				}
 				if bodies != nil {
 					bodies.Step()

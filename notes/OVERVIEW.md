@@ -13,7 +13,7 @@ Overdrive is a Go engine rendering on Vulkan 1.3. Layers only depend downwards:
 ```mermaid
 graph TD
     M["main.go<br/><i>builds the app, loads a scene</i>"] --> C["core/<br/><i>window, the frame loop</i>"]
-    C --> S["scene/ · ecs/ · input/ · physics/<br/><i>meshes, lights, camera, gameplay</i>"]
+    C --> S["scene/ · gameobject/ · input/ · physics/<br/><i>meshes, lights, camera, gameplay</i>"]
     S --> R["renderer/<br/><i>the Backend interface + opaque handles</i>"]
     C --> R
     R -.->|"implemented by"| V["vulkan/<br/><i>the only package that says vk.*</i>"]
@@ -30,13 +30,15 @@ Package dependencies in detail:
 graph TD
     M[main.go] --> C[core]
     C --> S[scene]
-    C --> E[ecs]
+    C --> E[gameobject]
     C --> P[physics]
     C --> I[input]
     C --> R[renderer]
     S --> R
     P --> S
     I --> S
+    E --> P
+    E --> S
     C -.->|constructs it| VK[vulkan]
     VK --> R
 
@@ -68,7 +70,7 @@ overdrive/
     ├── scene/             scene.go, mesh.go, material.go, light.go, camera.go, skybox.go, image.go,
     │                      pipelines.go (every pipeline), shadowatlas.go (allocation + bakes)
     ├── physics/           World (gravity, step), Verlet bodies, sphere, plane and oriented-box colliders, rolling contacts
-    ├── ecs/               game-logic entities, updated once a physics step
+    ├── gameobject/        game scripts: Start once, Update once a physics step, in the order added
     ├── input/             GLFW callbacks: WASD, mouse look, scroll FOV, resize
     ├── settings/ utils/   the TOML loader and its globals; vector parsing, error handling
     └── shaders/           slang/ (source of truth), vk/ (generated SPIR-V, git-ignored)
@@ -141,7 +143,7 @@ graph TD
 Every pass is opened in `core/app.go`, in order:
 
 ```
-entities.Update, bodies.Step     ECS then physics: fixed steps at World.Rate (120 by default) on real time, at most 8 a frame,
+objects.Step, bodies.Step        scripts then physics: fixed steps at World.Rate (120 by default) on real time, at most 8 a frame,
                                   none for the first App.StartDelay s, 5 by default (1/60 s a frame under -screenshot, so frame 90 is reproducible)
 s.UpdateMeshes                    record the meshes Place moved, for the shadow cache
 input                             camera, unless [debug] lockCamera

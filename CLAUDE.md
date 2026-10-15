@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Overdrive is a Go game engine whose graphics layer runs on **Vulkan 1.3**, behind
 an abstraction (`renderer/`) that keeps every other package free of graphics
-calls. It also carries an ECS, Verlet physics, a gutter-based UI overlay and a
+calls. It also carries a game-object script layer, Verlet physics, a gutter-based UI overlay and a
 Blender export add-on writing TOML scenes.
 
 An OpenGL 4.1 backend existed until 2026-08-05 and was deleted; `notes/FEATURES.md` §9
@@ -140,7 +140,8 @@ The backend links against the `vk` package in the sibling repo `../../go-vulkan`
 ```
 main.go            builds an App, loads a Scene, adds its physics bodies
 core/              NewApp (window + backend), App.Run (the frame loop), the UI overlay
-scene/ ecs/        meshes, lights, camera, skybox, materials, pipelines, game-logic entities
+scene/             meshes, lights, camera, skybox, materials, pipelines
+gameobject/        the game's scripts: Start once, Update once a physics step, in the order added
 input/ physics/    — plain Go, zero graphics calls; physics.World steps the bodies and moves their meshes
 renderer/          the abstraction: Backend/Frame/Pass/Compute, opaque handles, the uniform blocks
 vulkan/            the only package that may import vk.*
@@ -153,7 +154,7 @@ table), `slots.go` (descriptors and the retire queue), `pipeline.go`, `image.go`
 
 Four invariants hold the engine together. Breaking any of them is how it goes wrong:
 
-1. **Nothing above `renderer/` imports a graphics API.** Scene/core/ecs/input/physics own opaque handles (`renderer.MeshHandle`, `ImageHandle`, `PipelineHandle`, …) that the backend interprets in its own table. This is the rule that keeps everything above `renderer/` buildable and testable without a GPU, and it is why the abstraction is kept despite there being one backend.
+1. **Nothing above `renderer/` imports a graphics API.** Scene/core/gameobject/input/physics own opaque handles (`renderer.MeshHandle`, `ImageHandle`, `PipelineHandle`, …) that the backend interprets in its own table. This is the rule that keeps everything above `renderer/` buildable and testable without a GPU, and it is why the abstraction is kept despite there being one backend.
 
 2. **Clears and viewports exist only inside `Frame.Pass`** — or are narrowed by `Pass.Viewport` within a pass on an atlas target, which is the one amendment. An `Attachment` clears when its `Clear` field is non-nil and loads what the target already holds otherwise, which is how the main pass keeps the depth the prepass stored and how the dynamic atlas pass adds to the tiles just copied into it. Never add a free-floating clear to scene or core code.
 

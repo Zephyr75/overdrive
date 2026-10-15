@@ -1,0 +1,5 @@
+newmtl brick
+map_Kd rusty_metal_04_diff_4k.jpg
+map_Pm rusty_metal_04_metal_4k.png
+map_Pr rusty_metal_04_rough_4k.png
+map_Bump -bm 1.000000 rusty_metal_04_nor_gl_4k.png
