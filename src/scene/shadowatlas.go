@@ -777,7 +777,7 @@ func sphereInFrustum(planes *[6]mgl32.Vec4, center mgl32.Vec3, radius float32) b
 func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
 	lightIdx int32, alloc *shadowAlloc, movable bool) int {
 
-	// Each mesh writes its model matrix; the depth passes read no material
+	// Each mesh writes its model matrix; the depth passes read no material but the alpha map
 	var uniforms renderer.DrawUniforms
 	drawn := 0
 
@@ -809,11 +809,10 @@ func (scene *Scene) bakeLight(frame renderer.Frame, pass renderer.Pass, pipes Pi
 					FarPlane:    rec.FarPlane,
 				}
 				// A face tile stores radial distance, which needs the fragment stage
-				pipeline := pipes.Depth
+				ctx = &drawContext{frame: frame, pass: pass, pipeline: pipes.Depth, cutout: pipes.DepthCutout}
 				if rec.FaceIndex >= 0 {
-					pipeline = pipes.DepthPoint
+					ctx.pipeline, ctx.cutout = pipes.DepthPoint, pipes.DepthPointCutout
 				}
-				ctx = &drawContext{frame: frame, pass: pass, pipeline: pipeline}
 				ctx.push.bake = frame.Upload(&bake)
 				drawn++
 			}

@@ -1,0 +1,18 @@
+# Blender 5.2.2 LTS MTL File: 'showcase.blend'
+# www.blender.org
+
+newmtl dark_rock_02_trans
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+d 0.500000
+illum 9
+Pm 0.000000
+Ps 0.000000
+Pc 0.000000
+Pcr 0.030000
+aniso 0.000000
+anisor 0.000000
+map_Kd dark_rock_02_diff_4k.jpg
+map_Pr dark_rock_02_rough_4k.png
+map_Bump -bm 1.000000 dark_rock_02_nor_gl_4k.png

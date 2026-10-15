@@ -6,19 +6,34 @@
 struct VSOut {
   float4 position : SV_Position;
   float3 worldPos : TEXCOORD0;
+#ifdef CUTOUT
+  float2 texCoord : TEXCOORD1;
+#endif
 };
 
+// depth_point_cutout.slang reads the uv too, for the alpha map
+#ifdef CUTOUT
+[shader("vertex")]
+VSOut vsMain(float3 aPos, float2 aTexCoord) {
+#else
 [shader("vertex")]
 VSOut vsMain(float3 aPos) {
+#endif
   VSOut o;
   float3 world = mul(pushConstants.draw.model, float4(aPos, 1.0)).xyz;
   o.worldPos = world;
   o.position = mul(pushConstants.bake.worldToTile, float4(world, 1.0));
   TO_VK_DEPTH(o.position);
+#ifdef CUTOUT
+  o.texCoord = aTexCoord;
+#endif
   return o;
 }
 
 [shader("fragment")]
 float fsMain(VSOut i) : SV_Depth {
+#ifdef CUTOUT
+  clipAlpha(i.texCoord);
+#endif
   return length(i.worldPos - pushConstants.bake.lightPos) / pushConstants.bake.farPlane;
 }

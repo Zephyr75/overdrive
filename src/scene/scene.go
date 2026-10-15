@@ -1,8 +1,10 @@
 package scene
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-gl/mathgl/mgl32"
@@ -226,7 +228,7 @@ func (scene *Scene) FillFrameUniforms(uniforms *renderer.FrameUniforms) {
 func (scene *Scene) RenderDepth(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
 	frameAddr renderer.Address) {
 
-	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Prepass}
+	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Prepass, cutout: pipes.PrepassCutout}
 	ctx.push.frame = frameAddr
 
 	// Each mesh writes its own model matrix, the same one the forward pass gets
@@ -240,7 +242,12 @@ func (scene *Scene) RenderDepth(frame renderer.Frame, pass renderer.Pass, pipes 
 func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
 	frameAddr, recordAddr renderer.Address) {
 
-	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Forward}
+	// With the prepass, EQUAL already rejects what it cut, so the cutout groups
+	// keep the forward pipeline and its early depth test
+	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Forward, cutout: pipes.Forward}
+	if settings.Current.Debug.NoPrepass {
+		ctx.cutout = pipes.ForwardCutout
+	}
 	ctx.push.frame = frameAddr
 	ctx.push.records = recordAddr
 
@@ -248,6 +255,47 @@ func (scene *Scene) RenderScene(frame renderer.Frame, pass renderer.Pass, pipes 
 	var uniforms renderer.DrawUniforms
 	for i := range scene.Meshes {
 		scene.Meshes[i].draw(ctx, &uniforms)
+	}
+}
+
+// Draws the translucent fragments of every face group that has some with the
+// transparent pipeline, far to near, inside the main pass after everything opaque
+//
+// Sorted per mesh by its bounding sphere's centre, not per triangle, so two
+// meshes that interpenetrate can still blend in the wrong order
+func (scene *Scene) RenderTransparent(frame renderer.Frame, pass renderer.Pass, pipes Pipelines,
+	frameAddr, recordAddr renderer.Address) {
+
+	type blended struct {
+		mesh     *Mesh
+		group    int
+		distance float32
+	}
+	var draws []blended
+	for i := range scene.Meshes {
+		mesh := &scene.Meshes[i]
+		if mesh.hidden {
+			continue
+		}
+		distance := mesh.boundsCenter.Sub(scene.Cam.Pos).LenSqr()
+		for group := range mesh.indexGroups {
+			if mesh.Materials[group].translucentPart() {
+				draws = append(draws, blended{mesh, group, distance})
+			}
+		}
+	}
+	if len(draws) == 0 {
+		return
+	}
+	// Stable, so a mesh's groups keep their file order
+	slices.SortStableFunc(draws, func(a, b blended) int { return cmp.Compare(b.distance, a.distance) })
+
+	ctx := &drawContext{frame: frame, pass: pass, pipeline: pipes.Transparent, cutout: pipes.Transparent}
+	ctx.push.frame = frameAddr
+	ctx.push.records = recordAddr
+	var uniforms renderer.DrawUniforms
+	for _, draw := range draws {
+		draw.mesh.drawGroup(ctx, ctx.pipeline, &uniforms, draw.group)
 	}
 }
 

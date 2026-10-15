@@ -42,7 +42,17 @@ for row in \
     ui:vsMain:vertex:vert \
     ui:fsMain:fragment:frag \
     ssao:vsMain:vertex:vert \
-    ssao:fsMain:fragment:frag
+    ssao:fsMain:fragment:frag \
+    forward_cutout:vsMain:vertex:vert \
+    forward_cutout:fsMain:fragment:frag \
+    prepass_cutout:vsMain:vertex:vert \
+    prepass_cutout:fsMain:fragment:frag \
+    depth_cutout:vsMain:vertex:vert \
+    depth_cutout:fsMain:fragment:frag \
+    depth_point_cutout:vsMain:vertex:vert \
+    depth_point_cutout:fsMain:fragment:frag \
+    transparent:vsMain:vertex:vert \
+    transparent:fsMain:fragment:frag
 do
     name=${row%%:*}; rest=${row#*:}
     entry=${rest%%:*}; rest=${rest#*:}

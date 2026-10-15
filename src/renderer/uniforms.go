@@ -100,8 +100,11 @@ type DrawUniforms struct {
 	TexDiffuse   int32 // 2D slot : 0 is the backend's white pixel
 	TexNormalMap int32
 	UseNormalMap int32
-	TexRoughness int32 // 2D slot, .r multiplies MatRoughness: 0 is the white pixel
-	TexMetallic  int32 // 2D slot, .r multiplies MatMetallic: 0 is the white pixel
+	TexRoughness int32   // 2D slot, .r multiplies MatRoughness: 0 is the white pixel
+	TexMetallic  int32   // 2D slot, .r multiplies MatMetallic: 0 is the white pixel
+	TexAlpha     int32   // 2D slot of the alpha map, read by the cutout and transparent pipelines
+	AlphaChannel int32   // which channel of TexAlpha is coverage: 0 for .r, 3 for .a
+	MatAlpha     float32 // multiplies the alpha map, read only by the transparent pipeline
 }
 
 // Guards the common.slang correspondence on every build
@@ -118,7 +121,7 @@ func init() {
 	if unsafe.Sizeof(ShadowTile{}) != 96 {
 		panic("renderer.ShadowTile no longer matches common.slang")
 	}
-	if unsafe.Sizeof(DrawUniforms{}) != 108 {
+	if unsafe.Sizeof(DrawUniforms{}) != 120 {
 		panic("renderer.DrawUniforms no longer matches common.slang")
 	}
 }

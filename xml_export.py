@@ -150,6 +150,7 @@ class OverdriveWriter:
                               export_materials=True, export_triangulated_mesh=True,
                               export_pbr_extensions=True, apply_modifiers=True)
         mesh.select_set(False)
+        self.warn_grouped_materials(mesh)
         self.localise_mtl(os.path.join(self.working_dir, 'meshes', mtl_name))
 
         entry = {
@@ -167,6 +168,21 @@ class OverdriveWriter:
 
         for ob in viewport_selection:
             ob.select_set(True)
+
+    def warn_grouped_materials(self, obj):
+        """Warns of a material whose surface comes out of a node group: Blender's
+        OBJ exporter reads only a Principled BSDF wired straight to the output,
+        so such a material exports with no maps (Poly Haven's foliage)"""
+        for slot in obj.material_slots:
+            material = slot.material
+            if not material or not material.use_nodes:
+                continue
+            for node in material.node_tree.nodes:
+                if node.type == 'OUTPUT_MATERIAL' and node.is_active_output:
+                    links = node.inputs['Surface'].links
+                    if links and links[0].from_node.type == 'GROUP':
+                        print(f"WARN: material {material.name} on {obj.name} is built in a "
+                              f"node group, so its maps are not exported: ungroup it")
 
     def localise_mtl(self, mtl_path):
         """Copies or converts every texture an MTL names into textures/, and

@@ -167,7 +167,7 @@ Four invariants hold the engine together. Breaking any of them is how it goes wr
    `renderer/uniforms.go` declares the blocks — `FrameUniforms` (4856 bytes,
    camera and lights, once per pass), `BakeUniforms` (80, the one tile a depth
    pass is baking, once per tile), `ShadowTile` (96, a variable-length array once
-   per frame) and `DrawUniforms` (108, once per draw) — and
+   per frame) and `DrawUniforms` (120, once per draw) — and
    `shaders/slang/common.slang` names which push slot is which.
 
    That works because Slang compiles with `-fvk-use-scalar-layout` and scalar layout is exactly Go's packing for `float32`/`int32` structs — so **keeping the field order in step is the whole requirement**. No 16-byte cells, no `vec3`-plus-scalar pairing, no vectors standing in for scalar arrays; that was std140's rule and it went with the OpenGL backend on 2026-08-05. Use only `float32`, `int32`, arrays of those, and `mgl32` matrices — anything with a wider alignment breaks the correspondence.

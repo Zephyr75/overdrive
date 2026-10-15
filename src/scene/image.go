@@ -5,6 +5,7 @@ import (
 	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
+	"math"
 	"os"
 	"runtime"
 	"sync"
@@ -13,7 +14,13 @@ import (
 // A texture file decoded and mipped on the CPU, or why it could not be
 type decodedTexture struct {
 	levels []mipLevel
-	err    error
+	// Which channel an alpha map reads: .a (3) when the file has a texel that is
+	// not opaque there, .r (0) for a grayscale mask, which decodes to opaque gray RGB
+	alphaChannel int32
+	// Some texel of that channel is below opaque, so a material it masks has
+	// fragments for the transparent pass
+	translucent bool
+	err         error
 }
 
 // Decodes and mips every material texture the meshes name, a core per file
@@ -23,12 +30,16 @@ type decodedTexture struct {
 // core count so a large scene does not hold every decoded image at once
 func decodeTextures(meshes []Mesh) map[string]*decodedTexture {
 	textures := map[string]*decodedTexture{}
+	alphaMaps := map[string]bool{}
 	for _, mesh := range meshes {
 		for _, mat := range mesh.Materials {
-			for _, path := range []string{mat.TexturePath, mat.NormalMapPath, mat.RoughnessMapPath, mat.MetallicMapPath} {
+			for _, path := range []string{mat.TexturePath, mat.NormalMapPath, mat.RoughnessMapPath, mat.MetallicMapPath, mat.AlphaMapPath} {
 				if path != "" {
 					textures[path] = &decodedTexture{}
 				}
+			}
+			if mat.AlphaMapPath != "" {
+				alphaMaps[mat.AlphaMapPath] = true
 			}
 		}
 	}
@@ -44,6 +55,13 @@ func decodeTextures(meshes []Mesh) map[string]*decodedTexture {
 				return
 			}
 			texture.levels = createMipLevels(pixels, width, height)
+			if alphaMaps[path] {
+				if hasTexelBelow(pixels, 3, 255) {
+					texture.alphaChannel = 3
+				}
+				texture.translucent = hasTexelBelow(pixels, int(texture.alphaChannel), 255)
+				preserveCoverage(texture.levels, int(texture.alphaChannel))
+			}
 		})
 	}
 	wg.Wait()
@@ -66,6 +84,16 @@ func loadRGBA(path string) (pixels []byte, width, height int, err error) {
 	draw.Draw(rgba, rgba.Bounds(), img, image.Point{}, draw.Src)
 	size := rgba.Rect.Size()
 	return rgba.Pix, size.X, size.Y, nil
+}
+
+// Reports whether any RGBA8 texel's channel is below limit
+func hasTexelBelow(pixels []byte, channel int, limit byte) bool {
+	for i := channel; i < len(pixels); i += 4 {
+		if pixels[i] < limit {
+			return true
+		}
+	}
+	return false
 }
 
 // One level of a mip chain, tightly packed RGBA8
@@ -98,4 +126,56 @@ func createMipLevels(pixels []byte, width, height int) []mipLevel {
 		levels = append(levels, mipLevel{pixels, width, height})
 	}
 	return levels
+}
+
+// Rescales an alpha map's channel in every mip below the first so the share of
+// texels reaching OpaqueAlpha stays what it is at full size
+//
+// Averaging 2x2 blocks pulls a foliage edge's alpha towards the middle, so
+// without this a distant leaf falls below OpaqueAlpha everywhere and the whole
+// canopy moves to the unsorted, shadowless transparent pass. Each level is
+// scaled on its own: the next was already averaged from the unscaled one
+func preserveCoverage(levels []mipLevel, channel int) {
+	target := opaqueCoverage(histogram(levels[0].pixels, channel), 1)
+	// Nothing opaque to keep, or nothing else: either way the scale would be 0 or 1
+	if target == 0 || target == 1 {
+		return
+	}
+	for _, level := range levels[1:] {
+		counts := histogram(level.pixels, channel)
+		// Coverage only grows with the scale, so bisect for the one matching target
+		low, high := 0.0, 4.0
+		for range 16 {
+			mid := (low + high) / 2
+			if opaqueCoverage(counts, mid) < target {
+				low = mid
+			} else {
+				high = mid
+			}
+		}
+		for i := channel; i < len(level.pixels); i += 4 {
+			level.pixels[i] = byte(min(255, math.Round(float64(level.pixels[i])*high)))
+		}
+	}
+}
+
+// How many texels hold each value of one channel
+func histogram(pixels []byte, channel int) [256]int {
+	var counts [256]int
+	for i := channel; i < len(pixels); i += 4 {
+		counts[pixels[i]]++
+	}
+	return counts
+}
+
+// The share of texels at or above OpaqueAlpha once scaled by scale
+func opaqueCoverage(counts [256]int, scale float64) float64 {
+	opaque, total := 0, 0
+	for value, count := range counts {
+		if min(255, math.Round(float64(value)*scale)) >= OpaqueAlpha*255 {
+			opaque += count
+		}
+		total += count
+	}
+	return float64(opaque) / float64(total)
 }

@@ -1,0 +1,18 @@
+# Blender 5.2.2 LTS MTL File: 'showcase.blend'
+# www.blender.org
+
+newmtl searsia_lucida
+Ks 0.500000 0.500000 0.500000
+Ke 0.000000 0.000000 0.000000
+Ni 1.500000
+illum 2
+Pm 0.000000
+Ps 0.000000
+Pc 0.000000
+Pcr 0.030000
+aniso 0.000000
+anisor 0.000000
+map_Kd searsia_lucida_diff_4k.jpg
+map_Pr searsia_lucida_rough_4k.png
+map_d searsia_lucida_alpha_4k.png
+map_Bump -bm 1.000000 searsia_lucida_nor_gl_4k.png

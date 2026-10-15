@@ -8,6 +8,11 @@
 // another file with its own fsMain, keeping shadows, lights and AO as they are
 [shader("fragment")]
 float4 fsMain(VSOut i) : SV_Target {
+#ifdef CUTOUT
+  // forward_cutout.slang, drawn only without the prepass: with it, EQUAL
+  // already rejects every texel the prepass cut
+  clipAlpha(i.texCoord);
+#endif
   Surface s = loadSurface(i);
 
   float3 Lo = float3(0.0);

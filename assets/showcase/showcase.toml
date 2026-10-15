@@ -57,6 +57,27 @@ rotation = [-35.0, 0.0, -8.3349]
 obj = "Suzanne.001.obj"
 mtl = "Suzanne.001.mtl"
 
+[[mesh]]
+name = "searsia_lucida_a_LOD0"
+position = [1.644353, 0.234201, 0.0]
+rotation = [0.0, 0.0, 0.0]
+obj = "searsia_lucida_a_LOD0.obj"
+mtl = "searsia_lucida_a_LOD0.mtl"
+
+[[mesh]]
+name = "Suzanne.002"
+position = [0.772867, 0.23184, 0.06329]
+rotation = [-35.0, 0.0, -8.3349]
+obj = "Suzanne.002.obj"
+mtl = "Suzanne.002.mtl"
+
+[[mesh]]
+name = "Suzanne.003"
+position = [1.190605, 0.23184, 0.06329]
+rotation = [-35.0, 0.0, -8.3349]
+obj = "Suzanne.003.obj"
+mtl = "Suzanne.003.mtl"
+
 [[light]]
 name = "Sun"
 type = "sun"

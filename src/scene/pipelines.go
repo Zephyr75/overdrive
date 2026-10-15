@@ -55,6 +55,14 @@ var (
 		Stride: meshStride,
 		Attrs:  []renderer.VertexAttr{{Location: 0, Format: renderer.FormatRGB32F, Offset: 0}},
 	}
+	// A cutout depth pipeline: the uv too, for the alpha map
+	positionUV = renderer.VertexLayout{
+		Stride: meshStride,
+		Attrs: []renderer.VertexAttr{
+			{Location: 0, Format: renderer.FormatRGB32F, Offset: 0},
+			{Location: 1, Format: renderer.FormatRG32F, Offset: 6 * 4},
+		},
+	}
 	meshLayout = renderer.VertexLayout{
 		Stride: meshStride,
 		Attrs: []renderer.VertexAttr{
@@ -74,12 +82,22 @@ var (
 // A pipeline bakes what used to be pass-scoped state: winding, depth compare,
 // blending and the attachment formats. Which is why the shadow passes need no
 // SetCullMode and the forward pass no SetDepthCompare
+//
+// Each pass that draws meshes has a cutout twin for materials with an alpha
+// map, kept apart because a fragment stage that can discard loses its early
+// depth test, which the opaque draws should not pay for
 type Pipelines struct {
-	Forward    renderer.PipelineHandle
-	Skybox     renderer.PipelineHandle
-	Depth      renderer.PipelineHandle
-	DepthPoint renderer.PipelineHandle
-	Prepass    renderer.PipelineHandle
+	Forward          renderer.PipelineHandle
+	Skybox           renderer.PipelineHandle
+	Depth            renderer.PipelineHandle
+	DepthPoint       renderer.PipelineHandle
+	Prepass          renderer.PipelineHandle
+	ForwardCutout    renderer.PipelineHandle
+	PrepassCutout    renderer.PipelineHandle
+	DepthCutout      renderer.PipelineHandle
+	DepthPointCutout renderer.PipelineHandle
+	// Translucent fragments, after everything opaque in the main pass
+	Transparent renderer.PipelineHandle
 }
 
 // Builds all rendering pipelines: the sample count comes from the swapchain and is
@@ -102,16 +120,28 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) {
 	// Renders the world geometry with lighting. Uses the same depth comparison
 	// as the pre‑pass unless [debug] noPrepass is set, otherwise it writes a normal
 	// depth value.
-	pipes.Forward, err = backend.CreatePipeline(renderer.PipelineSpec{
+	forward := renderer.PipelineSpec{
 		Name: "forward", Shader: "forward", Vertex: meshLayout,
 		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
 		DepthCompare: forwardCompare, DepthWrite: true, Blend: renderer.BlendAlpha,
 		ColorFormats: []renderer.Format{renderer.FormatBackbuffer},
 		DepthFormat:  renderer.FormatDepth32F,
 		Samples:      samples,
-	})
-	if err != nil {
+	}
+	if pipes.Forward, err = backend.CreatePipeline(forward); err != nil {
 		return pipes, fmt.Errorf("forward pipeline: %w", err)
+	}
+	// Drawn only under [debug] noPrepass, when nothing before it cut the texels out
+	forward.Name, forward.Shader = "forwardCutout", "forward_cutout"
+	if pipes.ForwardCutout, err = backend.CreatePipeline(forward); err != nil {
+		return pipes, fmt.Errorf("forward_cutout pipeline: %w", err)
+	}
+	// Tested against the opaque depth but never writing it, so a surface behind
+	// a transparent one is still drawn, and LESS since no prepass drew it
+	forward.Name, forward.Shader = "transparent", "transparent"
+	forward.DepthCompare, forward.DepthWrite = renderer.CompareLess, false
+	if pipes.Transparent, err = backend.CreatePipeline(forward); err != nil {
+		return pipes, fmt.Errorf("transparent pipeline: %w", err)
 	}
 
 	// ---- skybox ----------------------------------------------------------
@@ -132,14 +162,18 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) {
 	// ---- pre‑pass --------------------------------------------------------
 	// Depth‑only pass that writes a depth buffer for the forward pass.
 	// No colour is written.
-	pipes.Prepass, err = backend.CreatePipeline(renderer.PipelineSpec{
+	prepass := renderer.PipelineSpec{
 		Name: "prepass", Shader: "prepass", Vertex: positionOnly,
 		Cull: renderer.CullBack, FrontFace: renderer.WindingCounterClockwise,
 		DepthCompare: renderer.CompareLess, DepthWrite: true,
 		DepthFormat: renderer.FormatDepth32F, Samples: samples,
-	})
-	if err != nil {
+	}
+	if pipes.Prepass, err = backend.CreatePipeline(prepass); err != nil {
 		return pipes, fmt.Errorf("prepass pipeline: %w", err)
+	}
+	prepass.Name, prepass.Shader, prepass.Vertex = "prepassCutout", "prepass_cutout", positionUV
+	if pipes.PrepassCutout, err = backend.CreatePipeline(prepass); err != nil {
+		return pipes, fmt.Errorf("prepass_cutout pipeline: %w", err)
 	}
 
 	// ---- shadow atlas depth passes ---------------------------------------
@@ -164,6 +198,17 @@ func NewPipelines(backend renderer.Backend) (Pipelines, error) {
 		return pipes, fmt.Errorf("depth_point pipeline: %w", err)
 	}
 
+	// The two again for alpha-mapped casters, which read the uv
+	shadow.Vertex = positionUV
+	shadow.Name, shadow.Shader = "depthCutout", "depth_cutout"
+	if pipes.DepthCutout, err = backend.CreatePipeline(shadow); err != nil {
+		return pipes, fmt.Errorf("depth_cutout pipeline: %w", err)
+	}
+	shadow.Name, shadow.Shader = "depthPointCutout", "depth_point_cutout"
+	if pipes.DepthPointCutout, err = backend.CreatePipeline(shadow); err != nil {
+		return pipes, fmt.Errorf("depth_point_cutout pipeline: %w", err)
+	}
+
 	return pipes, nil
 }
 
@@ -179,13 +224,15 @@ type drawContext struct {
 	pass renderer.Pass
 	// The shader setup every draw uses
 	pipeline renderer.PipelineHandle
+	// The same for a material cut out by an alpha map, which may be pipeline itself
+	cutout renderer.PipelineHandle
 	// The template note: shared blocks filled once, the draw block per draw
 	push pushBlocks
 }
 
-// Uploads this draw's block and records the draw
-func (ctx *drawContext) draw(mesh renderer.MeshHandle, uniforms *renderer.DrawUniforms) {
+// Uploads this draw's block and records the draw with one of the context's pipelines
+func (ctx *drawContext) draw(pipeline renderer.PipelineHandle, mesh renderer.MeshHandle, uniforms *renderer.DrawUniforms) {
 	push := ctx.push
 	push.draw = ctx.frame.Upload(uniforms)
-	ctx.pass.Draw(renderer.DrawCall{Pipeline: ctx.pipeline, Mesh: mesh, Push: push.toAddressArray()})
+	ctx.pass.Draw(renderer.DrawCall{Pipeline: pipeline, Mesh: mesh, Push: push.toAddressArray()})
 }

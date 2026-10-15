@@ -287,6 +287,8 @@ func parseMTL(path string, sceneDir string) ([]Material, error) {
 			material.RoughnessMapPath = texturePath(sceneDir, fields[len(fields)-1])
 		case "map_Pm":
 			material.MetallicMapPath = texturePath(sceneDir, fields[len(fields)-1])
+		case "map_d":
+			material.AlphaMapPath = texturePath(sceneDir, fields[len(fields)-1])
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -414,6 +416,14 @@ func (mesh *Mesh) setup(backend renderer.Backend, textures map[string]*decodedTe
 		if err != nil {
 			return fmt.Errorf("metallic map %s: %w", mat.MetallicMapPath, err)
 		}
+		mat.AlphaMap, mat.AlphaMapSlot, err = loadTexture(backend, textures, mat.AlphaMapPath)
+		if err != nil {
+			return fmt.Errorf("alpha map %s: %w", mat.AlphaMapPath, err)
+		}
+		if mat.AlphaMap != 0 {
+			mat.AlphaChannel = textures[mat.AlphaMapPath].alphaChannel
+			mat.alphaMapTranslucent = textures[mat.AlphaMapPath].translucent
+		}
 	}
 	return nil
 }
@@ -438,39 +448,58 @@ func loadTexture(backend renderer.Backend, textures map[string]*decodedTexture, 
 	return img, int32(backend.Slot(img)), nil
 }
 
-// Draws every face group, writing its model matrix and material fields into uniforms first
+// Draws the opaque fragments of every face group that has some. The rest are
+// RenderTransparent's, drawn sorted after everything opaque and casting no shadow
 func (mesh *Mesh) draw(ctx *drawContext, uniforms *renderer.DrawUniforms) {
 	if mesh.hidden {
 		return
 	}
-	uniforms.Model = mesh.model
 	for i := range mesh.indexGroups {
-		mat := mesh.Materials[i]
-
-		uniforms.MatDiffuse = mat.Diffuse
-		uniforms.MatMetallic = mat.Metallic
-		uniforms.MatRoughness = mat.Roughness
-		uniforms.MatAo = mat.Ao
-		uniforms.TexDiffuse = mat.TextureSlot // 0 is the backend's white pixel
-
-		// Flag normal mapping per face group, the shader falling back to the
-		// interpolated geometric normal without a map
-		uniforms.TexNormalMap = mat.NormalMapSlot
-		uniforms.UseNormalMap = 0
-		if mat.NormalMap != 0 {
-			uniforms.UseNormalMap = 1
+		mat := &mesh.Materials[i]
+		if !mat.opaquePart() {
+			continue
 		}
-		// The shader multiplies map and scalar, so a mapped material's scalar must
-		// be 1, as Blender ignores a socket's own value once a texture drives it
-		uniforms.TexRoughness = mat.RoughnessMapSlot
-		if mat.RoughnessMap != 0 {
-			uniforms.MatRoughness = 1
+		// A group with translucent fragments needs the pipeline whose fragment
+		// stage discards them, which the rest are kept off: a discard costs a
+		// pipeline its early depth test
+		pipeline := ctx.pipeline
+		if mat.translucentPart() {
+			pipeline = ctx.cutout
 		}
-		uniforms.TexMetallic = mat.MetallicMapSlot
-		if mat.MetallicMap != 0 {
-			uniforms.MatMetallic = 1
-		}
-
-		ctx.draw(mesh.meshesPerMaterial[i], uniforms)
+		mesh.drawGroup(ctx, pipeline, uniforms, i)
 	}
+}
+
+// Draws one face group, writing its model matrix and material fields into uniforms first
+func (mesh *Mesh) drawGroup(ctx *drawContext, pipeline renderer.PipelineHandle, uniforms *renderer.DrawUniforms, i int) {
+	mat := &mesh.Materials[i]
+	uniforms.Model = mesh.model
+	uniforms.MatDiffuse = mat.Diffuse
+	uniforms.MatMetallic = mat.Metallic
+	uniforms.MatRoughness = mat.Roughness
+	uniforms.MatAo = mat.Ao
+	uniforms.TexDiffuse = mat.TextureSlot // 0 is the backend's white pixel
+
+	// Flag normal mapping per face group, the shader falling back to the
+	// interpolated geometric normal without a map
+	uniforms.TexNormalMap = mat.NormalMapSlot
+	uniforms.UseNormalMap = 0
+	if mat.NormalMap != 0 {
+		uniforms.UseNormalMap = 1
+	}
+	// The shader multiplies map and scalar, so a mapped material's scalar must
+	// be 1, as Blender ignores a socket's own value once a texture drives it
+	uniforms.TexRoughness = mat.RoughnessMapSlot
+	if mat.RoughnessMap != 0 {
+		uniforms.MatRoughness = 1
+	}
+	uniforms.TexMetallic = mat.MetallicMapSlot
+	if mat.MetallicMap != 0 {
+		uniforms.MatMetallic = 1
+	}
+	uniforms.TexAlpha = mat.AlphaMapSlot
+	uniforms.AlphaChannel = mat.AlphaChannel
+	uniforms.MatAlpha = mat.Alpha
+
+	ctx.draw(pipeline, mesh.meshesPerMaterial[i], uniforms)
 }

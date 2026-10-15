@@ -53,7 +53,7 @@ Two separate paths, and the split is forced:
 ```mermaid
 graph LR
     subgraph BDA["buffer device address"]
-        U["FrameUniforms 4856 B<br/>BakeUniforms 80 B<br/>DrawUniforms 108 B<br/>ShadowTile[] 96 B each"] --> RG["per-frame arena<br/>2 MiB, mapped"]
+        U["FrameUniforms 4856 B<br/>BakeUniforms 80 B<br/>DrawUniforms 120 B<br/>ShadowTile[] 96 B each"] --> RG["per-frame arena<br/>2 MiB, mapped"]
         RG --> PC["push constant<br/>4 × 64-bit address"]
     end
     subgraph DESC["descriptors"]
@@ -73,7 +73,7 @@ A buffer is plain memory, so a shader can read it through a pointer. An image is
 FrameUniforms   4856 bytes   camera + 64 lights + environment + AO  once per frame
 BakeUniforms      80 bytes   the one tile a depth pass is baking    once per tile
 ShadowTile        96 bytes   one shadow tile                        an array, once per frame
-DrawUniforms     108 bytes   model matrix + PBR material            once per draw
+DrawUniforms     120 bytes   model matrix + PBR material            once per draw
 ```
 
 - **Split by update frequency**, so a draw costs one 100-byte memcpy plus a 32-byte push.

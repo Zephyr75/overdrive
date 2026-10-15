@@ -290,6 +290,8 @@ func (app App) Run(loadedScene *scene.Scene, widget func(app App) ui.UIElement, 
 				if loadedScene != nil {
 					loadedScene.RenderSkybox(frame, pass, pipelines, &frameUniforms)
 					loadedScene.RenderScene(frame, pass, pipelines, frameAddr, recordAddr)
+					// After everything opaque, which it blends over, and before the UI
+					loadedScene.RenderTransparent(frame, pass, pipelines, frameAddr, recordAddr)
 				}
 				overlay.draw(frame, pass)
 			})

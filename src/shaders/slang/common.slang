@@ -91,7 +91,7 @@ struct BakeUniforms {
   float farPlane;
 };
 
-// 108 bytes, renderer.DrawUniforms: transform and material, once per draw
+// 120 bytes, renderer.DrawUniforms: transform and material, once per draw
 struct DrawUniforms {
   float4x4 model;
   float3 matDiffuse;
@@ -103,6 +103,9 @@ struct DrawUniforms {
   int useNormalMap;
   int texRoughness;
   int texMetallic;
+  int texAlpha;
+  int alphaChannel;
+  float matAlpha;
 };
 
 // Four addresses in one push constant, in the order scene/pipelines.go fills them
@@ -133,6 +136,7 @@ Sampler2D hotTextures[4];
 #define TEX_NORMAL (textures2D[pushConstants.draw.texNormalMap])
 #define TEX_ROUGHNESS (textures2D[pushConstants.draw.texRoughness])
 #define TEX_METALLIC (textures2D[pushConstants.draw.texMetallic])
+#define TEX_ALPHA (textures2D[pushConstants.draw.texAlpha])
 #define TEX_SKY (textures2D[pushConstants.frame.texSky])
 #define TEX_SPECULAR (textures2D[pushConstants.frame.texSpecular])
 #define TEX_IRRADIANCE (textures2D[pushConstants.frame.texIrradiance])
@@ -163,6 +167,32 @@ float3 envSample(Sampler2D map, float3 d, float lod) {
 float4 toDisplay(float3 color) {
   color = color / (color + float3(1.0));
   return float4(pow(color, float3(1.0 / 2.2)), 1.0);
+}
+
+// At or above this a fragment is opaque, below it blended, and at 0 nothing.
+// Just under 1, as filtering two fully opaque texels can land a hair below it.
+// scene.OpaqueAlpha is the CPU twin
+static const float OPAQUE_ALPHA = 0.99;
+
+// The material's alpha map at a uv, with surface.slang's v flip: 1 without
+// one, slot 0 being the white pixel
+float alphaMap(float2 texCoord) {
+  float4 texel = TEX_ALPHA.Sample(float2(texCoord.x, 1.0 - texCoord.y));
+  return texel[pushConstants.draw.alphaChannel];
+}
+
+// A fragment's alpha: the material's d times its alpha map
+float surfaceAlpha(float2 texCoord) {
+  return pushConstants.draw.matAlpha * alphaMap(texCoord);
+}
+
+// Discards a fragment that is not opaque, which the transparent pass draws
+// instead. Every opaque pass with a discard calls this one function, so they
+// keep the same fragments: the prepass and the forward pass disagreeing would
+// speckle under EQUAL
+void clipAlpha(float2 texCoord) {
+  if (surfaceAlpha(texCoord) < OPAQUE_ALPHA)
+    discard;
 }
 
 // Projections are OpenGL style, clip z in [-w, w]; Vulkan wants [0, w]
