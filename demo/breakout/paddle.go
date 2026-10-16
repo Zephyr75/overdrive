@@ -39,7 +39,7 @@ func (paddle *Paddle) Start(game *gameobject.Game) {
 	paddle.rules = gameobject.Find[*Rules](game)
 	paddle.ball = gameobject.Find[*Ball](game)
 	paddle.body = physics.NewBoxFromMesh(paddle.Mesh)
-	lo, hi := paddle.Mesh.Bounds()
+	lo, hi := paddle.Mesh.LocalBounds()
 	paddle.half = hi.Sub(lo).Mul(0.5)
 	game.Physics().Add(paddle.body)
 	paddle.reset()

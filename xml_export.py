@@ -143,20 +143,37 @@ class OverdriveWriter:
         mtl_name = mesh.name + ".mtl"
         obj_path = os.path.join(self.working_dir, 'meshes', obj_name)
         mesh.select_set(True)
-        # PBR extensions write Pr/Pm and map_Pr, which the engine reads as
-        # roughness and metallic; without them only Kd survives
-        bpy.ops.wm.obj_export(filepath=obj_path, check_existing=False,
-                              export_selected_objects=True, export_smooth_groups=False,
-                              export_materials=True, export_triangulated_mesh=True,
-                              export_pbr_extensions=True, apply_modifiers=True)
+        # The OBJ holds the mesh about its own origin and the TOML its transform,
+        # so the engine knows the rotation and scale rather than finding them
+        # baked into the vertices. World, not parent-relative, as the engine has
+        # no hierarchy: decomposing matrix_world covers a parented object too
+        world = mesh.matrix_world.copy()
+        # A mirror stays in the OBJ, which Blender writes with its faces turned
+        # back out, so the transform the engine builds never flips winding
+        mirror = Matrix.Diagonal((1, 1, -1, 1)) if world.determinant() < 0 else Matrix.Identity(4)
+        mesh.matrix_world = mirror
+        self.context.view_layer.update()
+        try:
+            # PBR extensions write Pr/Pm and map_Pr, which the engine reads as
+            # roughness and metallic; without them only Kd survives
+            bpy.ops.wm.obj_export(filepath=obj_path, check_existing=False,
+                                  export_selected_objects=True, export_smooth_groups=False,
+                                  export_materials=True, export_triangulated_mesh=True,
+                                  export_pbr_extensions=True, apply_modifiers=True)
+        finally:
+            mesh.matrix_world = world
+            self.context.view_layer.update()
         mesh.select_set(False)
         self.warn_grouped_materials(mesh)
         self.localise_mtl(os.path.join(self.working_dir, 'meshes', mtl_name))
 
+        # The mirror undone, so what is left has a positive scale on every axis
+        location, rotation, scale = (world @ mirror).decompose()
         entry = {
             "name": mesh.name,
-            "position": mesh.location,
-            "rotation": [self.degrees(a) for a in mesh.rotation_euler],
+            "position": location,
+            "rotation": [self.degrees(a) for a in rotation.to_euler('XYZ')],
+            "scale": scale,
             "obj": obj_name,
             "mtl": mtl_name,
         }

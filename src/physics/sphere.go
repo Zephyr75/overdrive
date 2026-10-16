@@ -38,11 +38,13 @@ func NewSphere(pos mgl32.Vec3, radius float32) *Sphere {
 }
 
 // Fits a movable sphere to a mesh, which then follows it: centred on the
-// mesh's Position, its radius half the largest side of the mesh's bounds
+// mesh's Position, its radius half the largest side of the mesh's own bounds
+// once scaled, which no rotation changes
 func NewSphereFromMesh(mesh *scene.Mesh) *Sphere {
-	lo, hi := mesh.Bounds()
-	size := hi.Sub(lo)
-	sphere := NewSphere(mesh.Position, max(size[0], size[1], size[2])/2)
+	lo, hi := mesh.LocalBounds()
+	size, scale := hi.Sub(lo), mesh.Scale
+	sides := mgl32.Vec3{size[0] * mgl32.Abs(scale[0]), size[1] * mgl32.Abs(scale[1]), size[2] * mgl32.Abs(scale[2])}
+	sphere := NewSphere(mesh.Position, max(sides[0], sides[1], sides[2])/2)
 	sphere.attach(mesh)
 	return sphere
 }

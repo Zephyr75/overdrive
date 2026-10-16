@@ -14,9 +14,10 @@ type Plane struct {
 	CrossHalf float32    // half-extent along CrossAxis
 }
 
-// Fits a fixed plane collider to a mesh's first quad
+// Fits a fixed plane collider to a mesh's first quad, where the mesh stands
 func NewPlaneFromMesh(mesh *scene.Mesh) *Plane {
-	plane := NewPlane(mesh.Vertices[0], mesh.Vertices[1], mesh.Vertices[3], mesh.Vertices[2])
+	corner := func(i int) mgl32.Vec3 { return mesh.ToWorld(mesh.Vertices[i]) }
+	plane := NewPlane(corner(0), corner(1), corner(3), corner(2))
 	plane.attach(mesh)
 	return plane
 }

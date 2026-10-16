@@ -28,15 +28,17 @@ Each of these renders or simulates something wrong with nothing logged, which is
 
 ### 2. Transforms and Blender export
 
-Today the OBJ is exported in world space, `rotation` is written but ignored (`MeshToml.Rotation`), scale is not exported, and `Mesh.Place` turns the world-space vertices about `initialPosition`. This is the biggest ease-of-use item: it is what makes "place it in Blender, move it in Go" work for any object, rather than only for ones built about the origin like breakout's.
+The OBJ is in local space and the scene file carries the transform, so `Mesh.Rotation` is the absolute orientation a script can set, scale exists at runtime, and every mesh has both coordinate systems.
 
-- [ ] Export each OBJ in **local space** (no object transform applied) and write position, rotation and scale to the scene file
-- [~] A model matrix from position/rotation/scale in `DrawUniforms.Model`: position and rotation done (`Mesh.Place`), scale and reading the exported transform at load still to come; then `initialPosition` goes
+- [x] Export each OBJ in **local space** and write position, rotation and scale to the scene file: `write_mesh` exports with `matrix_world` set to identity (a mirror kept in the OBJ) and writes `matrix_world` decomposed, so parenting is flattened
+- [x] A model matrix from position/rotation/scale in `DrawUniforms.Model`, read at load (`MeshToml.assemble`), changed by `Mesh.Place` and `Mesh.SetScale`; `initialPosition` is gone
 - [x] Moves update the matrix only, no vertex re-upload (`Mesh.Place`)
-- [~] Shadows with the transformed bounds: `boundsCenter` already follows `Place`, so culling and dirtying are right under move and rotation. `boundsRadius` must scale with the largest scale axis once scale exists
-- [ ] Check the normal matrix (`inverse3` in `surface.slang`'s `vsMain`) under rotation and non-uniform scale
+- [x] Shadows with the transformed bounds: `updateModel` derives `boundsCenter` and `boundsRadius` (times the largest scale axis) from the local sphere
+- [x] Both coordinate systems on a mesh: `ToWorld`, `ToLocal`, `NormalToWorld`, `WorldVertices`, `LocalBounds`, `WorldBounds`. Round trip checked to 2e-6, a stretched face's normal stays square to its edges
+- [x] The normal matrix (`transpose(inverse3(model))` in `surface.slang`) under rotation and non-uniform scale: the showcase's Plank (scale 0.50 × 0.25 × 0.018, mirrored in Blender) renders as it did baked
+- [ ] Share one OBJ between copies of a mesh: in local space Suzanne and its three copies hold the same geometry, 23 MB written four times
 - [ ] Export `movable` from Blender (a custom property): the exporter writes only `castsShadow`, which is why breakout's TOML is written by hand
-- [ ] Re-export `showcase.toml` and `stress.toml`, and compare with `-screenshot` before and after
+- [~] Re-export `showcase.toml` and compare with `-screenshot`: done into a scratch folder, 4037 edge pixels differ by at most 16/255 against the baked OBJs drawn with an identity matrix. The files in `assets/showcase/` and breakout's copy of `Football.obj` are still the world-space ones, which the engine now transforms a second time, until re-exported
 
 ### 3. Physics a game can rely on
 
@@ -44,7 +46,7 @@ Today the OBJ is exported in world space, `rotation` is written but ignored (`Me
 - [x] Contacts reported to the game (`World.Contacts`, `ContactsOf`), bodies removable (`World.Remove`), velocity in m/s (`Velocity`, `SetVelocity`, `Teleport`), step rate on the world (`World.Rate`)
 - [x] Box colliders, oriented and fitted from face normals (`NewBoxFromMesh`)
   - [ ] **Only fixed**: `Box.Collide` does nothing, so only a sphere responds to contacts. A crate that falls needs box–box and box–plane, and a box that can rotate needs an inertia tensor
-- [ ] Colliders from the mesh's transform once transforms land (section 2): `NewBoxFromMesh` reads raw vertices, which is only right while the OBJ is in world space
+- [x] Colliders from the mesh's transform: `NewBoxFromMesh` fits the world vertices and normals, `NewPlaneFromMesh` the world corners, `NewSphereFromMesh` the scaled local bounds
 - [ ] Mark a mesh's collider type and fixed/dynamic in Blender, exported to the scene file, so `createWorld`-style code becomes one call over the scene
 - [ ] Simple queries a game asks constantly: a ray cast (what is under the cursor, line of sight, is the player grounded) and an overlap test (trigger volumes)
 - [ ] Verlet distance constraints

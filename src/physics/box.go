@@ -14,7 +14,8 @@ type Box struct {
 	Half [3]float32
 }
 
-// Fits a fixed box to a cuboid mesh, any orientation: only a sphere responds to contacts
+// Fits a fixed box to a cuboid mesh where it stands, any orientation: only a
+// sphere responds to contacts
 //
 // The axes come from the face normals rather than from edges: a box exported
 // from Blender has exactly three normal directions, while picking edges from a
@@ -26,7 +27,7 @@ func NewBoxFromMesh(mesh *scene.Mesh) *Box {
 		if count == 3 {
 			break
 		}
-		normal = normal.Normalize()
+		normal = mesh.NormalToWorld(normal)
 		parallel := false
 		for _, axis := range axes[:count] {
 			if math.Abs(float64(normal.Dot(axis))) > 0.99 {
@@ -45,11 +46,12 @@ func NewBoxFromMesh(mesh *scene.Mesh) *Box {
 	}
 
 	// Extents and centre from the vertices projected on each axis
+	vertices := mesh.WorldVertices()
 	var centre mgl32.Vec3
 	var half [3]float32
 	for i, axis := range axes {
 		lo, hi := float32(math.Inf(1)), float32(math.Inf(-1))
-		for _, vertex := range mesh.Vertices {
+		for _, vertex := range vertices {
 			d := vertex.Dot(axis)
 			lo, hi = min(lo, d), max(hi, d)
 		}

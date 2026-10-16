@@ -183,7 +183,8 @@ rotation = 0.0                # degrees about the vertical axis
 [[mesh]]
 name = "Ground"
 position = [0.0, 0.0, 0.0]
-rotation = [0.0, 0.0, 0.0]    # degrees; unread, the OBJ being in world space
+rotation = [0.0, 0.0, 0.0]    # degrees, Blender's Euler XYZ
+scale = [1.0, 1.0, 1.0]       # optional, default 1
 obj = "DemoGround.obj"
 mtl = "DemoGround.mtl"        # optional: defaults to the .obj basename
 # Optional, default true. False keeps the mesh out of the shadow bake, which a
@@ -209,7 +210,7 @@ Blender (x, y, z)  →  Overdrive (x, z, -y)
 ```
 
 - The camera's `front` is rebuilt from `yaw`/`pitch`, never read; `up` is world up.
-- **Static geometry is baked** into the OBJ in world space and drawn with an identity model matrix until something moves it, so `position` matters only for meshes physics moves: it is the point their model matrix turns them about.
+- **Every OBJ is in local space**, the mesh about its own origin, and `position`, `rotation` and `scale` are its world transform, Blender's `matrix_world` decomposed (so a parented object lands right; the engine has no hierarchy). `Mesh.Position`, `Rotation` and `Scale` hold it, absolute rather than relative to load, and `model` is `translate · rotate · scale`. A Blender mirror (negative determinant) stays in the OBJ, where Blender turns the faces back out, and the scale written is positive: a mirroring model matrix would turn faces inside out to the culling. `Mesh.Vertices` stay local; `ToWorld`, `ToLocal`, `NormalToWorld`, `WorldVertices`, `LocalBounds` and `WorldBounds` convert, computed from `model` on demand rather than stored, so they never go stale after a move. Rotations map axis by axis like positions: Blender's X, Y, Z turn about the engine's x, −z, y, composed Z·Y·X.
 
 ### Physics
 
@@ -245,7 +246,7 @@ Verlet stores the previous position instead of a velocity: stable and easy to co
 
 - **Contacts** (`Sphere.resolve`, called by every collision routine with the normal and the depth). The velocity is taken before the push out and `PrevPos` rebuilt behind the new position, or Verlet would read the push as speed. The speed into the surface is reflected, scaled by `Restitution`; a rebound under 5 mm a step is dropped so a resting ball does not hop. Friction then cancels the contact point's slip, the correction shared between speed and `Spin` by `Inertia` (2/3 for a thin shell like a football, 2/5 solid) and capped by `Friction` times the normal impulse: on a slope this alone gives the rolling acceleration g sin θ / (1 + Inertia). `RollingResistance` finally slows speed and spin in proportion, so the ball stays rolling as it stops.
 - **Boxes** (`physics.Box`, `NewBoxFromMesh`) take their axes from the mesh's face normals, not its edges: from a corner of a thin plank a face diagonal is shorter than the long edge. Sphere against box pushes out from the closest point on the box, which covers faces, edges and corners, so a ball rolls off the end of a plank; a centre already inside leaves by the nearest face.
-- **Meshes follow** through `Mesh.Place`, position and rotation together, called by `World.PlaceMeshes` once a frame (not once a step: only the last step is drawn) for every movable body with a mesh, and skipped when the mesh is already there. Place only sets the mesh's model matrix, `translate(dest) · rotate · translate(−initialPosition)`, since the OBJ's vertices are in world space; the vertices are uploaded once at load, so a move costs the same for 12 triangles as for 63k. Every pass, the prepass and the shadow bakes included, sends that matrix in `DrawUniforms.Model`; a mesh never moved keeps the identity, so static geometry renders exactly as exported. `Scene.UpdateMeshes` records the moved meshes for the shadow cache, which re-bakes their dynamic tiles.
+- **Meshes follow** through `Mesh.Place`, position and rotation together, called by `World.PlaceMeshes` once a frame (not once a step: only the last step is drawn) for every movable body with a mesh, and skipped when the mesh is already there. Place only sets the mesh's model matrix, `translate(dest) · rotate · scale`, the rotation replacing the mesh's rather than adding to it; the vertices are uploaded once at load, so a move costs the same for 12 triangles as for 63k. Every pass, the prepass and the shadow bakes included, sends that matrix in `DrawUniforms.Model`. A body takes its mesh's rotation as its `Orientation` when attached and keeps the mesh's pivot as an offset in its own axes, so spinning it turns the mesh about its pivot. `Scene.UpdateMeshes` records the moved meshes for the shadow cache, which re-bakes their dynamic tiles.
 - **The showcase** (`main.go` `createWorld`): `Floor`, `Plank` and `Wall` are fixed boxes; `Football` is a sphere with `Restitution` 0.4, `Friction` 0.5, `Inertia` 2/3 and `RollingResistance` 0.05. Once physics starts it drops 4 cm onto the plank, rolls down it at 2.5 m/s², and stops on the floor about 1.25 m from the plank 2.8 s later. Suzanne has no collider.
 
 ## 8. Configuration and quality tiers

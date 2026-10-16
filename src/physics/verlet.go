@@ -26,12 +26,14 @@ type Verlet struct {
 	Mass float32
 	// Angular velocity in radians per step, the axis scaled by the angle, as Pos - PrevPos is velocity per step
 	Spin mgl32.Vec3
-	// Turned by Spin each step, for the mesh only: no collision reads it
+	// The whole orientation, the mesh's when attached; turned by Spin each step,
+	// for the mesh only: no collision reads it
 	Orientation mgl32.Quat
 	// Placed where the body is after every step; nil for a body nothing draws
 	Mesh *scene.Mesh
 
-	// Mesh.Position less Pos at creation: a box's centre is not its mesh's pivot
+	// Mesh.Position less Pos at creation, in the body's own axes: a box's
+	// centre is not its mesh's pivot
 	meshOffset mgl32.Vec3
 	// Where the mesh was last placed, so a body that has not moved never calls
 	// Place, which would dirty its shadow tiles
@@ -45,10 +47,12 @@ func NewVerlet(pos mgl32.Vec3) Verlet {
 		placedPos: pos, placedRot: mgl32.QuatIdent()}
 }
 
-// Attaches the mesh the body moves, keeping the offset between the body's centre and the mesh's pivot
+// Attaches the mesh the body moves: the body takes the mesh's orientation, and
+// keeps the offset between its centre and the mesh's pivot in its own axes
 func (verlet *Verlet) attach(mesh *scene.Mesh) {
 	verlet.Mesh = mesh
-	verlet.meshOffset = mesh.Position.Sub(verlet.Pos)
+	verlet.Orientation, verlet.placedRot = mesh.Rotation, mesh.Rotation
+	verlet.meshOffset = mesh.Rotation.Inverse().Rotate(mesh.Position.Sub(verlet.Pos))
 }
 
 // How much of a shared push or impulse this body takes: none when fixed

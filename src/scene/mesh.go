@@ -15,12 +15,15 @@ import (
 )
 
 type MeshToml struct {
-	Name     string     `toml:"name"`
+	Name string `toml:"name"`
+	// Where the OBJ's origin goes in the world, in Blender's z-up axes
 	Position mgl32.Vec3 `toml:"position"`
-	// Degrees, Blender's Euler XYZ; unread, since the OBJ is exported in world space
+	// Degrees, Blender's Euler XYZ
 	Rotation mgl32.Vec3 `toml:"rotation"`
-	Obj      string     `toml:"obj"`
-	Mtl      string     `toml:"mtl"`
+	// Along Blender's axes; absent reads as 1 rather than as a zero scale
+	Scale mgl32.Vec3 `toml:"scale"`
+	Obj   string     `toml:"obj"`
+	Mtl   string     `toml:"mtl"`
 	// A pointer so an absent key is distinguishable from an explicit false,
 	// which is what lets the default be true
 	CastsShadow *bool `toml:"castsShadow"`
@@ -29,15 +32,20 @@ type MeshToml struct {
 }
 
 type Mesh struct {
-	Name          string
+	Name string
+	// As the OBJ holds them, about the mesh's own origin and in its own axes:
+	// ToWorld and WorldVertices give them where the mesh stands
 	Vertices      []mgl32.Vec3
 	NormalCoords  []mgl32.Vec3
 	TextureCoords []mgl32.Vec2
 	Faces         [][]uint32 // one []uint32 per material group, pos/tex/norm indices interleaved in threes
 	Materials     []Material
-	Position      mgl32.Vec3
-	// Turn about Position since load, carried by model like a move
+	// Where the mesh's origin is in the world, which Place changes
+	Position mgl32.Vec3
+	// The whole orientation in the world, the scene's at load, which Place replaces
 	Rotation mgl32.Quat
+	// Along the mesh's own axes, before Rotation, which SetScale changes
+	Scale mgl32.Vec3
 	// Whether the shadow bake draws this mesh, default true; false is for a
 	// receiver that would contribute nothing but its own acne
 	CastsShadow bool
@@ -45,19 +53,18 @@ type Mesh struct {
 	// static one; Place also sets it
 	Movable bool
 
-	// Takes the vertices from where the OBJ put them to where Place did:
-	// identity for a mesh that never moved, so static geometry is drawn exactly
-	// as exported
+	// Position, Rotation and Scale as one matrix, local to world
 	model mgl32.Mat4
 
-	// World-space bounding sphere, its centre carried by model so it follows a move
+	// World-space bounding sphere, derived from the local one by updateModel
 	//
 	// prevCenter is where it was before: a caster leaving a light's range has to
 	// dirty the tile it left, which its new centre alone would not say
 	boundsCenter, prevCenter mgl32.Vec3
 	boundsRadius             float32
-	// boundsCenter at load, which model carries to the current one
-	loadCenter mgl32.Vec3
+	// The bounding sphere about the local vertices, which never changes
+	localCenter mgl32.Vec3
+	localRadius float32
 
 	vertexData  []float32  // Faces flattened by fillVertices into pos/normal/uv triples, interleaved
 	indexGroups [][]uint32 // one index list per material group, indexing into vertexData
@@ -70,8 +77,6 @@ type Mesh struct {
 	staticChanged bool
 	// Skipped by every draw and every bake, SetVisible being the only writer
 	hidden bool
-
-	initialPosition mgl32.Vec3 // Position at load, where the OBJ's world-space vertices sit
 }
 
 // Offsets the mesh and rebuilds its vertex data for the next upload
@@ -84,23 +89,83 @@ type Mesh struct {
 // 	mesh.needsUpdate = true
 // }
 
-// Moves and turns the mesh, rotation being about its own Position
+// Moves the mesh's origin to dest and sets its whole orientation, turning it
+// about that origin: rotation replaces the one it had rather than adding to it
 //
 // Only the model matrix changes: the vertices stay as uploaded, so a move costs
 // no rebuild and no upload whatever the triangle count
 func (mesh *Mesh) Place(dest mgl32.Vec3, rotation mgl32.Quat) {
+	mesh.markMoved()
+	mesh.Position = dest
+	mesh.Rotation = rotation
+	mesh.updateModel()
+}
+
+// Sets the scale along the mesh's own axes, about its origin
+//
+// A negative axis mirrors the mesh, which turns its faces inside out to the
+// culling: the exporter keeps a Blender mirror in the OBJ for that reason
+func (mesh *Mesh) SetScale(scale mgl32.Vec3) {
+	mesh.markMoved()
+	mesh.Scale = scale
+	mesh.updateModel()
+}
+
+// Flags a change of transform for the shadow atlases
+func (mesh *Mesh) markMoved() {
 	// Leaving the static atlas, where it is still baked at its old place
 	if !mesh.Movable {
 		mesh.staticChanged = true
 	}
 	mesh.Movable = true
-	mesh.Position = dest
-	mesh.Rotation = rotation
-	// Back from where the OBJ put the mesh to the origin, turned, then out to dest
-	toOrigin := mgl32.Translate3D(-mesh.initialPosition[0], -mesh.initialPosition[1], -mesh.initialPosition[2])
-	mesh.model = mgl32.Translate3D(dest[0], dest[1], dest[2]).Mul4(rotation.Mat4()).Mul4(toOrigin)
-	mesh.boundsCenter = mesh.model.Mul4x1(mesh.loadCenter.Vec4(1)).Vec3()
 	mesh.moved = true
+}
+
+// Rebuilds model and the world bounding sphere from Position, Rotation and Scale
+func (mesh *Mesh) updateModel() {
+	p, s := mesh.Position, mesh.Scale
+	mesh.model = mgl32.Translate3D(p[0], p[1], p[2]).Mul4(mesh.Rotation.Mat4()).Mul4(mgl32.Scale3D(s[0], s[1], s[2]))
+	mesh.boundsCenter = mesh.ToWorld(mesh.localCenter)
+	mesh.boundsRadius = mesh.localRadius * max(mgl32.Abs(s[0]), mgl32.Abs(s[1]), mgl32.Abs(s[2]))
+}
+
+// A point from the mesh's own space to the world, where it stands now
+func (mesh *Mesh) ToWorld(point mgl32.Vec3) mgl32.Vec3 {
+	return mesh.model.Mul4x1(point.Vec4(1)).Vec3()
+}
+
+// A point from the world to the mesh's own space, undoing ToWorld
+func (mesh *Mesh) ToLocal(point mgl32.Vec3) mgl32.Vec3 {
+	local := mesh.Rotation.Inverse().Rotate(point.Sub(mesh.Position))
+	return mgl32.Vec3{local[0] / mesh.Scale[0], local[1] / mesh.Scale[1], local[2] / mesh.Scale[2]}
+}
+
+// A normal from the mesh's own space to the world, unit length: turned like a
+// point but scaled by the inverse, so it stays square to a stretched face
+func (mesh *Mesh) NormalToWorld(normal mgl32.Vec3) mgl32.Vec3 {
+	s := mesh.Scale
+	return mesh.Rotation.Rotate(mgl32.Vec3{normal[0] / s[0], normal[1] / s[1], normal[2] / s[2]}).Normalize()
+}
+
+// The way the mesh faces, unit length: local +Z, which is Blender's -Y, the
+// side its Front view sees, so a model facing the viewer there faces forward here
+func (mesh *Mesh) Forward() mgl32.Vec3 { return mesh.Rotation.Rotate(mgl32.Vec3{0, 0, 1}) }
+
+// Local +Y, Blender's +Z, unit length
+func (mesh *Mesh) Up() mgl32.Vec3 { return mesh.Rotation.Rotate(mgl32.Vec3{0, 1, 0}) }
+
+// The mesh's own right hand, unit length: local -X, as +Z forward and +Y up in
+// a right-handed frame put +X on its left
+func (mesh *Mesh) Right() mgl32.Vec3 { return mesh.Rotation.Rotate(mgl32.Vec3{-1, 0, 0}) }
+
+// Every vertex where the mesh stands now, as a new slice: for what is built
+// once from the geometry, such as a collider, as Place leaves Vertices alone
+func (mesh *Mesh) WorldVertices() []mgl32.Vec3 {
+	world := make([]mgl32.Vec3, len(mesh.Vertices))
+	for i, vertex := range mesh.Vertices {
+		world[i] = mesh.ToWorld(vertex)
+	}
+	return world
 }
 
 // Shows or hides the mesh in every pass, its shadow included, from the next frame
@@ -119,16 +184,28 @@ func (mesh *Mesh) SetVisible(visible bool) {
 // Whether the mesh is drawn, true unless SetVisible hid it
 func (mesh *Mesh) Visible() bool { return !mesh.hidden }
 
-// The corners of the box around the vertices as loaded, before any Place
-func (mesh *Mesh) Bounds() (lo, hi mgl32.Vec3) {
-	if len(mesh.Vertices) == 0 {
+// The corners of the box around the vertices in the mesh's own space: its
+// size whatever its transform
+func (mesh *Mesh) LocalBounds() (lo, hi mgl32.Vec3) {
+	return boxAround(mesh.Vertices)
+}
+
+// The corners of the box around the vertices where the mesh stands now,
+// square to the world's axes, so a turned mesh gets a larger box
+func (mesh *Mesh) WorldBounds() (lo, hi mgl32.Vec3) {
+	return boxAround(mesh.WorldVertices())
+}
+
+// The corners of the axis-aligned box around some points, zero for none
+func boxAround(points []mgl32.Vec3) (lo, hi mgl32.Vec3) {
+	if len(points) == 0 {
 		return lo, hi
 	}
-	lo, hi = mesh.Vertices[0], mesh.Vertices[0]
-	for _, v := range mesh.Vertices {
+	lo, hi = points[0], points[0]
+	for _, p := range points {
 		for k := range 3 {
-			lo[k] = min(lo[k], v[k])
-			hi[k] = max(hi[k], v[k])
+			lo[k] = min(lo[k], p[k])
+			hi[k] = max(hi[k], p[k])
 		}
 	}
 	return lo, hi
@@ -300,25 +377,36 @@ func parseMTL(path string, sceneDir string) ([]Material, error) {
 }
 
 // Builds the mesh from the two parsed halves and the entry's own fields
+//
+// Blender's (x, y, z) is the engine's (x, z, -y), as the OBJ exporter writes
+// it: positions map that way, scales by swapping y and z, and each Euler angle
+// turns about its axis mapped the same way
 func (entry MeshToml) assemble(obj objData, materials []Material) Mesh {
-	pos := mgl32.Vec3{entry.Position[0], entry.Position[2], -entry.Position[1]}
+	scale := entry.Scale
+	if scale == (mgl32.Vec3{}) {
+		scale = mgl32.Vec3{1, 1, 1}
+	}
+	angles := entry.Rotation
+	turnX := mgl32.QuatRotate(mgl32.DegToRad(angles[0]), mgl32.Vec3{1, 0, 0})
+	turnY := mgl32.QuatRotate(mgl32.DegToRad(angles[1]), mgl32.Vec3{0, 0, -1})
+	turnZ := mgl32.QuatRotate(mgl32.DegToRad(angles[2]), mgl32.Vec3{0, 1, 0})
 
 	mesh := Mesh{
-		Name:            entry.Name,
-		Vertices:        obj.positions,
-		NormalCoords:    obj.normalCoords,
-		TextureCoords:   obj.textureCoords,
-		Faces:           obj.faces,
-		Materials:       materials,
-		Position:        pos,
-		Rotation:        mgl32.QuatIdent(),
-		model:           mgl32.Ident4(),
-		initialPosition: pos,
-		CastsShadow:     entry.CastsShadow == nil || *entry.CastsShadow,
-		Movable:         entry.Movable != nil && *entry.Movable,
+		Name:          entry.Name,
+		Vertices:      obj.positions,
+		NormalCoords:  obj.normalCoords,
+		TextureCoords: obj.textureCoords,
+		Faces:         obj.faces,
+		Materials:     materials,
+		Position:      mgl32.Vec3{entry.Position[0], entry.Position[2], -entry.Position[1]},
+		// XYZ turns about X first, so X is the rightmost factor
+		Rotation:    turnZ.Mul(turnY).Mul(turnX),
+		Scale:       mgl32.Vec3{scale[0], scale[2], scale[1]},
+		CastsShadow: entry.CastsShadow == nil || *entry.CastsShadow,
+		Movable:     entry.Movable != nil && *entry.Movable,
 	}
 	mesh.fillVertices()
-	mesh.loadCenter = mesh.boundsCenter
+	mesh.updateModel()
 	mesh.prevCenter = mesh.boundsCenter
 	return mesh
 }
@@ -377,8 +465,8 @@ func (mesh *Mesh) fillVertices() {
 	// The AABB's bounding sphere, not a tight one: this culls casters against a
 	// light's radius and a tile's frustum, where over-including is only a wasted
 	// draw and under-including is a missing shadow
-	mesh.boundsCenter = lo.Add(hi).Mul(0.5)
-	mesh.boundsRadius = hi.Sub(lo).Len() * 0.5
+	mesh.localCenter = lo.Add(hi).Mul(0.5)
+	mesh.localRadius = hi.Sub(lo).Len() * 0.5
 }
 
 // Uploads the mesh's vertex buffer, one mesh handle per face group, and its material textures

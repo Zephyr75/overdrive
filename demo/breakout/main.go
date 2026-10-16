@@ -82,11 +82,11 @@ func load(level *scene.Scene, bodies *physics.World, objects *gameobject.Game, r
 		bodies.Add(physics.NewBoxFromMesh(meshes[name]))
 	}
 	// The walls' inner faces, which bound the paddle and space the bricks
-	_, hi := meshes["WallLeft"].Bounds()
+	_, hi := meshes["WallLeft"].WorldBounds()
 	minX := hi[0]
-	lo, _ := meshes["WallRight"].Bounds()
+	lo, _ := meshes["WallRight"].WorldBounds()
 	maxX := lo[0]
-	_, hi = meshes["WallBack"].Bounds()
+	_, hi = meshes["WallBack"].WorldBounds()
 	minZ := hi[2]
 
 	// In file order, six to a row from the back
@@ -99,7 +99,7 @@ func load(level *scene.Scene, bodies *physics.World, objects *gameobject.Game, r
 	if len(bricks) == 0 {
 		return fmt.Errorf("the scene has no Brick.* meshes")
 	}
-	lo, hi = bricks[0].Mesh.Bounds()
+	lo, hi = bricks[0].Mesh.LocalBounds()
 	brickHalf := hi.Sub(lo).Mul(0.5)
 	rows := (len(bricks) + columns - 1) / columns
 	pitchX := (maxX - minX) / columns
